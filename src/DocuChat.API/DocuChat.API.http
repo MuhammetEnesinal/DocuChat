@@ -1,0 +1,6 @@
+@DocuChat.API_HostAddress = http://localhost:5025
+
+GET {{DocuChat.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

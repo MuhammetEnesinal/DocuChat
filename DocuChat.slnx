@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DocuChat.API/DocuChat.API.csproj" />
+    <Project Path="src/DocuChat.Application/DocuChat.Application.csproj" />
+    <Project Path="src/DocuChat.Domain/DocuChat.Domain.csproj" />
+    <Project Path="src/DocuChat.Infrastructure/DocuChat.Infrastructure.csproj" />
+  </Folder>
+</Solution>
