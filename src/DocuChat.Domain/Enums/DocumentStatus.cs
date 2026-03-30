@@ -1,16 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿namespace DocuChat.Domain.Enums;
 
-namespace DocuChat.Domain.Enums
+public enum DocumentStatus
 {
-    public enum DocumentStatus
-    {
-        Pending,
-        Processing,
-        Ready,
-        Failed
-    }
+    Pending = 0,   // yüklendi, bekliyor
+    Processing = 1,   // parse + embed sürüyor
+    Ready = 2,   // soru sorulmaya hazır
+    Failed = 3    // hata oluştu, ErrorMessage dolu
 }
