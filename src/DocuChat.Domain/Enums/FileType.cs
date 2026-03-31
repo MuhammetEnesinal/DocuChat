@@ -2,9 +2,9 @@
 
 public enum FileType
 {
-    Pdf = 0,   // PdfPig
-    Docx = 1,   // DocumentFormat.OpenXml
-    Xlsx = 2,   // ClosedXML
-    Txt = 3,   // StreamReader
-    Csv = 4    // CsvHelper
+    Pdf = 0,
+    Docx = 1,
+    Xlsx = 2,
+    Txt = 3,
+    Csv = 4
 }

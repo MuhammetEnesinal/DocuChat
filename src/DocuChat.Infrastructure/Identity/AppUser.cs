@@ -1,21 +1,9 @@
-﻿using DocuChat.Domain.Entities;
-using Microsoft.AspNetCore.Identity;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using Microsoft.AspNetCore.Identity;
 
-namespace DocuChat.Infrastructure.Identity
+namespace DocuChat.Infrastructure.Identity;
+
+public class AppUser : IdentityUser
 {
-    public class AppUser : IdentityUser
-    {
-        // --- Scalar properties ---
-        public string? FullName { get; set; }
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-
-        // --- Navigation properties ---
-        public List<Document> Documents { get; set; } = new();     
-        public List<ChatSession> Sessions { get; set; } = new();   
-    }
+    public string? FullName { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

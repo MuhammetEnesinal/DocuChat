@@ -2,12 +2,10 @@
 
 public class DocumentChunk : BaseEntity
 {
-    public Guid DocumentId { get; set; }         
+    public Guid DocumentId { get; set; }
     public string Content { get; set; } = string.Empty;
     public int ChunkIndex { get; set; }
-    // EF Core config: .HasColumnType("vector(1536)")
-    public float[] Embedding { get; set; } = Array.Empty<float>();
+    public float[] Embedding { get; set; } = Array.Empty<float>(); // vector(1536)
 
-    // Navigation
     public Document? Document { get; set; }
 }

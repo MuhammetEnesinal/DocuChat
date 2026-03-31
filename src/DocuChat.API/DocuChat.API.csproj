@@ -14,10 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DocuChat.Application\DocuChat.Application.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Controllers\" />
+    <ProjectReference Include="..\DocuChat.Infrastructure\DocuChat.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

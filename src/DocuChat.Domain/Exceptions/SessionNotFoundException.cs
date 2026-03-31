@@ -2,7 +2,6 @@
 
 public class SessionNotFoundException : DomainException
 {
-    public SessionNotFoundException(Guid sessionId)
-        : base("SESSION_NOT_FOUND", $"Sohbet oturumu bulunamadı. Id: {sessionId}")
-    { }
+    public SessionNotFoundException(Guid id)
+        : base("SESSION_NOT_FOUND", $"Oturum bulunamadı. Id: {id}") { }
 }

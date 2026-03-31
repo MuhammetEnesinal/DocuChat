@@ -1,7 +1,7 @@
 ﻿using System.Linq.Expressions;
 using DocuChat.Domain.Entities;
 
-namespace DocuChat.Domain.Interfaces.Repositories;
+namespace DocuChat.Application.Interfaces.Repositories;
 
 public interface IRepository<T> where T : BaseEntity
 {

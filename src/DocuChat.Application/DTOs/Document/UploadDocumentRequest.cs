@@ -1,6 +1,6 @@
 ﻿namespace DocuChat.Application.DTOs.Document;
 
-public record UploadDocumentRequestDto(
+public record UploadDocumentRequest(
     string FileName,
     string ContentType,
     long FileSizeBytes,

@@ -1,9 +1,9 @@
-﻿using DocuChat.Application.DTOs.Chat;
-using FluentValidation;
+﻿using FluentValidation;
+using DocuChat.Application.DTOs.Chat;
 
 namespace DocuChat.Application.Validators;
 
-public class AskRequestValidator : AbstractValidator<AskRequestDto>
+public class AskRequestValidator : AbstractValidator<AskRequest>
 {
     public AskRequestValidator()
     {
@@ -12,7 +12,6 @@ public class AskRequestValidator : AbstractValidator<AskRequestDto>
 
         RuleFor(x => x.Question)
             .NotEmpty().WithMessage("Soru boş olamaz.")
-            .MinimumLength(3).WithMessage("Soru en az 3 karakter olmalıdır.")
-            .MaximumLength(2000).WithMessage("Soru 2000 karakteri geçemez.");
+            .MaximumLength(2000).WithMessage("Soru en fazla 2000 karakter olabilir.");
     }
 }

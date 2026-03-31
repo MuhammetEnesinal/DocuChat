@@ -1,6 +1,6 @@
 ﻿namespace DocuChat.Application.DTOs.Chat;
 
-public record ChatSessionDto(
+public record ChatSessionResponseDto(
     Guid Id,
     Guid DocumentId,
     string DocumentName,

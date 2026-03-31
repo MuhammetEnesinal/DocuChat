@@ -1,6 +1,6 @@
 ﻿using DocuChat.Domain.Entities;
 
-namespace DocuChat.Domain.Interfaces.Repositories;
+namespace DocuChat.Application.Interfaces.Repositories;
 
 public interface IChatSessionRepository : IRepository<ChatSession>
 {

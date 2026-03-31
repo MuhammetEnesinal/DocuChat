@@ -2,7 +2,6 @@
 
 public class DocumentNotFoundException : DomainException
 {
-    public DocumentNotFoundException(Guid documentId)
-        : base("DOCUMENT_NOT_FOUND", $"Belge bulunamadı. Id: {documentId}")
-    { }
+    public DocumentNotFoundException(Guid id)
+        : base("DOCUMENT_NOT_FOUND", $"Belge bulunamadı. Id: {id}") { }
 }
