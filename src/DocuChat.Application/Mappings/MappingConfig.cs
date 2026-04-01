@@ -18,9 +18,8 @@ public static class MappingConfig
             .NewConfig()
             .Map(dest => dest.Role, src => src.Role.ToString());
 
+        // ChatSession artık Document'a bağlı değil
         TypeAdapterConfig<ChatSession, ChatSessionResponseDto>
-            .NewConfig()
-            .Map(dest => dest.DocumentName,
-                 src => src.Document != null ? src.Document.FileName : string.Empty);
+            .NewConfig();
     }
 }

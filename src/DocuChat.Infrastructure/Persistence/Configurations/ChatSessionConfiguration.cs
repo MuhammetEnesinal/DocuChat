@@ -19,9 +19,6 @@ public class ChatSessionConfiguration : IEntityTypeConfiguration<ChatSession>
                .HasForeignKey(s => s.UserId)
                .OnDelete(DeleteBehavior.Cascade);
 
-        builder.HasOne(s => s.Document)
-               .WithMany(d => d.Sessions)
-               .HasForeignKey(s => s.DocumentId)
-               .OnDelete(DeleteBehavior.Restrict);
+        // DocumentId FK kaldırıldı — oturum artık belge bazlı değil
     }
 }

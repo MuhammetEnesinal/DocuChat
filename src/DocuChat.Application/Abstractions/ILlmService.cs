@@ -1,6 +1,11 @@
-﻿namespace DocuChat.Application.Abstractions;
+﻿using DocuChat.Application.Abstractions;
+
+namespace DocuChat.Application.Abstractions;
 
 public interface ILlmService
 {
-    Task<string> AskAsync(string question, IEnumerable<string> contextChunks, CancellationToken ct = default);
+    Task<string> AskAsync(
+        string question,
+        IEnumerable<ChunkResult> contextChunks,
+        CancellationToken ct = default);
 }

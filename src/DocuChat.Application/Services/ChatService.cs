@@ -30,26 +30,21 @@ public class ChatService : IChatService
 
     public async Task<Result<AskResponseDto>> AskAsync(AskRequest req, CancellationToken ct)
     {
-        var doc = await _uow.Documents.GetByIdAsync(req.DocumentId, ct);
-        if (doc is null)
-            return Result<AskResponseDto>.Failure(Error.NotFound("Belge bulunamadı."));
-
-        if (doc.UserId != _currentUser.UserId && !_currentUser.IsInRole(Roles.Admin))
-            return Result<AskResponseDto>.Failure(Error.Forbidden("Bu belgeye erişiminiz yok."));
-
         ChatSession session;
 
         if (req.SessionId.HasValue)
         {
             session = await _uow.Sessions.GetByIdAsync(req.SessionId.Value, ct)
                 ?? throw new SessionNotFoundException(req.SessionId.Value);
+
+            if (session.UserId != _currentUser.UserId && !_currentUser.IsInRole(Roles.Admin))
+                return Result<AskResponseDto>.Failure(Error.Forbidden("Bu oturuma erişiminiz yok."));
         }
         else
         {
             session = new ChatSession
             {
                 UserId = _currentUser.UserId,
-                DocumentId = req.DocumentId,
                 Title = req.Question[..Math.Min(60, req.Question.Length)],
             };
             await _uow.Sessions.AddAsync(session, ct);
@@ -62,7 +57,21 @@ public class ChatService : IChatService
             Content = req.Question
         }, ct);
 
-        var chunks = await _vectorSearch.SearchAsync(req.DocumentId, req.Question, 5, ct);
+        var chunks = await _vectorSearch.SearchAsync(req.Question, topK: 10, ct);
+
+        if (chunks.Count == 0)
+        {
+            const string noData = "Sisteme yüklenmiş belgeler arasında bu soruyla ilgili bilgi bulunamadı.";
+            await _uow.Messages.AddAsync(new ChatMessage
+            {
+                SessionId = session.Id,
+                Role = MessageRole.Assistant,
+                Content = noData
+            }, ct);
+            await _uow.SaveChangesAsync(ct);
+            return Result<AskResponseDto>.Success(new AskResponseDto(session.Id, noData, []));
+        }
+
         var answer = await _llm.AskAsync(req.Question, chunks, ct);
 
         await _uow.Messages.AddAsync(new ChatMessage

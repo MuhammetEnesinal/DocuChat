@@ -15,7 +15,7 @@ public class Document : BaseEntity
     public DocumentStatus Status { get; set; } = DocumentStatus.Pending;
     public FileType FileType { get; set; } = FileType.Pdf;
 
-    // AppUser nav prop YOK — Onion uyumu
+    
     public List<DocumentChunk> Chunks { get; set; } = new();
     public List<ChatSession> Sessions { get; set; } = new();
 }

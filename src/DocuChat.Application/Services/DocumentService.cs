@@ -34,6 +34,7 @@ public class DocumentService : IDocumentService
     public async Task<Result<DocumentResponseDto>> UploadAsync(
         UploadDocumentRequest req, CancellationToken ct)
     {
+        req.FileStream.Position = 0;
         var storagePath = await _fileStorage.SaveAsync(req.FileStream, req.FileName, ct);
 
         var doc = new Document
@@ -56,6 +57,7 @@ public class DocumentService : IDocumentService
             doc.UpdatedAt = DateTime.UtcNow;
             await _uow.SaveChangesAsync(ct);
 
+            req.FileStream.Position = 0;
             var chunks = _parser.Parse(req.FileStream, doc.FileType);
             int idx = 0;
 
@@ -95,7 +97,6 @@ public class DocumentService : IDocumentService
         return Result<IReadOnlyList<DocumentResponseDto>>.Success(dtos);
     }
 
-    // Admin — tüm kullanıcıların belgeleri
     public async Task<Result<IReadOnlyList<DocumentResponseDto>>> GetAllDocumentsAsync(
         CancellationToken ct)
     {
@@ -122,8 +123,8 @@ public class DocumentService : IDocumentService
         if (doc.UserId != _currentUser.UserId && !_currentUser.IsInRole(Roles.Admin))
             return Result<bool>.Failure(Error.Forbidden("Bu belge size ait değil."));
 
-        var sessions = await _uow.Sessions.GetByDocumentIdAsync(docId, ct);
-        foreach (var s in sessions) _uow.Sessions.Delete(s);
+        // Chunk'lar Document'a Cascade bağlı, EF otomatik siler
+        // Session'lar artık Document'a bağlı değil, silmeye gerek yok
 
         if (doc.StoragePath is not null)
             await _fileStorage.DeleteAsync(doc.StoragePath, ct);

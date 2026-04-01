@@ -1,39 +1,45 @@
 ﻿using System.Net.Http.Json;
 using System.Text.Json;
-using DocuChat.Application.Abstractions;
 using Microsoft.Extensions.Configuration;
+using DocuChat.Application.Abstractions;
 
 namespace DocuChat.Infrastructure.Services;
 
 public class EmbeddingService : IEmbeddingService
 {
     private readonly HttpClient _http;
-    private readonly IConfiguration _cfg;
+    private readonly string _model;
 
     public EmbeddingService(HttpClient http, IConfiguration cfg)
     {
         _http = http;
-        _cfg = cfg;
+        _model = cfg["Embedding:Model"]!;
+
+        if (_http.BaseAddress is null)
+            _http.BaseAddress = new Uri(cfg["Embedding:BaseUrl"]!);
     }
 
     public async Task<float[]> GetEmbeddingAsync(string text, CancellationToken ct = default)
     {
-        var payload = new
+        var payload = new { model = _model, prompt = text };
+
+        var response = await _http.PostAsJsonAsync("/api/embeddings", payload, ct);
+
+        if (!response.IsSuccessStatusCode)
         {
-            model = _cfg["Embedding:Model"],
-            input = text,
-        };
+            var body = await response.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException(
+                $"Embedding API hatası [{(int)response.StatusCode}] " +
+                $"— Model: {_model}, BaseAddress: {_http.BaseAddress}, Body: {body}");
+        }
 
-        var response = await _http.PostAsJsonAsync(string.Empty, payload, ct);
-        response.EnsureSuccessStatusCode();
+        var json = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(json);
 
-        var json = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
-
-        return json
-            .GetProperty("data")[0]
-            .GetProperty("embedding")
-            .EnumerateArray()
-            .Select(e => e.GetSingle())
-            .ToArray();
+        return doc.RootElement
+                  .GetProperty("embedding")
+                  .EnumerateArray()
+                  .Select(e => e.GetSingle())
+                  .ToArray();
     }
 }

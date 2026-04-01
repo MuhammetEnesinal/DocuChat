@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using System.Text.RegularExpressions;
 using DocuChat.Application.Abstractions;
 using DocuChat.Domain.Enums;
 using UglyToad.PdfPig;
@@ -17,8 +18,8 @@ public class DocumentParserService : IDocumentParser
 
     public DocumentParserService(Microsoft.Extensions.Configuration.IConfiguration cfg)
     {
-        _chunkSize = int.Parse(cfg["Chunking:ChunkSize"] ?? "800");
-        _overlap = int.Parse(cfg["Chunking:Overlap"] ?? "100");
+        _chunkSize = int.Parse(cfg["Chunking:ChunkSize"] ?? "1200");
+        _overlap = int.Parse(cfg["Chunking:Overlap"] ?? "200");
     }
 
     public IEnumerable<string> Parse(Stream stream, FileType fileType)
@@ -32,8 +33,11 @@ public class DocumentParserService : IDocumentParser
             _ => ExtractTxt(stream),
         };
 
-        return Chunk(text);
+        var cleaned = CleanText(text);
+        return Chunk(cleaned);
     }
+
+    // ── Extractors ───────────────────────────────────────────────────────
 
     private static string ExtractPdf(Stream stream)
     {
@@ -50,8 +54,14 @@ public class DocumentParserService : IDocumentParser
         using var doc = WordprocessingDocument.Open(stream, false);
         var body = doc.MainDocumentPart?.Document?.Body;
         if (body is null) return string.Empty;
+
         foreach (var para in body.Elements<Paragraph>())
-            sb.AppendLine(para.InnerText);
+        {
+            var line = para.InnerText.Trim();
+            if (!string.IsNullOrWhiteSpace(line))
+                sb.AppendLine(line);
+        }
+
         return sb.ToString();
     }
 
@@ -61,7 +71,7 @@ public class DocumentParserService : IDocumentParser
         using var wb = new XLWorkbook(stream);
         foreach (var ws in wb.Worksheets)
         {
-            sb.AppendLine($"[Sheet: {ws.Name}]");
+            sb.AppendLine($"[Sayfa: {ws.Name}]");
             foreach (var row in ws.RowsUsed())
             {
                 var cells = row.CellsUsed().Select(c => c.Value.ToString());
@@ -91,16 +101,92 @@ public class DocumentParserService : IDocumentParser
         return reader.ReadToEnd();
     }
 
+    // ── Temizleme ─────────────────────────────────────────────────────────
+
+    private static string CleanText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+
+        // Box-drawing karakterleri
+        text = Regex.Replace(text, @"[│├└─┌┐┘┤┬┴┼╔╗╚╝╠╣╦╩╬►◄▲▼]", " ");
+
+        // Birden fazla boşluk → tek boşluk
+        text = Regex.Replace(text, @"[ \t]{2,}", " ");
+
+        // 3'ten fazla ardışık newline → 2'ye indir
+        text = Regex.Replace(text, @"(\r?\n){3,}", "\n\n");
+
+        // Satır başı/sonu boşlukları
+        text = string.Join("\n", text.Split('\n').Select(l => l.Trim()));
+
+        text = text.Replace("\r", string.Empty);
+
+        return text.Trim();
+    }
+
+    // ── Cümle-bilinçli Chunk'lama ─────────────────────────────────────────
+    //
+    // Eski yöntem: text.Substring(start, chunkSize)
+    //   → cümlenin ortasından keser, "Madde 13 – kapal..." gibi yarım chunk'lar oluşur.
+    //
+    // Yeni yöntem:
+    //   1. Metni cümlelere böl (nokta/satır sonu sınırı).
+    //   2. Cümleleri _chunkSize dolana kadar biriktir.
+    //   3. Chunk dolduğunda yaz; overlap için son N karakteri bir sonrakine taşı.
+    //   Bu sayede hiçbir cümle ikiye bölünmez.
+
     private IEnumerable<string> Chunk(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) yield break;
 
-        var start = 0;
-        while (start < text.Length)
+        // Cümle sınırlarını bul: ". ", ".\n", "! ", "? ", "\n\n"
+        var sentences = SplitIntoSentences(text);
+
+        var buffer = new StringBuilder();
+        string? overlapTail = null;   // bir önceki chunk'ın son _overlap karakteri
+
+        foreach (var sentence in sentences)
         {
-            var length = Math.Min(_chunkSize, text.Length - start);
-            yield return text.Substring(start, length);
-            start += _chunkSize - _overlap;
+            // Eğer bu cümleyi eklemek chunk'ı taşırsa, mevcut buffer'ı yay
+            if (buffer.Length > 0 &&
+                buffer.Length + sentence.Length > _chunkSize)
+            {
+                var chunk = buffer.ToString().Trim();
+                if (!string.IsNullOrWhiteSpace(chunk))
+                    yield return chunk;
+
+                // Overlap: chunk'ın sonundan _overlap karakter al
+                overlapTail = chunk.Length > _overlap
+                    ? chunk[^_overlap..]
+                    : chunk;
+
+                buffer.Clear();
+
+                // Yeni buffer'a overlap'i ekle
+                if (!string.IsNullOrWhiteSpace(overlapTail))
+                    buffer.Append(overlapTail).Append(' ');
+            }
+
+            buffer.Append(sentence).Append(' ');
+        }
+
+        // Kalan buffer'ı yay
+        var last = buffer.ToString().Trim();
+        if (!string.IsNullOrWhiteSpace(last))
+            yield return last;
+    }
+
+    // Metni cümlelere böler; paragraf sonlarını da sınır olarak kabul eder.
+    private static IEnumerable<string> SplitIntoSentences(string text)
+    {
+        // Sınır: nokta/ünlem/soru işareti + boşluk/newline  VEYA  çift newline (paragraf)
+        var parts = Regex.Split(text, @"(?<=[.!?])\s+|(?<=\n)\s*\n");
+
+        foreach (var part in parts)
+        {
+            var s = part.Trim();
+            if (!string.IsNullOrWhiteSpace(s))
+                yield return s;
         }
     }
 }

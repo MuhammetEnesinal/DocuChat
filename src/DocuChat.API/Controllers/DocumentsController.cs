@@ -7,6 +7,11 @@ using DocuChat.API.Extensions;
 
 namespace DocuChat.API.Controllers;
 
+public class UploadFileRequest
+{
+    public IFormFile File { get; set; } = null!;
+}
+
 [ApiController]
 [Route("api/documents")]
 [Authorize]
@@ -23,9 +28,15 @@ public class DocumentsController : ControllerBase
         _uploadValidator = uploadValidator;
     }
 
+    // Sadece Admin dosya yükleyebilir
     [HttpPost("upload")]
-    public async Task<IActionResult> Upload([FromForm] IFormFile file, CancellationToken ct)
+    [Authorize(Roles = "Admin")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> Upload(
+        [FromForm] UploadFileRequest request, CancellationToken ct)
     {
+        var file = request.File;
+
         var req = new UploadDocumentRequest(
             file.FileName,
             file.ContentType,
@@ -42,10 +53,11 @@ public class DocumentsController : ControllerBase
         return result.ToActionResult();
     }
 
+    // Tüm kullanıcılar yüklü belgeleri görebilir
     [HttpGet]
-    public async Task<IActionResult> GetMyDocuments(CancellationToken ct)
+    public async Task<IActionResult> GetAllDocuments(CancellationToken ct)
     {
-        var result = await _documentService.GetMyDocumentsAsync(ct);
+        var result = await _documentService.GetAllDocumentsAsync(ct);
         return result.ToActionResult();
     }
 
@@ -56,7 +68,9 @@ public class DocumentsController : ControllerBase
         return result.ToActionResult();
     }
 
+    // Silme de sadece Admin
     [HttpDelete("{id:guid}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         var result = await _documentService.DeleteAsync(id, ct);

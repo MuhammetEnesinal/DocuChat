@@ -50,28 +50,38 @@ public static class DependencyInjection
         services.AddScoped<IVectorSearch, VectorSearchService>();
         services.AddScoped<IFileStorage, LocalFileStorage>();
 
-        // HttpClient — BaseAddress ve header'lar burada, servis constructor'ında değil
+        // HttpClient — Embedding
         services.AddHttpClient<IEmbeddingService, EmbeddingService>(client =>
         {
             client.BaseAddress = new Uri(cfg["Embedding:BaseUrl"]!);
-            client.DefaultRequestHeaders.Add(
-                "Authorization", $"Bearer {cfg["Embedding:ApiKey"]}");
+            client.Timeout = TimeSpan.FromMinutes(2);
+
+            // Ollama için Authorization header gerekmez
+            if (!string.IsNullOrEmpty(cfg["Embedding:ApiKey"]))
+                client.DefaultRequestHeaders.Add(
+                    "Authorization", $"Bearer {cfg["Embedding:ApiKey"]}");
         });
 
+        // HttpClient — LLM
         services.AddHttpClient<ILlmService, LlmService>(client =>
         {
             client.BaseAddress = new Uri(cfg["Llm:BaseUrl"]!);
+            client.Timeout = TimeSpan.FromMinutes(5);
 
-            if (cfg["Llm:Provider"] == "Anthropic")
+            var provider = cfg["Llm:Provider"];
+
+            if (provider == "Anthropic")
             {
                 client.DefaultRequestHeaders.Add("x-api-key", cfg["Llm:ApiKey"]);
                 client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
             }
-            else
+            else if (provider == "OpenAi")
             {
                 client.DefaultRequestHeaders.Add(
                     "Authorization", $"Bearer {cfg["Llm:ApiKey"]}");
             }
+            // Ollama ve Gemini için header gerekmez
+            // Gemini API key URL'e ekleniyor (CallGeminiAsync içinde)
         });
 
         // Identity helpers
