@@ -1,6 +1,4 @@
-﻿using DocuChat.Application.Abstractions;
-
-namespace DocuChat.Application.Abstractions;
+﻿namespace DocuChat.Application.Abstractions;
 
 public interface ILlmService
 {

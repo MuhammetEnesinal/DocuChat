@@ -89,14 +89,6 @@ public class DocumentService : IDocumentService
         return Result<DocumentResponseDto>.Success(doc.Adapt<DocumentResponseDto>());
     }
 
-    public async Task<Result<IReadOnlyList<DocumentResponseDto>>> GetMyDocumentsAsync(
-        CancellationToken ct)
-    {
-        var docs = await _uow.Documents.GetByUserIdAsync(_currentUser.UserId, ct);
-        var dtos = docs.Select(d => d.Adapt<DocumentResponseDto>()).ToList();
-        return Result<IReadOnlyList<DocumentResponseDto>>.Success(dtos);
-    }
-
     public async Task<Result<IReadOnlyList<DocumentResponseDto>>> GetAllDocumentsAsync(
         CancellationToken ct)
     {
@@ -105,27 +97,13 @@ public class DocumentService : IDocumentService
         return Result<IReadOnlyList<DocumentResponseDto>>.Success(dtos);
     }
 
-    public async Task<Result<DocumentResponseDto>> GetByIdAsync(Guid id, CancellationToken ct)
-    {
-        var doc = await _uow.Documents.GetByIdAndUserIdAsync(id, _currentUser.UserId, ct);
-        if (doc is null)
-            return Result<DocumentResponseDto>.Failure(Error.NotFound("Belge bulunamadı."));
-
-        return Result<DocumentResponseDto>.Success(doc.Adapt<DocumentResponseDto>());
-    }
-
     public async Task<Result<bool>> DeleteAsync(Guid docId, CancellationToken ct)
     {
         var doc = await _uow.Documents.GetByIdAsync(docId, ct);
         if (doc is null)
             return Result<bool>.Failure(Error.NotFound("Belge bulunamadı."));
 
-        if (doc.UserId != _currentUser.UserId && !_currentUser.IsInRole(Roles.Admin))
-            return Result<bool>.Failure(Error.Forbidden("Bu belge size ait değil."));
-
-        // Chunk'lar Document'a Cascade bağlı, EF otomatik siler
-        // Session'lar artık Document'a bağlı değil, silmeye gerek yok
-
+        // Chunk'lar Cascade ile otomatik silinir
         if (doc.StoragePath is not null)
             await _fileStorage.DeleteAsync(doc.StoragePath, ct);
 

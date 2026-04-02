@@ -62,9 +62,6 @@ namespace DocuChat.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid?>("DocumentId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -78,8 +75,6 @@ namespace DocuChat.Infrastructure.Migrations
                         .HasColumnType("text");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("DocumentId");
 
                     b.HasIndex("UserId");
 
@@ -160,7 +155,7 @@ namespace DocuChat.Infrastructure.Migrations
 
                     b.Property<Vector>("Embedding")
                         .IsRequired()
-                        .HasColumnType("vector(768)");
+                        .HasColumnType("vector(1024)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -390,10 +385,6 @@ namespace DocuChat.Infrastructure.Migrations
 
             modelBuilder.Entity("DocuChat.Domain.Entities.ChatSession", b =>
                 {
-                    b.HasOne("DocuChat.Domain.Entities.Document", null)
-                        .WithMany("Sessions")
-                        .HasForeignKey("DocumentId");
-
                     b.HasOne("DocuChat.Infrastructure.Identity.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
@@ -480,8 +471,6 @@ namespace DocuChat.Infrastructure.Migrations
             modelBuilder.Entity("DocuChat.Domain.Entities.Document", b =>
                 {
                     b.Navigation("Chunks");
-
-                    b.Navigation("Sessions");
                 });
 #pragma warning restore 612, 618
         }

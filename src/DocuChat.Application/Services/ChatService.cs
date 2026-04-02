@@ -57,6 +57,7 @@ public class ChatService : IChatService
             Content = req.Question
         }, ct);
 
+        // Tüm belgeler içinde ara
         var chunks = await _vectorSearch.SearchAsync(req.Question, topK: 10, ct);
 
         if (chunks.Count == 0)

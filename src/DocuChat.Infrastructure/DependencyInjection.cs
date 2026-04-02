@@ -56,7 +56,6 @@ public static class DependencyInjection
             client.BaseAddress = new Uri(cfg["Embedding:BaseUrl"]!);
             client.Timeout = TimeSpan.FromMinutes(2);
 
-            // Ollama için Authorization header gerekmez
             if (!string.IsNullOrEmpty(cfg["Embedding:ApiKey"]))
                 client.DefaultRequestHeaders.Add(
                     "Authorization", $"Bearer {cfg["Embedding:ApiKey"]}");
@@ -75,13 +74,13 @@ public static class DependencyInjection
                 client.DefaultRequestHeaders.Add("x-api-key", cfg["Llm:ApiKey"]);
                 client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
             }
-            else if (provider == "OpenAi")
+            else if (provider == "OpenAI") // düzeltildi: "OpenAi" → "OpenAI"
             {
                 client.DefaultRequestHeaders.Add(
                     "Authorization", $"Bearer {cfg["Llm:ApiKey"]}");
             }
-            // Ollama ve Gemini için header gerekmez
-            // Gemini API key URL'e ekleniyor (CallGeminiAsync içinde)
+            // Ollama: header yok
+            // Gemini: API key URL'e ekleniyor (CallGeminiAsync içinde)
         });
 
         // Identity helpers

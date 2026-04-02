@@ -10,9 +10,7 @@ public class VectorSearchService : IVectorSearch
     private readonly AppDbContext _db;
     private readonly IEmbeddingService _embedder;
 
-    // Cosine distance eşiği (0 = mükemmel, 2 = tamamen zıt)
-    // 0.75 altı = alakalı; çok düşük tutmak sonuç sayısını azaltır
-    private const double Threshold = 0.75;
+    private const double Threshold = 0.85; // 0.75 → 0.85 daha fazla sonuç gelir
 
     public VectorSearchService(AppDbContext db, IEmbeddingService embedder)
     {
@@ -28,8 +26,6 @@ public class VectorSearchService : IVectorSearch
         var queryVec = await _embedder.GetEmbeddingAsync(question, ct);
         var vector = new Pgvector.Vector(queryVec);
 
-        // Tüm chunk'larda ara (documentId filtresi YOK)
-        // Document tablosunu join'le — dosya adını almak için
         var results = await _db.DocumentChunks
             .Where(c => c.Embedding!.CosineDistance(vector) < Threshold)
             .OrderBy(c => c.Embedding!.CosineDistance(vector))
@@ -40,7 +36,7 @@ public class VectorSearchService : IVectorSearch
                   (chunk, doc) => new ChunkResult(doc.FileName, chunk.Content))
             .ToListAsync(ct);
 
-        // Eşik altında sonuç yoksa threshold kaldır, en iyi topK'yı getir
+        // Threshold'u geçen sonuç yoksa en yakın 10'u getir
         if (results.Count == 0)
         {
             results = await _db.DocumentChunks

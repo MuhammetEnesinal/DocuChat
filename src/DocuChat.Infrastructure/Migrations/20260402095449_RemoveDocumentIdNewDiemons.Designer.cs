@@ -13,8 +13,8 @@ using Pgvector;
 namespace DocuChat.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260401074653_ChangeEmbeddingTo1024")]
-    partial class ChangeEmbeddingTo1024
+    [Migration("20260402095449_RemoveDocumentIdNewDiemons")]
+    partial class RemoveDocumentIdNewDiemons
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -65,9 +65,6 @@ namespace DocuChat.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid>("DocumentId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -81,8 +78,6 @@ namespace DocuChat.Infrastructure.Migrations
                         .HasColumnType("text");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("DocumentId");
 
                     b.HasIndex("UserId");
 
@@ -163,7 +158,7 @@ namespace DocuChat.Infrastructure.Migrations
 
                     b.Property<Vector>("Embedding")
                         .IsRequired()
-                        .HasColumnType("vector(1024)");
+                        .HasColumnType("vector(768)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -393,19 +388,11 @@ namespace DocuChat.Infrastructure.Migrations
 
             modelBuilder.Entity("DocuChat.Domain.Entities.ChatSession", b =>
                 {
-                    b.HasOne("DocuChat.Domain.Entities.Document", "Document")
-                        .WithMany("Sessions")
-                        .HasForeignKey("DocumentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.HasOne("DocuChat.Infrastructure.Identity.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.Navigation("Document");
                 });
 
             modelBuilder.Entity("DocuChat.Domain.Entities.Document", b =>
@@ -487,8 +474,6 @@ namespace DocuChat.Infrastructure.Migrations
             modelBuilder.Entity("DocuChat.Domain.Entities.Document", b =>
                 {
                     b.Navigation("Chunks");
-
-                    b.Navigation("Sessions");
                 });
 #pragma warning restore 612, 618
         }

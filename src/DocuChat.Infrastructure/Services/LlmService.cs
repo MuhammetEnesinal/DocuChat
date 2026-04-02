@@ -19,7 +19,6 @@ public class LlmService : ILlmService
         if (_http.BaseAddress is null && _cfg["Llm:BaseUrl"] is { } url)
             _http.BaseAddress = new Uri(url);
 
-        // Groq / OpenAI icin Bearer token (Anthropic bunu kullanmaz)
         if (_cfg["Llm:ApiKey"] is { Length: > 0 } key &&
             _cfg["Llm:Provider"] is not "Anthropic")
             _http.DefaultRequestHeaders.Authorization =
@@ -38,47 +37,52 @@ public class LlmService : ILlmService
         if (chunkList.Count == 0)
             return "Sisteme yüklenmiş belgeler arasında bu soruyla ilgili bilgi bulunamadı.";
 
-        // Dosya adını context'e ekle — LLM hangi belgeden bilgi aldığını bilir
-        var context = string.Join(
-            "\n\n",
-            chunkList.Select((c, i) =>
-                $"[Parça {i + 1}/{chunkList.Count} — Kaynak: {c.FileName}]\n{c.Content.Trim()}")
-        );
+        var context = string.Join("\n\n", chunkList.Select((c, i) =>
+            $"[PARÇA {i + 1} — {c.FileName}]\n{c.Content.Trim()}"));
 
         var systemPrompt = $"""
-            Sen bir doküman soru-cevap asistanısın.
-            Görevin: sana verilen belge parçalarını kullanarak kullanıcının sorusunu yanıtlamak.
-            Sistemde birden fazla belge olabilir; tüm parçaları değerlendirerek en doğru cevabı ver.
+            Sen ileri düzey bir kurumsal doküman analiz uzmanısın. Görevin; sana sunulan belge parçalarını derinlemesine inceleyerek kullanıcının sorusuna eksiksiz, teknik açıdan doğru ve anlaşılır bir yanıt üretmektir. Yanıtların belgede yer alan tüm bilgileri kapsamalı, hiçbir detayı atlamamalı ve okuyucunun konuyu tam olarak kavramasını sağlamalıdır.
 
-            KESİN KURALLAR:
-            1. SADECE aşağıdaki {chunkList.Count} belge parçasındaki bilgileri kullan.
-            2. Kendi genel bilginden HİÇBİR ŞEY ekleme.
-            3. Her zaman Türkçe yanıt ver.
-            4. Bilgi birden fazla parçaya dağılmışsa birleştirerek bütünleşik cevap oluştur.
-            5. Sayısal değerler (gün, süre, tarih, yüzde vb.) varsa mutlaka belirt.
-            6. Hangi belgeden bilgi aldığını gerekirse belirt (Kaynak: dosya adı).
-            7. Cevap gerçekten hiçbir parçada yoksa: "Bu bilgi yüklü belgelerde yer almıyor." de.
+            TEMEL KURALLAR:
+            1. Yanıtın YALNIZCA verilen belge parçalarındaki bilgilere dayanmalıdır. Kendi genel bilginden hiçbir şey ekleme.
+            2. Her zaman Türkçe yanıt ver. İngilizce kelime kullanma.
+            3. Bilgi birden fazla parçaya yayılmışsa hepsini birleştirerek tek kapsamlı yanıt oluştur.
+            4. Tarih, sayı, süre, yüzde, isim, kod, fonksiyon adı, parametre gibi spesifik veriler varsa mutlaka yanıta dahil et.
+            5. Madde numaraları veya yönetmelik atıfları varsa aynen aktar.
+            6. Bilgi gerçekten hiçbir parçada yoksa yalnızca şunu yaz: "Bu bilgi yüklü belgelerde yer almıyor."
+            7. Şartlar, gereksinimler, adımlar sorulduğunda tüm maddeleri eksiksiz listele, hiçbirini atlama.
 
-            YANIT FORMATI:
-            - Gereksiz giriş cümlesi yok ("Elbette", "Tabii ki" vb. kullanma).
-            - Doğrudan soruyu yanıtla.
-            - Gerekiyorsa madde madde listele.
-            - Kısa ve net ol, tekrar yapma.
+            YANIT TARZI:
+            - "Elbette", "Tabii ki" gibi gereksiz giriş cümleleri kullanma — doğrudan yanıtla.
+            - "[PARÇA X]", "[BELGE PARÇASI X]", "dosyada", "parçada", "belge parçalarında" gibi meta ifadeler KULLANMA.
+            - "olabilir", "muhtemelen", "açıkça belirtilmemiştir", "bağlamda", "anlaşılabilir" gibi belirsiz ifadeler kullanma.
+            - Bilgi varsa direkt ver, yoksa "Bu bilgi yüklü belgelerde yer almıyor." de.
+            - Detaylı ve kapsamlı yanıt ver — belgede ne varsa hepsini eksiksiz aktar.
+            - Madde madde, adım adım açıkla. Tek cümleyle geçme.
+            - Teknik detaylar (kod, fonksiyon adı, tablo adı, parametre, hata mesajı) varsa hepsini dahil et.
+            - Gerektiğinde madde listesi veya tablo kullan.
+
+            ANALİZ STRATEJİSİ:
+            - Tüm parçaları tara, soruyla ilgili her bilgiyi topla.
+            - Parçalar arasındaki bağlantıları kur.
+            - Çelişen bilgiler varsa her ikisini belirt ve farkı açıkla.
+            - Kısmi bilgi varsa "Belgede yalnızca şu kadarı belirtilmiştir: ..." şeklinde aktar.
             """;
 
         var userMessage = $"""
-            BELGE PARÇALARI ({chunkList.Count} adet):
+            AŞAĞIDAKİ BELGE PARÇALARINI DİKKATLİCE İNCELE:
 
             {context}
 
-            ───────────────────────────────
+            ═══════════════════════════════════════
             SORU: {question}
-            ───────────────────────────────
+            ═══════════════════════════════════════
 
-            Talimat:
-            - Tüm parçaları tara; cevabı tek parçada bulamazsan parçaları birleştir.
-            - Sayısal değer (gün, süre, tarih) geçiyorsa mutlaka yaz.
-            - Cevap parçalarda varsa asla "Bu bilgi yüklü belgelerde yer almıyor." deme.
+            ÖNEMLI:
+            • Tüm parçaları tara — cevap farklı parçalara yayılmış olabilir.
+            • Tarih, isim, sayı, süre gibi spesifik bilgiler varsa direkt ver.
+            • "[PARÇA X]" gibi etiket kullanma, dosya adını kullan.
+            • Bilgi parçalarda varsa "yer almıyor" yazma — direkt yanıtla.
             """;
 
         return _cfg["Llm:Provider"] switch
@@ -125,7 +129,7 @@ public class LlmService : ILlmService
         {
             system_instruction = new { parts = new[] { new { text = system } } },
             contents = new[] { new { role = "user", parts = new[] { new { text = user } } } },
-            generationConfig = new { maxOutputTokens = maxTokens, temperature = 0.2 }
+            generationConfig = new { maxOutputTokens = maxTokens, temperature = 0.1 }
         };
 
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
@@ -148,6 +152,7 @@ public class LlmService : ILlmService
         {
             model = _cfg["Llm:Model"],
             stream = false,
+            options = new { temperature = 0.1, num_predict = 2048 },
             messages = new[]
             {
                 new { role = "system", content = system },
@@ -171,6 +176,7 @@ public class LlmService : ILlmService
         {
             model = _cfg["Llm:Model"],
             max_tokens = maxTokens,
+            temperature = 0.1f,
             messages = new[]
             {
                 new { role = "system", content = system },

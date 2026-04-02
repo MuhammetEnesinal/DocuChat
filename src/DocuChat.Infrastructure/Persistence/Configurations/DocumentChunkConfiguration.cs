@@ -23,7 +23,7 @@ public class DocumentChunkConfiguration : IEntityTypeConfiguration<DocumentChunk
             c => c.ToArray());
 
         builder.Property(c => c.Embedding)
-        .HasColumnType("vector(768)")  // 768 → 1024
+        .HasColumnType("vector(1024)")  // 768 → 1024
                 .HasConversion(converter)
                .Metadata.SetValueComparer(comparer);
 

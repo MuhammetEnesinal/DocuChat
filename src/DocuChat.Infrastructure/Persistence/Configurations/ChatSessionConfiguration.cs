@@ -10,7 +10,6 @@ public class ChatSessionConfiguration : IEntityTypeConfiguration<ChatSession>
     public void Configure(EntityTypeBuilder<ChatSession> builder)
     {
         builder.HasKey(s => s.Id);
-
         builder.Property(s => s.UserId).IsRequired();
         builder.Property(s => s.Title).HasMaxLength(100);
 
@@ -19,6 +18,6 @@ public class ChatSessionConfiguration : IEntityTypeConfiguration<ChatSession>
                .HasForeignKey(s => s.UserId)
                .OnDelete(DeleteBehavior.Cascade);
 
-        // DocumentId FK kaldırıldı — oturum artık belge bazlı değil
+        // DocumentId FK kaldırıldı — oturum artık belgeye bağlı değil
     }
 }
