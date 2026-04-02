@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Pgvector.EntityFrameworkCore;
 using DocuChat.Application.Abstractions;
 using DocuChat.Infrastructure.Persistence;
