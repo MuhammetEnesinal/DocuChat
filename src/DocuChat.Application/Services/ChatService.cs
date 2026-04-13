@@ -48,6 +48,7 @@ public class ChatService : IChatService
                 Title = req.Question[..Math.Min(60, req.Question.Length)],
             };
             await _uow.Sessions.AddAsync(session, ct);
+            await _uow.SaveChangesAsync(ct);
         }
 
         await _uow.Messages.AddAsync(new ChatMessage
@@ -56,6 +57,21 @@ public class ChatService : IChatService
             Role = MessageRole.User,
             Content = req.Question
         }, ct);
+
+        // Oturum geçmişini çek (son 6 mesaj — 3 soru 3 cevap)
+        var history = new List<(string Role, string Content)>();
+        if (req.SessionId.HasValue)
+        {
+            var sessionWithMessages = await _uow.Sessions.GetWithMessagesAsync(session.Id, ct);
+            if (sessionWithMessages?.Messages?.Any() == true)
+            {
+                history = sessionWithMessages.Messages
+                    .OrderBy(m => m.CreatedAt)
+                    .TakeLast(6)
+                    .Select(m => (m.Role == MessageRole.User ? "user" : "assistant", m.Content))
+                    .ToList();
+            }
+        }
 
         // Tüm belgeler içinde ara
         var chunks = await _vectorSearch.SearchAsync(req.Question, topK: 10, ct);
@@ -73,7 +89,7 @@ public class ChatService : IChatService
             return Result<AskResponseDto>.Success(new AskResponseDto(session.Id, noData, []));
         }
 
-        var answer = await _llm.AskAsync(req.Question, chunks, ct);
+        var answer = await _llm.AskAsync(req.Question, chunks, history, ct);
 
         await _uow.Messages.AddAsync(new ChatMessage
         {

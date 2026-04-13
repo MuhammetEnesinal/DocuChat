@@ -28,6 +28,7 @@ public class LlmService : ILlmService
     public async Task<string> AskAsync(
         string question,
         IEnumerable<ChunkResult> contextChunks,
+        IEnumerable<(string Role, string Content)>? history = null,
         CancellationToken ct = default)
     {
         var chunkList = contextChunks
@@ -40,57 +41,57 @@ public class LlmService : ILlmService
         var context = string.Join("\n\n", chunkList.Select((c, i) =>
             $"[PARÇA {i + 1} — {c.FileName}]\n{c.Content.Trim()}"));
 
-        var systemPrompt = """
-            Sen bir belge sorgulama motorusun. Sana verilen metin parçaları dışında HİÇBİR bilgiye erişimin yoktur.
-            Sanki bu belge parçaları dışında dünyada hiçbir şey bilmiyormuşsun gibi davran.
+        // Önceki konuşma geçmişini formatla
+        var historyList = history?.ToList() ?? new List<(string Role, string Content)>();
+        var historyText = historyList.Count > 0
+            ? "\n\nÖNCEKİ KONUŞMA:\n" + string.Join("\n", historyList.Select(h =>
+                $"{(h.Role == "user" ? "Kullanıcı" : "Asistan")}: {h.Content}"))
+            : string.Empty;
 
-            KESİN KURALLAR — HİÇBİR İSTİSNASI YOKTUR:
+        var systemPrompt = $"""
+            Sen kurumsal bir doküman analiz asistanısın. Görevin, sana verilen belge parçalarını
+            analiz ederek kullanıcının sorusuna doğrudan, net ve eksiksiz bir yanıt üretmektir.
 
-            KURAL 1 — SADECE BELGEDEN CEVAP VER:
-            Verilen metin parçalarında bulunmayan hiçbir bilgiyi yanıta ekleme.
-            Genel bilgin, eğitim verim, tahmin veya çıkarım yasaktır.
-            Parçalarda bilgi yoksa: "Bu bilgi yüklü belgelerde yer almıyor." yaz ve dur.
+            TEMEL KURALLAR:
+            1. Yanıtın YALNIZCA verilen belge parçalarındaki bilgilere dayanmalıdır.
+            2. Her zaman Türkçe yanıt ver.
+            3. Bilgi birden fazla parçaya yayılmışsa hepsini birleştirerek tek kapsamlı yanıt oluştur.
+            4. Tarih, sayı, süre, yüzde, isim gibi spesifik veriler varsa mutlaka yanıta dahil et.
+            5. Madde numaraları veya yönetmelik atıfları varsa aynen aktar.
+            6. Birden fazla belgeden bilgi derliyorsan hangi belgeden aldığını dosya adıyla belirt.
+            7. Bilgi gerçekten hiçbir parçada yoksa: "Bu bilgi yüklü belgelerde yer almıyor." yaz.
+            8. Şartlar, gereksinimler veya belgeler sorulduğunda tüm maddeleri eksiksiz listele, hiçbirini atlama.
 
-            KURAL 2 — TÜRKÇE:
-            Her zaman Türkçe yanıt ver. İngilizce kelime kullanma.
+            YANIT TARZI:
+            - "Elbette", "Tabii ki" gibi gereksiz giriş cümleleri kullanma — doğrudan yanıtla.
+            - "[PARÇA X]", "[BELGE PARÇASI X]" gibi iç referans etiketleri KULLANMA.
+              Bunun yerine dosya adını kullan: "Etik Kurul Formu'na göre..." gibi.
+            - "olabilir", "muhtemelen", "açıkça belirtilmemiştir" gibi belirsiz ifadeler kullanma.
+              Belgede bir bilgi varsa o bilgiyi ver, yoksa "yer almıyor" de.
+            - Kısa ve öz ol, gereksiz tekrar yapma.
+            - Gerektiğinde madde listesi veya tablo kullan.
 
-            KURAL 3 — META İFADE YASAĞI:
-            "parça", "belge parçası", "dosyada", "[PARÇA X]" gibi ifadeler kullanma.
-            Bilgiyi direkt ver.
-
-            KURAL 4 — BELİRSİZLİK YASAĞI:
-            "olabilir", "muhtemelen", "anlaşılabilir", "bağlamda", "yorumlanabilir" gibi
-            belirsiz ifadeler kullanma. Belgede varsa ver, yoksa "yer almıyor" de.
-
-            KURAL 5 — EKSİKSİZ AKTAR:
-            Belgede ne varsa hepsini eksiksiz ver. Özetleme, atlama.
-            Kod, fonksiyon adı, tablo adı, parametre, hata mesajı, madde numarası —
-            tüm teknik detayları aynen aktar.
-
-            KURAL 6 — DETAYLI AÇIKLA:
-            Madde madde, adım adım açıkla. Tek cümleyle geçme.
-            Birden fazla parçada bilgi varsa hepsini birleştir.
-
-            KURAL 7 — GİRİŞ CÜMLESİ YASAĞI:
-            "Elbette", "Tabii ki", "Memnuniyetle" gibi giriş cümleleri kullanma.
-            Doğrudan yanıtla.
+            ANALİZ STRATEJİSİ:
+            - Tüm parçaları tara, soruyla ilgili her bilgiyi topla.
+            - Parçalar arasındaki bağlantıları kur.
+            - Çelişen bilgiler varsa her ikisini belirt ve farkı açıkla.
+            - Kısmi bilgi varsa "Belgede yalnızca şu kadarı belirtilmiştir: ..." şeklinde aktar.
             """;
 
         var userMessage = $"""
-            BELGE PARÇALARI:
+            AŞAĞIDAKİ BELGE PARÇALARINI DİKKATLİCE İNCELE:
 
             {context}
 
-            ═══════════════════════════════════════════════════════
+            ═══════════════════════════════════════
             SORU: {question}
-            ═══════════════════════════════════════════════════════
+            ═══════════════════════════════════════
 
-            TALİMAT:
-            Yukarıdaki belge parçalarını tara.
-            Soruyla ilgili bilgi varsa — eksiksiz, detaylı, madde madde ver.
-            Soruyla ilgili bilgi yoksa — yalnızca "Bu bilgi yüklü belgelerde yer almıyor." yaz.
-            Kendi bilginden hiçbir şey ekleme. Sadece belgede ne yazıyorsa onu ver.
-            Tablo içeren bilgiler varsa markdown tablo formatında (| Sütun | Sütun |) ver.
+            ÖNEMLI:
+            • Tüm parçaları tara — cevap farklı parçalara yayılmış olabilir.
+            • Tarih, isim, sayı, süre gibi spesifik bilgiler varsa direkt ver.
+            • "[PARÇA X]" gibi etiket kullanma, dosya adını kullan.
+            • Bilgi parçalarda varsa "yer almıyor" yazma — direkt yanıtla.
             """;
 
         return _cfg["Llm:Provider"] switch

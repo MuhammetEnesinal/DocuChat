@@ -4,6 +4,8 @@ public interface ILlmService
 {
     Task<string> AskAsync(
         string question,
-        IEnumerable<ChunkResult> contextChunks,
+        IEnumerable<ChunkResult> contextChunks, IEnumerable<(string Role, string Content)>? history = null,
         CancellationToken ct = default);
 }
+
+

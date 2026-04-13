@@ -1,5 +1,4 @@
 <Solution>
-  <Folder Name="/Client/" />
   <Folder Name="/src/">
     <Project Path="src/DocuChat.API/DocuChat.API.csproj" />
     <Project Path="src/DocuChat.Application/DocuChat.Application.csproj" />

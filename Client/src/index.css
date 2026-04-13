@@ -1,0 +1,92 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+    --navy: #0f1f3d;
+    --navy-mid: #1e2f5c;
+    --navy-light: #1d3a6e;
+    --accent: #3b82f6;
+    --accent-light: #60a5fa;
+    --gray-dark: #1e293b;
+    --gray-mid: #334155;
+    --gray-light: #64748b;
+    --border: #1e3a5f;
+    --surface: #101d35;
+    --surface2: #162440;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: 'DM Sans', sans-serif;
+    background-color: var(--navy);
+    color: #e2e8f0;
+    -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+    width: 5px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--navy);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--navy-light);
+    border-radius: 4px;
+}
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--accent);
+    }
+
+.prose-dark p {
+    color: #cbd5e1;
+    line-height: 1.75;
+}
+
+.prose-dark h1, .prose-dark h2, .prose-dark h3 {
+    color: #f1f5f9;
+}
+
+.prose-dark table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.prose-dark th {
+    background: var(--navy-light);
+    color: #93c5fd;
+    padding: 8px 12px;
+    text-align: left;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.prose-dark td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    color: #cbd5e1;
+    font-size: 0.875rem;
+}
+
+.prose-dark tr:last-child td {
+    border-bottom: none;
+}
+
+.prose-dark code {
+    background: var(--navy-mid);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8em;
+    color: #93c5fd;
+}
