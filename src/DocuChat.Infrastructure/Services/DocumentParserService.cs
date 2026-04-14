@@ -162,19 +162,7 @@ public class DocumentParserService : IDocumentParser
                         role = "user",
                         content = new object[]
                         {
-                            new { type = "text", text = @"Bu görseldeki tüm içeriği çıkar. Kesin kurallara uy:
-
-1. TABLO VARSA: Her satırı ayrı ayrı yaz, tüm sütunları aynı satırda tut:
-[TABLO BAŞLANGIÇ]
-Başlıklar: Sütun1 | Sütun2 | Sütun3
-Sütun1: değer, Sütun2: değer, Sütun3: değer
-Sütun1: değer, Sütun2: değer, Sütun3: değer
-[TABLO BİTİŞ]
-Önemli: Her veri satırını TEK SATIRDA yaz. Birden fazla satıra yayma.
-Resim/görsel olan hücreler için köşeli parantezle belirt: [resim]
-
-2. NORMAL METİN: Olduğu gibi yaz.
-3. Yorum veya açıklama ekleme." },
+                            new { type = "text", text = "Bu görseldeki tüm metni olduğu gibi çıkar. Sadece metni ver, başka hiçbir şey ekleme." },
                             new { type = "image_url", image_url = new { url = $"data:image/png;base64,{base64}" } }
                         }
                     }

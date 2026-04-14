@@ -61,7 +61,6 @@ public class LlmService : ILlmService
             6. Birden fazla belgeden bilgi derliyorsan hangi belgeden aldığını dosya adıyla belirt.
             7. Bilgi gerçekten hiçbir parçada yoksa: "Bu bilgi yüklü belgelerde yer almıyor." yaz.
             8. Şartlar, gereksinimler veya belgeler sorulduğunda tüm maddeleri eksiksiz listele, hiçbirini atlama.
-            9. Kullanıcı "az önce ne sordum", "ne dedim", "neyden bahsettik" gibi konuşma geçmişiyle ilgili sorular sorarsa ÖNCEKI KONUŞMA bölümündeki mesajlara bakarak yanıtla. Bu tür sorular için belge parçalarına bakma.
 
             YANIT TARZI:
             - "Elbette", "Tabii ki" gibi gereksiz giriş cümleleri kullanma — doğrudan yanıtla.
@@ -71,7 +70,6 @@ public class LlmService : ILlmService
               Belgede bir bilgi varsa o bilgiyi ver, yoksa "yer almıyor" de.
             - Kısa ve öz ol, gereksiz tekrar yapma.
             - Gerektiğinde madde listesi veya tablo kullan.
-            - "Emin misin?", "Doğru mu?" gibi doğrulama soruları geldiğinde: belgede bilgi varsa "Evet, eminim." diyerek kaynağını belirt. Belgede yoksa "Bu bilgi belgelerde yer almıyor." de. Asla "emin değilim" veya "şüpheliyim" deme.
 
             ANALİZ STRATEJİSİ:
             - Tüm parçaları tara, soruyla ilgili her bilgiyi topla.
@@ -101,7 +99,7 @@ public class LlmService : ILlmService
             "Anthropic" => await CallAnthropicAsync(systemPrompt, userMessage, ct),
             "Gemini" => await CallGeminiAsync(systemPrompt, userMessage, ct),
             "Ollama" => await CallOllamaAsync(systemPrompt, userMessage, ct),
-            _ => await CallOpenAiAsync(systemPrompt, userMessage, ct, historyList)
+            _ => await CallOpenAiAsync(systemPrompt, userMessage, ct)
         };
     }
 
@@ -179,23 +177,20 @@ public class LlmService : ILlmService
     }
 
     // ── OpenAI uyumlu (Groq dahil) ───────────────────────────────────────
-    private async Task<string> CallOpenAiAsync(string system, string user, CancellationToken ct, IEnumerable<(string Role, string Content)>? history = null)
+    private async Task<string> CallOpenAiAsync(string system, string user, CancellationToken ct)
     {
         var maxTokens = int.TryParse(_cfg["Llm:MaxTokens"], out var t) ? t : 2048;
-
-        var msgList = new List<object> { new { role = "system", content = system } };
-        if (history != null)
-            foreach (var h in history)
-                msgList.Add(new { role = h.Role, content = h.Content });
-        msgList.Add(new { role = "user", content = user });
-        Console.WriteLine($"[LLM] history count: {history?.Count() ?? 0}, total messages: {msgList.Count}");
 
         var payload = new
         {
             model = _cfg["Llm:Model"],
             max_tokens = maxTokens,
             temperature = 0.1f,
-            messages = msgList
+            messages = new[]
+            {
+                new { role = "system", content = system },
+                new { role = "user",   content = user   }
+            }
         };
 
         var response = await _http.PostAsJsonAsync("/openai/v1/chat/completions", payload, ct);

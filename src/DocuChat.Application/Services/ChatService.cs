@@ -57,24 +57,20 @@ public class ChatService : IChatService
             Role = MessageRole.User,
             Content = req.Question
         }, ct);
-        await _uow.SaveChangesAsync(ct);
 
-        // Oturum geçmişini çek (son 6 mesaj) — user mesajı kaydedildikten sonra
+        // Oturum geçmişini çek (son 6 mesaj — 3 soru 3 cevap)
         var history = new List<(string Role, string Content)>();
-        var sessionWithMessages = await _uow.Sessions.GetWithMessagesAsync(session.Id, ct);
-        if (sessionWithMessages?.Messages?.Any() == true)
+        if (req.SessionId.HasValue)
         {
-            var allMessages = sessionWithMessages.Messages
-                .OrderBy(m => m.CreatedAt)
-                .ToList();
-
-            // Son user mesajını çıkar — o zaten mevcut soru olarak LLM'e gönderiliyor
-            // Sadece önceki konuşma geçmişini al (son 6 mesaj, mevcut user mesajı hariç)
-            history = allMessages
-                .Take(allMessages.Count - 1)
-                .TakeLast(6)
-                .Select(m => (m.Role == MessageRole.User ? "user" : "assistant", m.Content))
-                .ToList();
+            var sessionWithMessages = await _uow.Sessions.GetWithMessagesAsync(session.Id, ct);
+            if (sessionWithMessages?.Messages?.Any() == true)
+            {
+                history = sessionWithMessages.Messages
+                    .OrderBy(m => m.CreatedAt)
+                    .TakeLast(6)
+                    .Select(m => (m.Role == MessageRole.User ? "user" : "assistant", m.Content))
+                    .ToList();
+            }
         }
 
         // Tüm belgeler içinde ara
@@ -133,23 +129,6 @@ public class ChatService : IChatService
             .ToList();
 
         return Result<IReadOnlyList<ChatMessageResponseDto>>.Success(dtos);
-    }
-
-
-    public async Task<Result<bool>> RenameSessionAsync(
-        Guid sessionId, string title, CancellationToken ct)
-    {
-        var session = await _uow.Sessions.GetByIdAsync(sessionId, ct);
-        if (session is null)
-            return Result<bool>.Failure(Error.NotFound("Oturum bulunamadı."));
-
-        if (session.UserId != _currentUser.UserId && !_currentUser.IsInRole(Roles.Admin))
-            return Result<bool>.Failure(Error.Forbidden("Bu oturuma erişiminiz yok."));
-
-        session.Title = title[..Math.Min(60, title.Length)];
-        await _uow.SaveChangesAsync(ct);
-
-        return Result<bool>.Success(true);
     }
 
     public async Task<Result<bool>> DeleteSessionAsync(Guid sessionId, CancellationToken ct)

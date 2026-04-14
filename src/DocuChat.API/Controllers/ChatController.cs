@@ -15,7 +15,9 @@ public class ChatController : ControllerBase
     private readonly IChatService _chatService;
     private readonly IValidator<AskRequest> _askValidator;
 
-    public ChatController(IChatService chatService, IValidator<AskRequest> askValidator)
+    public ChatController(
+        IChatService chatService,
+        IValidator<AskRequest> askValidator)
     {
         _chatService = chatService;
         _askValidator = askValidator;
@@ -26,7 +28,9 @@ public class ChatController : ControllerBase
     {
         var validation = await _askValidator.ValidateAsync(req, ct);
         if (!validation.IsValid)
-            return validation.Errors.Select(e => e.ErrorMessage).ToValidationResult<AskResponseDto>();
+            return validation.Errors
+                             .Select(e => e.ErrorMessage)
+                             .ToValidationResult<AskResponseDto>();
 
         var result = await _chatService.AskAsync(req, ct);
         return result.ToActionResult();
@@ -46,14 +50,6 @@ public class ChatController : ControllerBase
         return result.ToActionResult();
     }
 
-    [HttpPatch("sessions/{sessionId:guid}")]
-    public async Task<IActionResult> RenameSession(
-        Guid sessionId, [FromBody] RenameSessionRequest req, CancellationToken ct)
-    {
-        var result = await _chatService.RenameSessionAsync(sessionId, req.Title, ct);
-        return result.ToActionResult();
-    }
-
     [HttpDelete("sessions/{sessionId:guid}")]
     public async Task<IActionResult> DeleteSession(Guid sessionId, CancellationToken ct)
     {
@@ -61,5 +57,3 @@ public class ChatController : ControllerBase
         return result.ToActionResult();
     }
 }
-
-public record RenameSessionRequest(string Title);
