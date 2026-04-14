@@ -16,6 +16,7 @@ api.interceptors.response.use(
     (err) => {
         if (err.response?.status === 401) {
             localStorage.removeItem('token');
+            localStorage.removeItem('user');
             window.location.href = '/login';
         }
         return Promise.reject(err);
@@ -34,15 +35,23 @@ export const askQuestion = (question, sessionId = null) =>
 
 export const getSessions = () => api.get('/chat/sessions');
 export const getMessages = (sessionId) => api.get(`/chat/sessions/${sessionId}/messages`);
+export const renameSession = (sessionId, title) =>
+    api.patch(`/chat/sessions/${sessionId}`, { title });
 export const deleteSession = (sessionId) => api.delete(`/chat/sessions/${sessionId}`);
 
 // Documents
 export const getDocuments = () => api.get('/documents');
-export const uploadDocument = (file) => {
+export const getDocumentChunks = (id) => api.get(`/documents/${id}/chunks`);
+export const uploadDocument = (file, onProgress) => {
     const form = new FormData();
-    form.append('file', file);
+    form.append('File', file);
     return api.post('/documents/upload', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (e) => {
+            if (onProgress && e.total) {
+                onProgress(Math.round((e.loaded * 100) / e.total));
+            }
+        },
     });
 };
 export const deleteDocument = (id) => api.delete(`/documents/${id}`);

@@ -1,10 +1,12 @@
 ﻿using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using DocuChat.Application.Abstractions;
 using DocuChat.Application.DTOs.Document;
 using DocuChat.API.Extensions;
 using DocuChat.Domain.Enums;
+using DocuChat.Infrastructure.Persistence;
 
 namespace DocuChat.API.Controllers;
 
@@ -20,13 +22,38 @@ public class DocumentsController : ControllerBase
 {
     private readonly IDocumentService _documentService;
     private readonly IValidator<UploadDocumentRequest> _uploadValidator;
+    private readonly AppDbContext _db;
 
     public DocumentsController(
         IDocumentService documentService,
-        IValidator<UploadDocumentRequest> uploadValidator)
+        IValidator<UploadDocumentRequest> uploadValidator,
+        AppDbContext db)
     {
         _documentService = documentService;
         _uploadValidator = uploadValidator;
+        _db = db;
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetAll(CancellationToken ct)
+    {
+        var result = await _documentService.GetAllDocumentsAsync(ct);
+        return result.ToActionResult();
+    }
+
+    [HttpGet("{id:guid}/chunks")]
+    public async Task<IActionResult> GetChunks(Guid id, CancellationToken ct)
+    {
+        var doc = await _db.Documents.FindAsync([id], ct);
+        if (doc is null) return NotFound();
+
+        var chunks = await _db.DocumentChunks
+            .Where(c => c.DocumentId == id)
+            .OrderBy(c => c.ChunkIndex)
+            .Select(c => new { c.Id, c.ChunkIndex, c.Content })
+            .ToListAsync(ct);
+
+        return Ok(new { success = true, data = chunks });
     }
 
     [HttpPost("upload")]
@@ -45,6 +72,13 @@ public class DocumentsController : ControllerBase
                              .ToValidationResult<DocumentResponseDto>();
 
         var result = await _documentService.UploadAsync(req, ct);
+        return result.ToActionResult();
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    {
+        var result = await _documentService.DeleteAsync(id, ct);
         return result.ToActionResult();
     }
 }
