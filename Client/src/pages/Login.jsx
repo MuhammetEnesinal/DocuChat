@@ -19,7 +19,8 @@ export default function Login() {
             const res = await login(email, password);
             const { token, ...user } = res.data.data;
             setAuth(token, user);
-            navigate('/chat');
+            // Role göre yönlendirme
+            navigate(user.roles?.includes("Admin") ? "/admin" : "/chat");
         } catch (err) {
             setError(err.response?.data?.error?.message || 'Giriş başarısız.');
         } finally {

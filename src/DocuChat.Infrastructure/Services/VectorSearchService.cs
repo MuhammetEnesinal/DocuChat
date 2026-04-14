@@ -10,7 +10,8 @@ public class VectorSearchService : IVectorSearch
     private readonly AppDbContext _db;
     private readonly IEmbeddingService _embedder;
 
-    private const double Threshold = 0.85; // 0.75 → 0.85 daha fazla sonuç gelir
+    private const double SimilarityThreshold = 0.50;
+    private const double FallbackThreshold = 0.60;
 
     public VectorSearchService(AppDbContext db, IEmbeddingService embedder)
     {
@@ -20,35 +21,54 @@ public class VectorSearchService : IVectorSearch
 
     public async Task<IReadOnlyList<ChunkResult>> SearchAsync(
         string question,
-        int topK = 10,
+        int topK = 5,
         CancellationToken ct = default)
     {
         var queryVec = await _embedder.GetEmbeddingAsync(question, ct);
         var vector = new Pgvector.Vector(queryVec);
 
-        var results = await _db.DocumentChunks
-            .Where(c => c.Embedding!.CosineDistance(vector) < Threshold)
+        var results = await GetChunks(vector, SimilarityThreshold, topK, ct);
+
+        if (results.Count < 2)
+            results = await GetChunks(vector, FallbackThreshold, topK, ct);
+
+        if (results.Count == 0)
+            return Array.Empty<ChunkResult>();
+
+        // Eşleşen belgeden tüm chunk'ları getir (sayfalararası bağlantı için)
+        var matchedDocIds = results.Select(r => r.DocumentId).Distinct().ToList();
+
+        if (matchedDocIds.Count == 1)
+        {
+            var allChunks = await _db.DocumentChunks
+                .Where(c => matchedDocIds.Contains(c.DocumentId))
+                .OrderBy(c => c.Embedding!.CosineDistance(vector))
+                .Take(topK * 2)
+                .Join(_db.Documents,
+                      chunk => chunk.DocumentId,
+                      doc => doc.Id,
+                      (chunk, doc) => new ChunkResultInternal(doc.Id, doc.FileName, chunk.Content))
+                .ToListAsync(ct);
+
+            return allChunks.Select(r => new ChunkResult(r.FileName, r.Content)).ToList();
+        }
+
+        return results.Select(r => new ChunkResult(r.FileName, r.Content)).ToList();
+    }
+
+    private async Task<List<ChunkResultInternal>> GetChunks(
+        Pgvector.Vector vector, double threshold, int topK, CancellationToken ct)
+    {
+        return await _db.DocumentChunks
+            .Where(c => c.Embedding!.CosineDistance(vector) < threshold)
             .OrderBy(c => c.Embedding!.CosineDistance(vector))
             .Take(topK)
             .Join(_db.Documents,
                   chunk => chunk.DocumentId,
                   doc => doc.Id,
-                  (chunk, doc) => new ChunkResult(doc.FileName, chunk.Content))
+                  (chunk, doc) => new ChunkResultInternal(doc.Id, doc.FileName, chunk.Content))
             .ToListAsync(ct);
-
-        // Threshold'u geçen sonuç yoksa en yakın 10'u getir
-        if (results.Count == 0)
-        {
-            results = await _db.DocumentChunks
-                .OrderBy(c => c.Embedding!.CosineDistance(vector))
-                .Take(topK)
-                .Join(_db.Documents,
-                      chunk => chunk.DocumentId,
-                      doc => doc.Id,
-                      (chunk, doc) => new ChunkResult(doc.FileName, chunk.Content))
-                .ToListAsync(ct);
-        }
-
-        return results;
     }
+
+    private record ChunkResultInternal(Guid DocumentId, string FileName, string Content);
 }
