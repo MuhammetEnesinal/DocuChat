@@ -10,4 +10,5 @@ public interface IChatService
     Task<Result<IReadOnlyList<ChatMessageResponseDto>>> GetMessagesAsync(Guid sessionId, CancellationToken ct = default);
     Task<Result<bool>> RenameSessionAsync(Guid sessionId, string title, CancellationToken ct = default);
     Task<Result<bool>> DeleteSessionAsync(Guid sessionId, CancellationToken ct = default);
+    Task<Result<IReadOnlyList<string>>> GetPopularQuestionsAsync(int limit, CancellationToken ct = default);
 }

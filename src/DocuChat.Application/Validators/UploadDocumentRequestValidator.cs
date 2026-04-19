@@ -8,8 +8,9 @@ public class UploadDocumentRequestValidator : AbstractValidator<UploadDocumentRe
     private static readonly string[] AllowedTypes =
     {
         "application/pdf",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/msword",                                                       // .doc
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",       // .xlsx
         "text/plain",
         "text/csv"
     };
@@ -22,7 +23,7 @@ public class UploadDocumentRequestValidator : AbstractValidator<UploadDocumentRe
 
         RuleFor(x => x.ContentType)
             .Must(t => AllowedTypes.Contains(t))
-            .WithMessage("Desteklenen formatlar: PDF, DOCX, XLSX, TXT, CSV.");
+            .WithMessage("Desteklenen formatlar: PDF, DOC, DOCX, XLSX, TXT, CSV.");
 
         RuleFor(x => x.FileSizeBytes)
             .InclusiveBetween(1, 50 * 1024 * 1024)

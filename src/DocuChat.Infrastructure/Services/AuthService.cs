@@ -83,4 +83,24 @@ public class AuthService : IAuthService
 
         return Result<IReadOnlyList<UserSummaryResponseDto>>.Success(dtos);
     }
+
+    public async Task<Result<bool>> DeleteUserAsync(string userId, CancellationToken ct)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is null)
+            return Result<bool>.Failure(Error.NotFound("Kullanıcı bulunamadı."));
+
+        var roles = await _userManager.GetRolesAsync(user);
+        if (roles.Contains(Roles.Admin))
+            return Result<bool>.Failure(Error.Forbidden("Admin kullanıcı silinemez."));
+
+        var result = await _userManager.DeleteAsync(user);
+        if (!result.Succeeded)
+        {
+            var msg = string.Join(", ", result.Errors.Select(e => e.Description));
+            return Result<bool>.Failure(Error.Validation(msg));
+        }
+
+        return Result<bool>.Success(true);
+    }
 }

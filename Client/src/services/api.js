@@ -25,11 +25,14 @@ api.interceptors.response.use(
 
 export default api;
 
-// Auth
+// ── Auth ──────────────────────────────────────────────────────────────────
 export const login = (email, password) =>
     api.post('/auth/login', { email, password });
 
-// Chat
+export const register = (fullName, email, password) =>
+    api.post('/auth/register', { fullName, email, password });
+
+// ── Chat ──────────────────────────────────────────────────────────────────
 export const askQuestion = (question, sessionId = null) =>
     api.post('/chat/ask', { question, sessionId });
 
@@ -39,7 +42,7 @@ export const renameSession = (sessionId, title) =>
     api.patch(`/chat/sessions/${sessionId}`, { title });
 export const deleteSession = (sessionId) => api.delete(`/chat/sessions/${sessionId}`);
 
-// Documents
+// ── Documents ─────────────────────────────────────────────────────────────
 export const getDocuments = () => api.get('/documents');
 export const getDocumentChunks = (id) => api.get(`/documents/${id}/chunks`);
 export const uploadDocument = (file, onProgress) => {
@@ -48,10 +51,18 @@ export const uploadDocument = (file, onProgress) => {
     return api.post('/documents/upload', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
         onUploadProgress: (e) => {
-            if (onProgress && e.total) {
+            if (onProgress && e.total)
                 onProgress(Math.round((e.loaded * 100) / e.total));
-            }
         },
     });
 };
 export const deleteDocument = (id) => api.delete(`/documents/${id}`);
+
+export const getPopularQuestions = (limit = 6) =>
+    api.get(`/chat/popular-questions?limit=${limit}`);
+
+// ── Admin ─────────────────────────────────────────────────────────────────
+export const adminGetUsers = () => api.get('/admin/users');
+export const adminCreateUser = (fullName, email, password) =>
+    api.post('/admin/users', { fullName, email, password });
+export const adminDeleteUser = (id) => api.delete(`/admin/users/${id}`);

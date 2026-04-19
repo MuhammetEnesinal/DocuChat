@@ -60,6 +60,7 @@ public class ChatService : IChatService
         await _uow.SaveChangesAsync(ct);
 
         // Oturum geçmişini çek (son 6 mesaj) — user mesajı kaydedildikten sonra
+        // Not: SaveChangesAsync sonrası fresh query — cache sorununu önler
         var history = new List<(string Role, string Content)>();
         var sessionWithMessages = await _uow.Sessions.GetWithMessagesAsync(session.Id, ct);
         if (sessionWithMessages?.Messages?.Any() == true)
@@ -72,13 +73,14 @@ public class ChatService : IChatService
             // Sadece önceki konuşma geçmişini al (son 6 mesaj, mevcut user mesajı hariç)
             history = allMessages
                 .Take(allMessages.Count - 1)
-                .TakeLast(6)
+                .TakeLast(4)
+                .Where(m => !m.Content.StartsWith("AŞAĞIDAKİ BELGE PARÇALARINI"))
                 .Select(m => (m.Role == MessageRole.User ? "user" : "assistant", m.Content))
                 .ToList();
         }
 
         // Tüm belgeler içinde ara
-        var chunks = await _vectorSearch.SearchAsync(req.Question, topK: 10, ct);
+        var chunks = await _vectorSearch.SearchAsync(req.Question, topK: 5, ct);
 
         if (chunks.Count == 0)
         {
@@ -150,6 +152,36 @@ public class ChatService : IChatService
         await _uow.SaveChangesAsync(ct);
 
         return Result<bool>.Success(true);
+    }
+
+
+    public async Task<Result<IReadOnlyList<string>>> GetPopularQuestionsAsync(
+        int limit, CancellationToken ct)
+    {
+        var allMessages = await _uow.Messages.FindAsync(
+            m => m.Role == MessageRole.User, ct);
+
+        var popular = allMessages
+            .Select(m => m.Content.Trim())
+            .Where(q => q.Length > 10 && q.Length < 200)
+            .Where(q => !q.StartsWith("AŞAĞIDAKİ BELGE PARÇALARINI"))
+            .GroupBy(q => NormalizeQuestion(q))
+            .OrderByDescending(g => g.Count())
+            .Take(limit)
+            .Select(g => g.OrderBy(q => q.Length).First())
+            .ToList();
+
+        return Result<IReadOnlyList<string>>.Success(popular);
+    }
+
+    // Soruyu normalize et — büyük/küçük harf, noktalama farkı gözetme
+    private static string NormalizeQuestion(string question)
+    {
+        return new string(
+            question.ToLowerInvariant()
+                    .Where(c => char.IsLetterOrDigit(c) || char.IsWhiteSpace(c))
+                    .ToArray()
+        ).Trim();
     }
 
     public async Task<Result<bool>> DeleteSessionAsync(Guid sessionId, CancellationToken ct)

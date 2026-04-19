@@ -60,6 +60,14 @@ public class ChatController : ControllerBase
         var result = await _chatService.DeleteSessionAsync(sessionId, ct);
         return result.ToActionResult();
     }
+
+    [HttpGet("popular-questions")]
+    public async Task<IActionResult> GetPopularQuestions(
+        [FromQuery] int limit = 6, CancellationToken ct = default)
+    {
+        var result = await _chatService.GetPopularQuestionsAsync(limit, ct);
+        return result.ToActionResult();
+    }
 }
 
 public record RenameSessionRequest(string Title);

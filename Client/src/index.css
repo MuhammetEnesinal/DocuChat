@@ -47,41 +47,75 @@ body {
         background: var(--accent);
     }
 
+/* ── Prose (markdown render) ── */
 .prose-dark p {
     color: #cbd5e1;
     line-height: 1.75;
+    margin: 0.25rem 0;
 }
 
 .prose-dark h1, .prose-dark h2, .prose-dark h3 {
     color: #f1f5f9;
+    margin: 0.75rem 0 0.25rem;
+}
+
+.prose-dark ul, .prose-dark ol {
+    padding-left: 1.25rem;
+    margin: 0.25rem 0;
+}
+
+.prose-dark li {
+    color: #cbd5e1;
+    line-height: 1.75;
+}
+
+/* ── Tablo ── */
+.prose-dark .table-wrapper {
+    overflow-x: auto;
+    margin: 0.5rem 0;
+    border-radius: 10px;
+    border: 1px solid var(--border);
 }
 
 .prose-dark table {
     width: 100%;
     border-collapse: collapse;
+    display: table;
+}
+
+.prose-dark thead {
+    background: var(--navy-light);
 }
 
 .prose-dark th {
-    background: var(--navy-light);
     color: #93c5fd;
-    padding: 8px 12px;
+    padding: 9px 14px;
     text-align: left;
     font-size: 0.75rem;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border);
 }
 
 .prose-dark td {
-    padding: 8px 12px;
+    padding: 8px 14px;
     border-bottom: 1px solid var(--border);
     color: #cbd5e1;
-    font-size: 0.875rem;
+    font-size: 0.85rem;
+    vertical-align: top;
 }
 
 .prose-dark tr:last-child td {
     border-bottom: none;
 }
 
+.prose-dark tbody tr:hover {
+    background: rgba(30, 58, 95, 0.3);
+}
+
+/* ── Kod ── */
 .prose-dark code {
     background: var(--navy-mid);
     padding: 2px 6px;
@@ -89,4 +123,36 @@ body {
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.8em;
     color: #93c5fd;
+}
+
+.prose-dark pre {
+    background: var(--navy-mid);
+    padding: 12px;
+    border-radius: 8px;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+}
+
+    .prose-dark pre code {
+        background: none;
+        padding: 0;
+        font-size: 0.82em;
+    }
+
+.prose-dark blockquote {
+    border-left: 3px solid var(--accent);
+    padding-left: 12px;
+    color: #94a3b8;
+    margin: 0.5rem 0;
+}
+
+/* ── Mobil responsive ── */
+@media (max-width: 640px) {
+    .prose-dark table {
+        font-size: 0.75rem;
+    }
+
+    .prose-dark th, .prose-dark td {
+        padding: 6px 8px;
+    }
 }

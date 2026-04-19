@@ -10,8 +10,8 @@ public class VectorSearchService : IVectorSearch
     private readonly AppDbContext _db;
     private readonly IEmbeddingService _embedder;
 
-    private const double SimilarityThreshold = 0.50;
-    private const double FallbackThreshold = 0.60;
+    private const double SimilarityThreshold = 0.55;
+    private const double FallbackThreshold = 0.70;
 
     public VectorSearchService(AppDbContext db, IEmbeddingService embedder)
     {

@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using DocuChat.Application.Abstractions;
+using DocuChat.Application.DTOs.Auth;
 using DocuChat.API.Extensions;
 using DocuChat.Domain.Enums;
 
@@ -15,15 +16,18 @@ public class AdminController : ControllerBase
     private readonly IDocumentService _documentService;
     private readonly IChatService _chatService;
     private readonly IAuthService _authService;
+    private readonly IValidator<RegisterRequest> _registerValidator;
 
     public AdminController(
         IDocumentService documentService,
         IChatService chatService,
-        IAuthService authService)
+        IAuthService authService,
+        IValidator<RegisterRequest> registerValidator)
     {
         _documentService = documentService;
         _chatService = chatService;
         _authService = authService;
+        _registerValidator = registerValidator;
     }
 
     // ───── KULLANICILAR ─────
@@ -32,6 +36,26 @@ public class AdminController : ControllerBase
     public async Task<IActionResult> GetAllUsers(CancellationToken ct)
     {
         var result = await _authService.GetAllUsersAsync(ct);
+        return result.ToActionResult();
+    }
+
+    [HttpPost("users")]
+    public async Task<IActionResult> CreateUser([FromBody] RegisterRequest req, CancellationToken ct)
+    {
+        var validation = await _registerValidator.ValidateAsync(req, ct);
+        if (!validation.IsValid)
+            return validation.Errors
+                             .Select(e => e.ErrorMessage)
+                             .ToValidationResult<AuthResponseDto>();
+
+        var result = await _authService.RegisterAsync(req, ct);
+        return result.ToActionResult();
+    }
+
+    [HttpDelete("users/{id}")]
+    public async Task<IActionResult> DeleteUser(string id, CancellationToken ct)
+    {
+        var result = await _authService.DeleteUserAsync(id, ct);
         return result.ToActionResult();
     }
 

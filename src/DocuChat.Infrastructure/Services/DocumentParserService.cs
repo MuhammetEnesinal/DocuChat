@@ -68,6 +68,12 @@ public class DocumentParserService : IDocumentParser
 
     public IEnumerable<string> Parse(Stream stream, FileType fileType)
     {
+        // Her format için extract + semantic chunk
+        // XLSX ve CSV: tablo marker'larıyla wrap edilmiş metin döner → Chunk() bölmez
+        // PDF: Groq Vision sayfa bazlı, tablo marker'lı → Chunk() bölmez
+        // DOCX: başlık/tablo ayrımı yapılmış → Chunk() akıllıca böler
+        // TXT: düz metin → Chunk() cümle bazlı böler
+
         var text = fileType switch
         {
             FileType.Pdf => ExtractPdf(stream),
@@ -162,19 +168,7 @@ public class DocumentParserService : IDocumentParser
                         role = "user",
                         content = new object[]
                         {
-                            new { type = "text", text = @"Bu görseldeki tüm içeriği çıkar. Kesin kurallara uy:
-
-1. TABLO VARSA: Her satırı ayrı ayrı yaz, tüm sütunları aynı satırda tut:
-[TABLO BAŞLANGIÇ]
-Başlıklar: Sütun1 | Sütun2 | Sütun3
-Sütun1: değer, Sütun2: değer, Sütun3: değer
-Sütun1: değer, Sütun2: değer, Sütun3: değer
-[TABLO BİTİŞ]
-Önemli: Her veri satırını TEK SATIRDA yaz. Birden fazla satıra yayma.
-Resim/görsel olan hücreler için köşeli parantezle belirt: [resim]
-
-2. NORMAL METİN: Olduğu gibi yaz.
-3. Yorum veya açıklama ekleme." },
+                            new { type = "text", text = "Bu görseldeki tüm metni olduğu gibi çıkar. Sadece metni ver, başka hiçbir şey ekleme." },
                             new { type = "image_url", image_url = new { url = $"data:image/png;base64,{base64}" } }
                         }
                     }
@@ -525,16 +519,27 @@ Resim/görsel olan hücreler için köşeli parantezle belirt: [resim]
             using var wb = new XLWorkbook(stream);
             foreach (var ws in wb.Worksheets)
             {
-                sb.AppendLine($"\n[Sayfa: {ws.Name}]");
                 var allRows = ws.RowsUsed().Where(r => !r.IsHidden).ToList();
                 if (!allRows.Any()) continue;
 
-                var headers = allRows[0].CellsUsed()
+                // Başlık satırını bul: birden fazla dolu sütunu olan ilk satır
+                var headerRowIdx = 0;
+                for (var ri = 0; ri < Math.Min(5, allRows.Count); ri++)
+                {
+                    if (allRows[ri].CellsUsed().Count() >= 2) { headerRowIdx = ri; break; }
+                }
+
+                var headers = allRows[headerRowIdx].CellsUsed()
                     .OrderBy(c => c.Address.ColumnNumber)
                     .Select(c => c.Value.ToString()?.Trim() ?? string.Empty).ToList();
+
+                // [TABLO BAŞLANGIÇ] marker ile wrap et
+                // Chunk() metodu bu bloğu boyuta bakmaksızın bölmeden tek parça tutar
+                sb.AppendLine("[TABLO BAŞLANGIÇ]");
+                sb.AppendLine($"Sayfa: {ws.Name}");
                 sb.AppendLine("Başlıklar: " + string.Join(" | ", headers.Where(h => !string.IsNullOrWhiteSpace(h))));
 
-                foreach (var row in allRows.Skip(1))
+                foreach (var row in allRows.Skip(headerRowIdx + 1))
                 {
                     var cells = row.CellsUsed()
                         .OrderBy(c => c.Address.ColumnNumber)
@@ -549,11 +554,14 @@ Resim/görsel olan hücreler için köşeli parantezle belirt: [resim]
                     }
                     if (parts.Any()) sb.AppendLine(string.Join(", ", parts));
                 }
+
+                sb.AppendLine("[TABLO BİTİŞ]");
             }
         }
         catch { }
         return sb.ToString();
     }
+
 
     // ── CSV ──────────────────────────────────────────────────────────────
     private static string ExtractCsv(Stream stream)
@@ -603,7 +611,9 @@ Resim/görsel olan hücreler için köşeli parantezle belirt: [resim]
             }
         }
         catch { }
-        return sb.ToString();
+        var csvContent = sb.ToString().Trim();
+        if (string.IsNullOrWhiteSpace(csvContent)) return string.Empty;
+        return $"[TABLO BAŞLANGIÇ]\n{csvContent}\n[TABLO BİTİŞ]";
     }
 
     // ── TXT ──────────────────────────────────────────────────────────────
