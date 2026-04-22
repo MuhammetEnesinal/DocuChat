@@ -14,7 +14,9 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
     (res) => res,
     (err) => {
-        if (err.response?.status === 401) {
+        // 401 gelince sadece token varsa yönlendir
+        // Token yoksa (login sayfasındayız) yönlendirme yapma — hata mesajı göster
+        if (err.response?.status === 401 && localStorage.getItem('token')) {
             localStorage.removeItem('token');
             localStorage.removeItem('user');
             window.location.href = '/login';

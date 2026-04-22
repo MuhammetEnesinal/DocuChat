@@ -1,9 +1,9 @@
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
 
 export default function NotFound() {
     const navigate = useNavigate();
-    const user = JSON.parse(localStorage.getItem('user') || 'null');
-    const home = user?.roles?.includes('Admin') ? '/admin' : '/chat';
+    const { homeRoute } = useAuth();
 
     return (
         <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--navy)' }}>
@@ -22,7 +22,7 @@ export default function NotFound() {
                     Aradığınız sayfa mevcut değil veya taşınmış olabilir.
                 </p>
                 <button
-                    onClick={() => navigate(home)}
+                    onClick={() => navigate(homeRoute)}
                     className="px-6 py-3 rounded-xl text-sm font-medium text-white transition-all"
                     style={{ background: 'var(--accent)' }}
                     onMouseEnter={(e) => e.currentTarget.style.opacity = '0.85'}

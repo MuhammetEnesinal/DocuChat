@@ -1,29 +1,24 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { ToastProvider } from './components/Toast';
+import { ToastProvider } from './components/shared/Toast';
+import { useAuth } from './hooks/useAuth';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Chat from './pages/Chat';
 import Admin from './pages/Admin';
 import NotFound from './pages/NotFound';
 
-const PrivateRoute = ({ children, requiredRole }) => {
-    const token = localStorage.getItem('token');
-    if (!token) return <Navigate to="/login" replace />;
-    if (requiredRole) {
-        const user = JSON.parse(localStorage.getItem('user') || 'null');
-        if (!user?.roles?.includes(requiredRole)) return <Navigate to="/chat" replace />;
-    }
+function PrivateRoute({ children, requiredRole }) {
+    const { isAuthenticated, isAdmin } = useAuth();
+    if (!isAuthenticated) return <Navigate to="/login" replace />;
+    if (requiredRole === 'Admin' && !isAdmin) return <Navigate to="/chat" replace />;
     return children;
-};
+}
 
-const GuestRoute = ({ children }) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-        const user = JSON.parse(localStorage.getItem('user') || 'null');
-        return <Navigate to={user?.roles?.includes('Admin') ? '/admin' : '/chat'} replace />;
-    }
+function GuestRoute({ children }) {
+    const { isAuthenticated, homeRoute } = useAuth();
+    if (isAuthenticated) return <Navigate to={homeRoute} replace />;
     return children;
-};
+}
 
 export default function App() {
     return (

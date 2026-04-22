@@ -6,6 +6,6 @@ public interface IVectorSearch
 {
     Task<IReadOnlyList<ChunkResult>> SearchAsync(
         string question,
-        int topK = 10,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        Guid? preferredDocumentId = null);
 }

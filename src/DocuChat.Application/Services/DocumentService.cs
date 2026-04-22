@@ -103,7 +103,6 @@ public class DocumentService : IDocumentService
         if (doc is null)
             return Result<bool>.Failure(Error.NotFound("Belge bulunamadı."));
 
-        // Chunk'lar Cascade ile otomatik silinir
         if (doc.StoragePath is not null)
             await _fileStorage.DeleteAsync(doc.StoragePath, ct);
 
@@ -115,9 +114,10 @@ public class DocumentService : IDocumentService
     private static FileType DetectFileType(string contentType) => contentType switch
     {
         "application/pdf" => FileType.Pdf,
+        "application/msword" => FileType.Docx, // .doc — WordprocessingDocument ile işlenir
         var t when t.Contains("wordprocessingml") => FileType.Docx,
         var t when t.Contains("spreadsheetml") => FileType.Xlsx,
         "text/csv" => FileType.Csv,
-        _ => FileType.Txt
+        _ => FileType.Txt,
     };
 }

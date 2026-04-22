@@ -59,8 +59,7 @@ public class ChatService : IChatService
         }, ct);
         await _uow.SaveChangesAsync(ct);
 
-        // Oturum geçmişini çek (son 6 mesaj) — user mesajı kaydedildikten sonra
-        // Not: SaveChangesAsync sonrası fresh query — cache sorununu önler
+        // Oturum geçmişini çek (son 4 mesaj) — user mesajı kaydedildikten sonra
         var history = new List<(string Role, string Content)>();
         var sessionWithMessages = await _uow.Sessions.GetWithMessagesAsync(session.Id, ct);
         if (sessionWithMessages?.Messages?.Any() == true)
@@ -69,8 +68,7 @@ public class ChatService : IChatService
                 .OrderBy(m => m.CreatedAt)
                 .ToList();
 
-            // Son user mesajını çıkar — o zaten mevcut soru olarak LLM'e gönderiliyor
-            // Sadece önceki konuşma geçmişini al (son 6 mesaj, mevcut user mesajı hariç)
+            // Son user mesajını çıkar — mevcut soru olarak LLM'e ayrıca gönderiliyor
             history = allMessages
                 .Take(allMessages.Count - 1)
                 .TakeLast(4)
@@ -79,8 +77,33 @@ public class ChatService : IChatService
                 .ToList();
         }
 
-        // Tüm belgeler içinde ara
-        var chunks = await _vectorSearch.SearchAsync(req.Question, topK: 5, ct);
+        // 1. Session'da daha önce hangi belge kullanıldı?
+        //    Son assistant mesajındaki dosya adından belge ID'sini bul
+        Guid? preferredDocumentId = null;
+        if (history.Any())
+        {
+            var lastAssistant = history.LastOrDefault(h => h.Role == "assistant");
+            if (lastAssistant.Content != null)
+            {
+                var fileMatch = System.Text.RegularExpressions.Regex.Match(
+                    lastAssistant.Content,
+                    @"[\w\-\+\.]+\.(csv|pdf|xlsx|docx|txt)",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (fileMatch.Success)
+                {
+                    var fileName = fileMatch.Value;
+                    var fileBaseName = fileName.Split('.')[0];
+                    var doc = await _uow.Documents.FindAsync(
+                        d => d.FileName == fileName || d.FileName.Contains(fileBaseName),
+                        ct);
+                    if (doc.Any())
+                        preferredDocumentId = doc.First().Id;
+                }
+            }
+        }
+
+        // 2. İlgili chunk'ları bul — önceki belgeden bağlamı koru
+        var chunks = await _vectorSearch.SearchAsync(req.Question, ct: ct, preferredDocumentId: preferredDocumentId);
 
         if (chunks.Count == 0)
         {

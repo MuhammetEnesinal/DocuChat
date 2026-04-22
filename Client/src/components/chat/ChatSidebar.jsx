@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SessionSkeleton } from '../Skeleton';
-import SidebarButton from '../ui/SidebarButton';
+import { SessionSkeleton } from '../shared/Skeleton';
+import SidebarButton from './SidebarButton';
 
 export default function ChatSidebar({
     sessions, sessionsLoading, activeSession,

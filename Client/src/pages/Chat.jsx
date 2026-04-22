@@ -1,27 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { askQuestion, getSessions, getMessages, deleteSession, renameSession, getPopularQuestions } from '../services/api';
-import { useToast } from '../components/Toast';
-import useAuthStore from '../store/authStore';
+import { formatDateShort, getRateLimitMessage } from '../utils/format';
+import { useToast } from '../components/shared/Toast';
+import { useAuth } from '../hooks/useAuth';
 import ChatSidebar from '../components/chat/ChatSidebar';
 import MessageBubble from '../components/chat/MessageBubble';
 import SourcePanel from '../components/chat/SourcePanel';
 import EmptyState from '../components/chat/EmptyState';
-
-function formatDate(dateStr) {
-    if (!dateStr) return '';
-    return new Date(dateStr).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' });
-}
-
-function getRateLimitMessage(err) {
-    const msg = err?.response?.data?.error?.message || '';
-    if (err?.response?.status === 429 || msg.includes('rate_limit') || msg.includes('Rate limit')) {
-        const waitMatch = msg.match(/Please try again in ([\d.]+[ms])/i);
-        const wait = waitMatch ? ` Lütfen ${waitMatch[1]} sonra tekrar deneyin.` : ' Lütfen birkaç saniye bekleyin.';
-        return `Sunucu meşgul (token limiti).${wait}`;
-    }
-    return msg || 'Sunucuya bağlanılamadı.';
-}
 
 export default function Chat() {
     const [sessions, setSessions] = useState([]);
@@ -40,7 +26,7 @@ export default function Chat() {
 
     const messagesEndRef = useRef(null);
     const textareaRef = useRef(null);
-    const { user, logout } = useAuthStore();
+    const { user, logout } = useAuth();
     const navigate = useNavigate();
     const toast = useToast();
 
@@ -155,7 +141,7 @@ export default function Chat() {
     const handleLogout = () => { logout(); navigate('/login'); };
 
     const groupedMessages = messages.reduce((acc, msg) => {
-        const date = formatDate(msg.createdAt);
+        const date = formatDateShort(msg.createdAt);
         if (!acc[date]) acc[date] = [];
         acc[date].push(msg);
         return acc;

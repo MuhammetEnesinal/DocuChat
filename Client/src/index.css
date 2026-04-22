@@ -156,3 +156,21 @@ body {
         padding: 6px 8px;
     }
 }
+
+@keyframes shimmer {
+    0% {
+        background-position: 200% 0
+    }
+
+    100% {
+        background-position: -200% 0
+    }
+}
+
+/* Tarayıcının native şifre göster/gizle ikonunu gizle */
+input::-ms-reveal,
+input::-ms-clear,
+input::-webkit-credentials-auto-fill-button,
+input::-webkit-textfield-decoration-container {
+    display: none !important;
+}

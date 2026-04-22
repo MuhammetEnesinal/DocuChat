@@ -1,14 +1,13 @@
-﻿using ClosedXML.Excel;
-using CsvHelper;
+﻿using CsvHelper;
 using DocuChat.Application.Abstractions;
 using DocuChat.Domain.Enums;
-using DocumentFormat.OpenXml.Packaging;
-using DocumentFormat.OpenXml.Wordprocessing;
+using ExcelDataReader;
+using NPOI.XWPF.UserModel;
 using PDFtoImage;
 using SkiaSharp;
+using System.Data;
 using System.Globalization;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Tesseract;
@@ -23,38 +22,9 @@ public class DocumentParserService : IDocumentParser
     private readonly string _tessLang;
     private readonly string? _groqApiKey;
     private readonly string _groqVisionModel;
+    private readonly string? _llamaParseApiKey;
 
     private const int RenderDpi = 400;
-    private const float ColGapRatio = 0.03f; // Sayfa genişliğinin %3'ünden büyük boşluk → sütun sınırı
-    private const int MinTableCols = 3;
-    private const int MinTableRows = 2;
-
-    // ── Encoding fix ──────────────────────────────────────────────────────
-    private static readonly Regex EngContractions =
-        new(@"n't|'s\b|'re\b|'ll\b|'ve\b|'m\b|'d\b",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
-    private static readonly Regex TurkishSuffix =
-        new(@"'(nın|nin|nun|nün|na|ne|nda|nde|ndan|nden|daki|deki|nu|nü|da|de|ta|te|dan|den|ya|ye|yı|yi|yu|yü|ın|in|un|ün|ı|i|u|ü|a|e)\b",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
-    private static readonly Regex AbbrevSuffix =
-        new(@"(?<=[A-ZĞÜŞİÖÇ])' (?=[a-zA-ZğüşıöçĞÜŞİÖÇ])", RegexOptions.Compiled);
-
-    private const string L = @"a-zA-ZğüşıöçĞÜŞİÖÇ";
-    private static readonly Regex AposInWord = new(@"(?<=[" + L + @"])'(?=[" + L + @"])", RegexOptions.Compiled);
-    private static readonly Regex AposWordStart = new(@"(?<=[^" + L + @"])'(?=[" + L + @"])", RegexOptions.Compiled);
-    private static readonly Regex AposWordEnd = new(@"(?<=[" + L + @"])'(?=[^" + L + @"])", RegexOptions.Compiled);
-    private static readonly Regex AposLineStart = new(@"^'(?=[" + L + @"])", RegexOptions.Compiled | RegexOptions.Multiline);
-
-    private static readonly Dictionary<string, string> Ligatures = new()
-    {
-        ["\uFB01"] = "fi",
-        ["\uFB02"] = "fl",
-        ["\uFB00"] = "ff",
-        ["\uFB03"] = "ffi",
-        ["\uFB04"] = "ffl",
-    };
 
     public DocumentParserService(Microsoft.Extensions.Configuration.IConfiguration cfg)
     {
@@ -64,16 +34,12 @@ public class DocumentParserService : IDocumentParser
         _tessLang = cfg["Tesseract:Language"] ?? "tur+eng";
         _groqApiKey = cfg["Llm:ApiKey"];
         _groqVisionModel = cfg["GroqVision:Model"] ?? "meta-llama/llama-4-scout-17b-16e-instruct";
+        _llamaParseApiKey = cfg["LlamaParse:ApiKey"];
     }
 
     public IEnumerable<string> Parse(Stream stream, FileType fileType)
     {
-        // Her format için extract + semantic chunk
-        // XLSX ve CSV: tablo marker'larıyla wrap edilmiş metin döner → Chunk() bölmez
-        // PDF: Groq Vision sayfa bazlı, tablo marker'lı → Chunk() bölmez
-        // DOCX: başlık/tablo ayrımı yapılmış → Chunk() akıllıca böler
-        // TXT: düz metin → Chunk() cümle bazlı böler
-
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         var text = fileType switch
         {
             FileType.Pdf => ExtractPdf(stream),
@@ -82,55 +48,58 @@ public class DocumentParserService : IDocumentParser
             FileType.Csv => ExtractCsv(stream),
             _ => ExtractTxt(stream),
         };
-
-        var cleaned = CleanText(text);
-        return Chunk(cleaned);
+        return Chunk(text);
     }
 
-    // ── PDF ───────────────────────────────────────────────────────────────
+    // ── PDF — Groq Vision + Tesseract fallback ────────────────────────────
     private string ExtractPdf(Stream stream)
     {
-        using var ms = new MemoryStream();
+        var ms = new MemoryStream();
         stream.CopyTo(ms);
         ms.Position = 0;
-
         var sb = new StringBuilder();
-
         var useGroqVision = !string.IsNullOrWhiteSpace(_groqApiKey);
-        Console.WriteLine(useGroqVision ? "[OCR] Motor: Groq Vision" : "[OCR] Motor: Tesseract");
 
         if (useGroqVision)
         {
             try
             {
-                var pageImages = Conversion.ToImages(ms, options: new RenderOptions { Dpi = RenderDpi });
-                foreach (var bitmap in pageImages)
+                var pages = Conversion.ToImages(ms, options: new RenderOptions { Dpi = RenderDpi }).ToList();
+                foreach (var bitmap in pages)
                 {
                     try
                     {
-                        var pageText = OcrPageWithGroqAsync(bitmap, _groqApiKey!, _groqVisionModel).GetAwaiter().GetResult();
+                        string pageText = string.Empty;
+                        for (var attempt = 0; attempt < 2; attempt++)
+                        {
+                            try
+                            {
+                                pageText = OcrPageWithGroqAsync(bitmap, _groqApiKey!, _groqVisionModel).GetAwaiter().GetResult();
+                                if (!string.IsNullOrWhiteSpace(pageText)) break;
+                            }
+                            catch (Exception ex)
+                            {
+                                if (attempt == 0) { Console.WriteLine($"[OCR] Retry: {ex.Message}"); System.Threading.Thread.Sleep(3000); }
+                            }
+                        }
                         if (!string.IsNullOrWhiteSpace(pageText)) sb.AppendLine(pageText);
                     }
                     finally { bitmap.Dispose(); }
                 }
-                return sb.ToString();
+                if (sb.Length > 0) { ms.Dispose(); return sb.ToString(); }
+                Console.WriteLine("[OCR] Groq Vision metin döndürmedi, Tesseract fallback");
+                ms.Position = 0;
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine("[OCR] Groq Vision hata, Tesseract'a fallback: " + ex.Message);
-                sb.Clear(); ms.Position = 0;
-            }
+            catch (Exception ex) { Console.WriteLine("[OCR] Groq Vision hata: " + ex.Message); sb.Clear(); ms.Position = 0; }
         }
 
         TesseractEngine? engine = null;
-        try { engine = new TesseractEngine(_tessDataPath, _tessLang, EngineMode.LstmOnly); }
-        catch { }
-
+        try { engine = new TesseractEngine(_tessDataPath, _tessLang, EngineMode.LstmOnly); } catch { }
         try
         {
             ms.Position = 0;
-            var pageImages = Conversion.ToImages(ms, options: new RenderOptions { Dpi = RenderDpi });
-            foreach (var bitmap in pageImages)
+            var pages = Conversion.ToImages(ms, options: new RenderOptions { Dpi = RenderDpi });
+            foreach (var bitmap in pages)
             {
                 try
                 {
@@ -141,7 +110,7 @@ public class DocumentParserService : IDocumentParser
             }
         }
         catch (Exception ex) { sb.AppendLine($"[PDF okuma hatası: {ex.Message}]"); }
-        finally { engine?.Dispose(); }
+        finally { engine?.Dispose(); ms.Dispose(); }
         return sb.ToString();
     }
 
@@ -152,10 +121,8 @@ public class DocumentParserService : IDocumentParser
             using var image = SKImage.FromBitmap(bitmap);
             using var data = image.Encode(SKEncodedImageFormat.Png, 100);
             var base64 = Convert.ToBase64String(data.ToArray());
-
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
             http.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
-
             var payload = new
             {
                 model,
@@ -163,23 +130,19 @@ public class DocumentParserService : IDocumentParser
                 temperature = 0,
                 messages = new object[]
                 {
-                    new
+                    new { role = "user", content = new object[]
                     {
-                        role = "user",
-                        content = new object[]
-                        {
-                            new { type = "text", text = "Bu görseldeki tüm metni olduğu gibi çıkar. Sadece metni ver, başka hiçbir şey ekleme." },
-                            new { type = "image_url", image_url = new { url = $"data:image/png;base64,{base64}" } }
-                        }
-                    }
+                        new { type = "text", text = "Bu görseldeki tüm metni olduğu gibi çıkar. Sadece metni ver, başka hiçbir şey ekleme." },
+                        new { type = "image_url", image_url = new { url = $"data:image/png;base64,{base64}" } }
+                    }}
                 }
             };
-
             var response = await http.PostAsJsonAsync("https://api.groq.com/openai/v1/chat/completions", payload);
-            var json = await response.Content.ReadFromJsonAsync<JsonElement>();
-            var text = json.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString()?.Trim() ?? string.Empty;
-            Console.WriteLine($"[OCR] Groq Vision sayfa uzunluk: {text.Length}");
-            return text;
+            var body = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode) { Console.WriteLine($"[OCR] HTTP {(int)response.StatusCode}: {body}"); return string.Empty; }
+            var json = JsonSerializer.Deserialize<JsonElement>(body);
+            if (!json.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0) return string.Empty;
+            return choices[0].GetProperty("message").GetProperty("content").GetString()?.Trim() ?? string.Empty;
         }
         catch (Exception ex) { Console.WriteLine("[OCR] Groq Vision hata: " + ex.Message); return string.Empty; }
     }
@@ -192,376 +155,205 @@ public class DocumentParserService : IDocumentParser
             using var data = image.Encode(SKEncodedImageFormat.Png, 100);
             using var pix = Pix.LoadFromMemory(data.ToArray());
             using var ocrPage = engine.Process(pix, PageSegMode.Auto);
-            var words = ParseTsv(ocrPage.GetTsvText(1), bitmap.Width);
-            if (!words.Any()) return ocrPage.GetText()?.Trim() ?? string.Empty;
-            var rows = GroupIntoRows(words, bitmap.Height);
-            var sb = new StringBuilder();
-            foreach (var row in rows)
-                sb.AppendLine(string.Join(" ", row.Select(w => w.Text)));
-            return sb.ToString().Trim();
+            return ocrPage.GetText()?.Trim() ?? string.Empty;
         }
         catch { return string.Empty; }
     }
 
-    // ── TSV parse ─────────────────────────────────────────────────────────
-    private static List<TsvWord> ParseTsv(string tsv, int pageWidth)
+    // ── DOCX — LlamaParse API, fallback NPOI ─────────────────────────────
+    private string ExtractDocx(Stream stream)
     {
-        var words = new List<TsvWord>();
-        if (string.IsNullOrWhiteSpace(tsv)) return words;
-
-        foreach (var line in tsv.Split('\n'))
+        if (!string.IsNullOrWhiteSpace(_llamaParseApiKey))
         {
-            var cols = line.Split('\t');
-            if (cols.Length < 12) continue;
-            if (!int.TryParse(cols[0], out var level) || level != 5) continue;
-            if (!float.TryParse(cols[6], NumberStyles.Float, CultureInfo.InvariantCulture, out var left)) continue;
-            if (!float.TryParse(cols[7], NumberStyles.Float, CultureInfo.InvariantCulture, out var top)) continue;
-            if (!float.TryParse(cols[8], NumberStyles.Float, CultureInfo.InvariantCulture, out var width)) continue;
-            if (!float.TryParse(cols[9], NumberStyles.Float, CultureInfo.InvariantCulture, out var height)) continue;
-            if (!float.TryParse(cols[10], NumberStyles.Float, CultureInfo.InvariantCulture, out var conf)) continue;
-            if (conf < 0) continue;
-
-            var text = string.Join("\t", cols.Skip(11)).Trim();
-            if (string.IsNullOrWhiteSpace(text)) continue;
-
-            words.Add(new TsvWord(text, left, top, left + width, top + height, pageWidth));
+            try
+            {
+                var result = ExtractDocxViaLlamaParseAsync(stream).GetAwaiter().GetResult();
+                if (!string.IsNullOrWhiteSpace(result)) return result;
+            }
+            catch (Exception ex) { Console.WriteLine($"[DOCX] LlamaParse hata, NPOI fallback: {ex.Message}"); }
         }
-
-        return words;
+        return ExtractDocxViaNpoi(stream);
     }
 
-    // ── Kelimeleri satırlara grupla ───────────────────────────────────────
-    private static List<List<TsvWord>> GroupIntoRows(List<TsvWord> words, int pageHeight)
+    private async Task<string> ExtractDocxViaLlamaParseAsync(Stream stream)
     {
-        // Satır toleransı: ortalama harf yüksekliğinin yarısı
-        var avgH = words.Average(w => w.Bottom - w.Top);
-        var rowTol = avgH * 0.6f;
+        using var ms = new MemoryStream();
+        stream.CopyTo(ms);
+        ms.Position = 0;
 
-        var sorted = words.OrderBy(w => w.Top).ThenBy(w => w.Left).ToList();
-        var rows = new List<List<TsvWord>>();
-        var current = new List<TsvWord> { sorted[0] };
-        var refY = sorted[0].CenterY;
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
+        http.DefaultRequestHeaders.Add("Authorization", $"Bearer {_llamaParseApiKey}");
 
-        for (var i = 1; i < sorted.Count; i++)
+        // 1. Dosyayı yükle
+        using var uploadForm = new MultipartFormDataContent();
+        var fileBytes = new ByteArrayContent(ms.ToArray());
+        fileBytes.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        uploadForm.Add(fileBytes, "file", "document.docx");
+
+        var uploadResp = await http.PostAsync("https://api.cloud.llamaindex.ai/api/v1/parsing/upload", uploadForm);
+        var uploadBody = await uploadResp.Content.ReadAsStringAsync();
+        if (!uploadResp.IsSuccessStatusCode)
         {
-            var w = sorted[i];
-            if (Math.Abs(w.CenterY - refY) <= rowTol)
-            {
-                current.Add(w);
-            }
+            Console.WriteLine($"[LlamaParse] Upload HTTP {(int)uploadResp.StatusCode}: {uploadBody}");
+            return string.Empty;
+        }
+
+        var uploadJson = JsonSerializer.Deserialize<JsonElement>(uploadBody);
+        var jobId = uploadJson.GetProperty("id").GetString();
+        Console.WriteLine($"[LlamaParse] Job ID: {jobId}");
+
+        // 2. İşlem tamamlanana kadar bekle (max 60 saniye)
+        for (var i = 0; i < 30; i++)
+        {
+            await Task.Delay(2000);
+            var statusResp = await http.GetAsync($"https://api.cloud.llamaindex.ai/api/v1/parsing/job/{jobId}");
+            var statusBody = await statusResp.Content.ReadAsStringAsync();
+            var statusJson = JsonSerializer.Deserialize<JsonElement>(statusBody);
+            var status = statusJson.TryGetProperty("status", out var s) ? s.GetString() : "";
+            Console.WriteLine($"[LlamaParse] Status: {status}");
+            if (status == "SUCCESS") break;
+            if (status == "ERROR") { Console.WriteLine($"[LlamaParse] İşlem başarısız"); return string.Empty; }
+        }
+
+        // 3. Sonucu al — markdown formatında
+        var resultResp = await http.GetAsync($"https://api.cloud.llamaindex.ai/api/v1/parsing/job/{jobId}/result/markdown");
+        var resultBody = await resultResp.Content.ReadAsStringAsync();
+        if (!resultResp.IsSuccessStatusCode)
+        {
+            Console.WriteLine($"[LlamaParse] Result HTTP {(int)resultResp.StatusCode}: {resultBody}");
+            return string.Empty;
+        }
+
+        var resultJson = JsonSerializer.Deserialize<JsonElement>(resultBody);
+        var markdown = resultJson.TryGetProperty("markdown", out var md) ? md.GetString() ?? "" : resultBody;
+
+        // Markdown işaretlerini temizle
+        markdown = markdown.Replace("**", "");
+        // # başlık işaretlerini satır başından kaldır
+        var lines = markdown.Split('\n');
+        var cleaned = new System.Text.StringBuilder();
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+            if (trimmed.StartsWith("#"))
+                cleaned.AppendLine(trimmed.TrimStart('#').Trim());
             else
-            {
-                rows.Add(current.OrderBy(x => x.Left).ToList());
-                current = new List<TsvWord> { w };
-                refY = w.CenterY;
-            }
+                cleaned.AppendLine(line);
         }
-
-        if (current.Any())
-            rows.Add(current.OrderBy(x => x.Left).ToList());
-
-        return rows;
+        markdown = cleaned.ToString();
+        Console.WriteLine($"[LlamaParse] Başarılı, {markdown.Length} karakter");
+        return markdown;
     }
 
-    // ── Sayfa metnini oluştur: tablo/metin ayrımı ─────────────────────────
-    private static string BuildPageText(List<List<TsvWord>> rows, int pageWidth)
-    {
-        var result = new StringBuilder();
-        var tableCandidate = new List<List<TsvWord>>();
-
-        void FlushTable()
-        {
-            if (tableCandidate.Count < MinTableRows)
-            {
-                foreach (var r in tableCandidate)
-                    result.AppendLine(RowToText(r));
-            }
-            else
-            {
-                // Her satırın sütun sayısını kontrol et
-                var colCounts = tableCandidate.Select(r => SplitRowIntoCols(r, pageWidth).Count).ToList();
-                var maxCols = colCounts.Max();
-
-                if (maxCols >= MinTableCols)
-                    result.AppendLine(FormatTable(tableCandidate, pageWidth));
-                else
-                    foreach (var r in tableCandidate)
-                        result.AppendLine(RowToText(r));
-            }
-            tableCandidate.Clear();
-        }
-
-        foreach (var row in rows)
-        {
-            var cols = SplitRowIntoCols(row, pageWidth);
-
-            if (cols.Count >= MinTableCols)
-            {
-                tableCandidate.Add(row);
-            }
-            else
-            {
-                if (tableCandidate.Any()) FlushTable();
-                result.AppendLine(RowToText(row));
-            }
-        }
-
-        if (tableCandidate.Any()) FlushTable();
-
-        return result.ToString().Trim();
-    }
-
-    // Satırdaki kelimeleri aralarındaki boşluğa göre sütunlara böl
-    private static List<List<TsvWord>> SplitRowIntoCols(List<TsvWord> row, int pageWidth)
-    {
-        if (!row.Any()) return new();
-
-        var minGap = pageWidth * ColGapRatio; // sayfa genişliğinin %3'ü
-        var cols = new List<List<TsvWord>>();
-        var current = new List<TsvWord> { row[0] };
-
-        for (var i = 1; i < row.Count; i++)
-        {
-            var gap = row[i].Left - row[i - 1].Right;
-            if (gap > minGap)
-            {
-                cols.Add(current);
-                current = new List<TsvWord>();
-            }
-            current.Add(row[i]);
-        }
-
-        if (current.Any()) cols.Add(current);
-        return cols;
-    }
-
-    // Tablo satırlarını formatla
-    private static string FormatTable(List<List<TsvWord>> tableRows, int pageWidth)
-    {
-        if (!tableRows.Any()) return string.Empty;
-
-        // Tüm satırlardaki sütun X başlangıçlarını topla → unified col positions
-        var allColStarts = tableRows
-            .SelectMany(r => SplitRowIntoCols(r, pageWidth))
-            .Select(col => col.Min(w => w.Left))
-            .OrderBy(x => x)
-            .ToList();
-
-        // Yakın X pozisyonlarını birleştir (cluster)
-        var colPositions = ClusterPositions(allColStarts, pageWidth * ColGapRatio);
-
-        if (colPositions.Count < MinTableCols)
-            return string.Join("\n", tableRows.Select(r => RowToText(r)));
-
-        var sb = new StringBuilder();
-        sb.AppendLine("[TABLO BAŞLANGIÇ]");
-
-        var allCells = tableRows.Select(row => AssignToCols(row, colPositions, pageWidth)).ToList();
-        var headers = allCells[0].Select(c => c.Trim()).ToList();
-
-        sb.AppendLine("Başlıklar: " + string.Join(" | ", headers.Where(h => !string.IsNullOrWhiteSpace(h))));
-
-        foreach (var cells in allCells.Skip(1))
-        {
-            var parts = new List<string>();
-            for (var i = 0; i < cells.Count; i++)
-            {
-                var cell = cells[i].Trim();
-                if (string.IsNullOrWhiteSpace(cell)) continue;
-                var header = i < headers.Count && !string.IsNullOrWhiteSpace(headers[i])
-                    ? headers[i] : $"Sütun{i + 1}";
-                parts.Add($"{header}: {cell}");
-            }
-            if (parts.Any()) sb.AppendLine(string.Join(", ", parts));
-        }
-
-        sb.AppendLine("[TABLO BİTİŞ]");
-        return sb.ToString();
-    }
-
-    // Yakın X pozisyonlarını grupla
-    private static List<float> ClusterPositions(List<float> positions, float tolerance)
-    {
-        if (!positions.Any()) return new();
-
-        var clusters = new List<float>();
-        var current = positions[0];
-        var count = 1;
-
-        for (var i = 1; i < positions.Count; i++)
-        {
-            if (positions[i] - current / count <= tolerance)
-            {
-                current += positions[i];
-                count++;
-            }
-            else
-            {
-                clusters.Add(current / count);
-                current = positions[i];
-                count = 1;
-            }
-        }
-
-        clusters.Add(current / count);
-        return clusters;
-    }
-
-    // Satırdaki kelimeleri sütun pozisyonlarına göre hücrelere ata
-    private static List<string> AssignToCols(List<TsvWord> row, List<float> colPositions, int pageWidth)
-    {
-        var cells = new string[colPositions.Count];
-        for (var i = 0; i < cells.Length; i++) cells[i] = string.Empty;
-
-        var rowCols = SplitRowIntoCols(row, pageWidth);
-        foreach (var col in rowCols)
-        {
-            var colLeft = col.Min(w => w.Left);
-            var bestIdx = 0;
-            var bestDist = float.MaxValue;
-
-            for (var i = 0; i < colPositions.Count; i++)
-            {
-                var dist = Math.Abs(colLeft - colPositions[i]);
-                if (dist < bestDist) { bestDist = dist; bestIdx = i; }
-            }
-
-            var colText = string.Join(" ", col.Select(w => w.Text));
-            cells[bestIdx] += string.IsNullOrEmpty(cells[bestIdx]) ? colText : " " + colText;
-        }
-
-        return cells.ToList();
-    }
-
-    private static string RowToText(List<TsvWord> row)
-        => string.Join(" ", row.Select(w => w.Text));
-
-    // ── DOCX ─────────────────────────────────────────────────────────────
-    private static string ExtractDocx(Stream stream)
+    // NPOI fallback
+    private static string ExtractDocxViaNpoi(Stream stream)
     {
         var sb = new StringBuilder();
         try
         {
-            using var doc = WordprocessingDocument.Open(stream, false);
-            var body = doc.MainDocumentPart?.Document?.Body;
-            if (body is null) return string.Empty;
-
-            foreach (var element in body.ChildElements)
+            stream.Position = 0;
+            var doc = new XWPFDocument(stream);
+            foreach (var bodyElement in doc.BodyElements)
             {
-                switch (element)
+                switch (bodyElement)
                 {
-                    case DocumentFormat.OpenXml.Wordprocessing.Paragraph para:
-                        var paraText = BuildParagraphText(para);
-                        if (!string.IsNullOrWhiteSpace(paraText))
-                            sb.AppendLine(paraText);
+                    case XWPFParagraph para:
+                        var text = para.Text.Trim();
+                        if (!string.IsNullOrWhiteSpace(text)) sb.AppendLine(text);
                         break;
-                    case DocumentFormat.OpenXml.Wordprocessing.Table table:
-                        sb.AppendLine(ExtractDocxTable(table));
+                    case XWPFTable table:
+                        sb.AppendLine("[TABLO BAŞLANGIÇ]");
+                        var rows = table.Rows;
+                        if (rows.Count == 0) break;
+                        var headers = rows[0].GetTableCells().Select(c => c.GetText().Trim()).ToList();
+                        if (headers.Any(h => !string.IsNullOrWhiteSpace(h)))
+                            sb.AppendLine("Başlıklar: " + string.Join(" | ", headers));
+                        foreach (var row in rows.Skip(1))
+                        {
+                            var cells = row.GetTableCells().Select(c => c.GetText().Trim()).ToList();
+                            var parts = new List<string>();
+                            for (var i = 0; i < cells.Count; i++)
+                            {
+                                if (string.IsNullOrWhiteSpace(cells[i])) continue;
+                                var h = i < headers.Count && !string.IsNullOrWhiteSpace(headers[i]) ? headers[i] : $"Sütun{i + 1}";
+                                parts.Add($"{h}: {cells[i]}");
+                            }
+                            if (parts.Any()) sb.AppendLine(string.Join(", ", parts));
+                        }
+                        sb.AppendLine("[TABLO BİTİŞ]");
                         break;
                 }
             }
         }
-        catch { }
+        catch (Exception ex) { Console.WriteLine($"[DOCX] NPOI hata: {ex.Message}"); }
         return sb.ToString();
     }
 
-    private static string BuildParagraphText(DocumentFormat.OpenXml.Wordprocessing.Paragraph para)
-    {
-        var text = para.InnerText.Trim();
-        if (string.IsNullOrWhiteSpace(text)) return string.Empty;
-
-        var styleId = para.ParagraphProperties?.ParagraphStyleId?.Val?.Value ?? string.Empty;
-        if (styleId.StartsWith("Heading", StringComparison.OrdinalIgnoreCase) ||
-            styleId.StartsWith("Başlık", StringComparison.OrdinalIgnoreCase))
-            return $"\n## {text}";
-
-        if (para.ParagraphProperties?.NumberingProperties is not null)
-            return $"• {text}";
-
-        return text;
-    }
-
-    private static string ExtractDocxTable(DocumentFormat.OpenXml.Wordprocessing.Table table)
-    {
-        var rows = table.Elements<TableRow>().ToList();
-        if (!rows.Any()) return string.Empty;
-
-        var sb = new StringBuilder();
-        sb.AppendLine("[TABLO BAŞLANGIÇ]");
-
-        var headers = rows[0].Elements<TableCell>().Select(c => c.InnerText.Trim()).ToList();
-        sb.AppendLine("Başlıklar: " + string.Join(" | ", headers.Where(h => !string.IsNullOrWhiteSpace(h))));
-
-        foreach (var row in rows.Skip(1))
-        {
-            var cells = row.Elements<TableCell>().Select(c => c.InnerText.Trim()).ToList();
-            var parts = new List<string>();
-            for (var i = 0; i < cells.Count; i++)
-            {
-                if (string.IsNullOrWhiteSpace(cells[i])) continue;
-                var header = i < headers.Count && !string.IsNullOrWhiteSpace(headers[i])
-                    ? headers[i] : $"Sütun{i + 1}";
-                parts.Add($"{header}: {cells[i]}");
-            }
-            if (parts.Any()) sb.AppendLine(string.Join(", ", parts));
-        }
-
-        sb.AppendLine("[TABLO BİTİŞ]");
-        return sb.ToString();
-    }
-
-    // ── XLSX ─────────────────────────────────────────────────────────────
+    // ── XLSX — ExcelDataReader ────────────────────────────────────────────
     private static string ExtractXlsx(Stream stream)
     {
         var sb = new StringBuilder();
         try
         {
-            using var wb = new XLWorkbook(stream);
-            foreach (var ws in wb.Worksheets)
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+            using var ms = new MemoryStream();
+            stream.CopyTo(ms);
+            ms.Position = 0;
+            using var reader = ExcelReaderFactory.CreateReader(ms, new ExcelReaderConfiguration { FallbackEncoding = Encoding.UTF8 });
+            var dataSet = reader.AsDataSet(new ExcelDataSetConfiguration
             {
-                var allRows = ws.RowsUsed().Where(r => !r.IsHidden).ToList();
-                if (!allRows.Any()) continue;
+                ConfigureDataTable = _ => new ExcelDataTableConfiguration { UseHeaderRow = false }
+            });
 
-                // Başlık satırını bul: birden fazla dolu sütunu olan ilk satır
-                var headerRowIdx = 0;
-                for (var ri = 0; ri < Math.Min(5, allRows.Count); ri++)
+            foreach (DataTable table in dataSet.Tables)
+            {
+                if (table.Rows.Count == 0) continue;
+                var headerRowIdx = 0; var maxFilled = 0;
+                for (var ri = 0; ri < Math.Min(5, table.Rows.Count); ri++)
                 {
-                    if (allRows[ri].CellsUsed().Count() >= 2) { headerRowIdx = ri; break; }
+                    var filled = table.Rows[ri].ItemArray.Count(c => c != null && !string.IsNullOrWhiteSpace(c.ToString()));
+                    if (filled > maxFilled) { maxFilled = filled; headerRowIdx = ri; }
                 }
-
-                var headers = allRows[headerRowIdx].CellsUsed()
-                    .OrderBy(c => c.Address.ColumnNumber)
-                    .Select(c => c.Value.ToString()?.Trim() ?? string.Empty).ToList();
-
-                // [TABLO BAŞLANGIÇ] marker ile wrap et
-                // Chunk() metodu bu bloğu boyuta bakmaksızın bölmeden tek parça tutar
-                sb.AppendLine("[TABLO BAŞLANGIÇ]");
-                sb.AppendLine($"Sayfa: {ws.Name}");
-                sb.AppendLine("Başlıklar: " + string.Join(" | ", headers.Where(h => !string.IsNullOrWhiteSpace(h))));
-
-                foreach (var row in allRows.Skip(headerRowIdx + 1))
+                var headers = new List<string>(); var lastHeader = string.Empty;
+                for (var col = 0; col < table.Columns.Count; col++)
                 {
-                    var cells = row.CellsUsed()
-                        .OrderBy(c => c.Address.ColumnNumber)
-                        .Select(c => c.Value.ToString()?.Trim() ?? string.Empty).ToList();
-                    var parts = new List<string>();
-                    for (var i = 0; i < cells.Count; i++)
+                    var val = table.Rows[headerRowIdx][col]?.ToString()?.Trim() ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(val)) val = lastHeader; else lastHeader = val;
+                    headers.Add(val);
+                }
+                var headerLine = "Başlıklar: " + string.Join(" | ", headers.Where(h => !string.IsNullOrWhiteSpace(h)));
+                const int chunkRows = 50;
+                var batch = new List<string>();
+                for (var ri = headerRowIdx + 1; ri < table.Rows.Count; ri++)
+                {
+                    var row = table.Rows[ri]; var parts = new List<string>(); var lastVal = string.Empty;
+                    for (var ci = 0; ci < table.Columns.Count; ci++)
                     {
-                        if (string.IsNullOrWhiteSpace(cells[i])) continue;
-                        var header = i < headers.Count && !string.IsNullOrWhiteSpace(headers[i])
-                            ? headers[i] : $"Sütun{i + 1}";
-                        parts.Add($"{header}: {cells[i]}");
+                        var val = row[ci]?.ToString()?.Trim() ?? string.Empty;
+                        if (string.IsNullOrWhiteSpace(val)) val = lastVal; else lastVal = val;
+                        if (string.IsNullOrWhiteSpace(val)) continue;
+                        var header = ci < headers.Count && !string.IsNullOrWhiteSpace(headers[ci]) ? headers[ci] : $"Sütun{ci + 1}";
+                        parts.Add($"{header}: {val}");
                     }
-                    if (parts.Any()) sb.AppendLine(string.Join(", ", parts));
+                    if (parts.Any()) batch.Add(string.Join(", ", parts));
+                    if (batch.Count >= chunkRows) { FlushBatch(sb, table.TableName, headerLine, batch); batch.Clear(); }
                 }
-
-                sb.AppendLine("[TABLO BİTİŞ]");
+                if (batch.Any()) FlushBatch(sb, table.TableName, headerLine, batch);
             }
         }
-        catch { }
+        catch (Exception ex) { Console.WriteLine($"[XLSX] Hata: {ex.Message}"); }
         return sb.ToString();
     }
 
+    private static void FlushBatch(StringBuilder sb, string sheetName, string headerLine, List<string> batch)
+    {
+        sb.AppendLine("[TABLO BAŞLANGIÇ]");
+        sb.AppendLine($"Sayfa: {sheetName}");
+        sb.AppendLine(headerLine);
+        foreach (var r in batch) sb.AppendLine(r);
+        sb.AppendLine("[TABLO BİTİŞ]");
+    }
 
     // ── CSV ──────────────────────────────────────────────────────────────
     private static string ExtractCsv(Stream stream)
@@ -571,97 +363,70 @@ public class DocumentParserService : IDocumentParser
         {
             var enc = DetectEncoding(stream);
             stream.Position = 0;
-            using var peekReader = new StreamReader(new MemoryStream(ReadBytes(stream)), enc);
-            var firstLine = peekReader.ReadLine() ?? string.Empty;
+            using var peekMs = new MemoryStream(ReadAllBytes(stream));
+            using var peek = new StreamReader(peekMs, enc);
+            var firstLine = peek.ReadLine() ?? string.Empty;
             var delimiter = firstLine.Count(c => c == ';') > firstLine.Count(c => c == ',') ? ';' : ',';
-
             stream.Position = 0;
-            var csvConfig = new CsvHelper.Configuration.CsvConfiguration(CultureInfo.InvariantCulture)
+            var cfg = new CsvHelper.Configuration.CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 Delimiter = delimiter.ToString(),
                 BadDataFound = null,
-                MissingFieldFound = null,
+                MissingFieldFound = null
             };
-
             using var reader = new StreamReader(stream, enc);
-            using var csv = new CsvReader(reader, csvConfig);
-            var headers = new List<string>();
-            var isFirst = true;
-
+            using var csv = new CsvReader(reader, cfg);
+            var headers = new List<string>(); var headerLine = string.Empty;
+            var batch = new List<string>(); const int chunkRows = 50; var isFirst = true;
             while (csv.Read())
             {
                 if (isFirst)
                 {
-                    headers = Enumerable.Range(0, csv.Parser.Count)
-                        .Select(i => csv.GetField(i) ?? string.Empty).ToList();
-                    sb.AppendLine("Başlıklar: " + string.Join(" | ", headers));
-                    isFirst = false;
-                    continue;
+                    headers = Enumerable.Range(0, csv.Parser.Count).Select(i => csv.GetField(i) ?? string.Empty).ToList();
+                    headerLine = "Başlıklar: " + string.Join(" | ", headers);
+                    isFirst = false; continue;
                 }
-
                 var parts = new List<string>();
                 for (var i = 0; i < csv.Parser.Count; i++)
                 {
                     var val = csv.GetField(i) ?? string.Empty;
                     if (string.IsNullOrWhiteSpace(val)) continue;
-                    var header = i < headers.Count ? headers[i] : $"Sütun{i + 1}";
-                    parts.Add($"{header}: {val}");
+                    parts.Add($"{(i < headers.Count ? headers[i] : $"Sütun{i + 1}")}: {val}");
                 }
-                if (parts.Any()) sb.AppendLine(string.Join(", ", parts));
+                if (parts.Any()) batch.Add(string.Join(", ", parts));
+                if (batch.Count >= chunkRows) { FlushBatch(sb, "CSV", headerLine, batch); batch.Clear(); }
             }
+            if (batch.Any()) FlushBatch(sb, "CSV", headerLine, batch);
         }
-        catch { }
-        var csvContent = sb.ToString().Trim();
-        if (string.IsNullOrWhiteSpace(csvContent)) return string.Empty;
-        return $"[TABLO BAŞLANGIÇ]\n{csvContent}\n[TABLO BİTİŞ]";
+        catch (Exception ex) { Console.WriteLine($"[CSV] Hata: {ex.Message}"); }
+        return sb.ToString();
     }
 
     // ── TXT ──────────────────────────────────────────────────────────────
     private static string ExtractTxt(Stream stream)
     {
-        try
-        {
-            var enc = DetectEncoding(stream);
-            stream.Position = 0;
-            using var reader = new StreamReader(stream, enc);
-            return reader.ReadToEnd();
-        }
+        try { var enc = DetectEncoding(stream); stream.Position = 0; using var r = new StreamReader(stream, enc); return r.ReadToEnd(); }
         catch { return string.Empty; }
     }
 
-    // ── Encoding tespiti ──────────────────────────────────────────────────
+    // ── Encoding tespiti ─────────────────────────────────────────────────
     private static Encoding DetectEncoding(Stream stream)
     {
         stream.Position = 0;
-        var bom = new byte[4];
-        var read = 0;
-        int b;
-        while (read < 4 && (b = stream.ReadByte()) != -1)
-            bom[read++] = (byte)b;
-
+        Span<byte> bom = stackalloc byte[4];
+        var read = 0; int b;
+        while (read < 4 && (b = stream.ReadByte()) != -1) bom[read++] = (byte)b;
         if (read >= 3 && bom[0] == 0xEF && bom[1] == 0xBB && bom[2] == 0xBF) return new UTF8Encoding(true);
         if (read >= 2 && bom[0] == 0xFF && bom[1] == 0xFE) return Encoding.Unicode;
         if (read >= 2 && bom[0] == 0xFE && bom[1] == 0xFF) return Encoding.BigEndianUnicode;
-
         stream.Position = 0;
-        var sample = new byte[Math.Min(stream.Length, 8192)];
-        var totalRead = 0;
-        int bytesRead;
-        while (totalRead < sample.Length &&
-               (bytesRead = stream.Read(sample, totalRead, sample.Length - totalRead)) > 0)
-            totalRead += bytesRead;
-
-        try
-        {
-            var decoded = Encoding.UTF8.GetString(sample, 0, totalRead);
-            if (!decoded.Contains('\uFFFD')) return Encoding.UTF8;
-        }
-        catch { }
-
-        return Encoding.GetEncoding(1254);
+        var sample = new byte[Math.Min(stream.Length, 8192)]; var totalRead = 0; int bytesRead;
+        while (totalRead < sample.Length && (bytesRead = stream.Read(sample, totalRead, sample.Length - totalRead)) > 0) totalRead += bytesRead;
+        try { if (!Encoding.UTF8.GetString(sample, 0, totalRead).Contains('\uFFFD')) return Encoding.UTF8; } catch { }
+        return Encoding.UTF8;
     }
 
-    private static byte[] ReadBytes(Stream stream)
+    private static byte[] ReadAllBytes(Stream stream)
     {
         stream.Position = 0;
         using var ms = new MemoryStream();
@@ -669,171 +434,74 @@ public class DocumentParserService : IDocumentParser
         return ms.ToArray();
     }
 
-    // ── Temizleme ─────────────────────────────────────────────────────────
-    private static string CleanText(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return string.Empty;
-
-        text = text.Normalize(NormalizationForm.FormC);
-
-        foreach (var (lig, rep) in Ligatures)
-            text = text.Replace(lig, rep);
-
-        text = Regex.Replace(text, @"[\u00A0\u00AD\u200B\u200C\u200D\uFEFF]", " ");
-        text = text.Replace('\u2018', '\'').Replace('\u2019', '\'');
-        text = text.Replace('\u201C', '"').Replace('\u201D', '"');
-        text = text.Replace('`', '\'');
-
-        var ph = new Dictionary<string, string>();
-        var idx = 0;
-        string Save(Match m) { var k = $"\x01{idx++}\x01"; ph[k] = m.Value; return k; }
-        text = EngContractions.Replace(text, Save);
-        text = TurkishSuffix.Replace(text, Save);
-        text = AbbrevSuffix.Replace(text, Save);
-        text = AposInWord.Replace(text, "i");
-        text = AposWordStart.Replace(text, "i");
-        text = AposWordEnd.Replace(text, "i");
-        text = AposLineStart.Replace(text, "i");
-        foreach (var (k, v) in ph) text = text.Replace(k, v);
-
-        text = Regex.Replace(text, @"[│├└─┌┐┘┤┬┴┼╔╗╚╝╠╣╦╩╬►◄▲▼]", " ");
-        text = Regex.Replace(text, @"[ \t]{2,}", " ");
-        text = Regex.Replace(text, @"(\r?\n){3,}", "\n\n");
-        text = string.Join("\n", text.Split('\n').Select(l => l.Trim()));
-        text = text.Replace("\r", string.Empty);
-        text = MergeWrappedLines(text);
-
-        return text.Trim();
-    }
-
-    private static string MergeWrappedLines(string text)
-    {
-        var lines = text.Split('\n');
-        var result = new List<string>();
-
-        for (var i = 0; i < lines.Length; i++)
-        {
-            var line = lines[i].Trim();
-            if (string.IsNullOrWhiteSpace(line)) { result.Add(line); continue; }
-
-            while (i + 1 < lines.Length)
-            {
-                var next = lines[i + 1].Trim();
-                if (string.IsNullOrWhiteSpace(next)) break;
-                var lastChar = line[^1];
-                var firstChar = next[0];
-                if (lastChar is '.' or '!' or '?' or ';' or ':') break;
-                if (char.IsUpper(firstChar)) break;
-                if (!char.IsLetter(firstChar)) break;
-                line = line + " " + next;
-                i++;
-            }
-            result.Add(line);
-        }
-        return string.Join("\n", result);
-    }
-
-    // ── Chunk'lama ────────────────────────────────────────────────────────
-    // Tablo blokları ([TABLO BAŞLANGIÇ]...[TABLO BİTİŞ]) bölünmeden tek chunk olarak çıkar
+    // ── Chunk'lama ───────────────────────────────────────────────────────
     private IEnumerable<string> Chunk(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) yield break;
-
-        // Önce tablo bloklarını koru: metni tablo/metin segmentlerine ayır
+        text = WrapMarkdownTables(text);
         var segments = SplitPreservingTables(text);
-
         var buffer = new StringBuilder();
+
         foreach (var segment in segments)
         {
-            var isTable = segment.StartsWith("[TABLO BAŞLANGIÇ]");
-
-            if (isTable)
+            if (segment.StartsWith("[TABLO BAŞLANGIÇ]"))
             {
-                // Tablo bloğunu önce flush et, sonra tek parça olarak ver
-                if (buffer.Length > 0)
-                {
-                    var pending = buffer.ToString().Trim();
-                    if (!string.IsNullOrWhiteSpace(pending)) yield return pending;
-                    buffer.Clear();
-                }
-                // Tablo çok büyükse de bölme — tek chunk olarak ver
+                if (buffer.Length > 0) { var p = buffer.ToString().Trim(); if (!string.IsNullOrWhiteSpace(p)) yield return p; buffer.Clear(); }
                 yield return segment.Trim();
                 continue;
             }
-
-            // Normal metin: cümle bazlı chunk'la
-            foreach (var sentence in SplitIntoSentences(segment))
+            foreach (var line in segment.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
-                if (buffer.Length > 0 && buffer.Length + sentence.Length > _chunkSize)
+                var s = line.Trim();
+                if (string.IsNullOrWhiteSpace(s)) continue;
+                if (buffer.Length > 0 && buffer.Length + s.Length + 1 > _chunkSize)
                 {
                     var chunk = buffer.ToString().Trim();
                     if (!string.IsNullOrWhiteSpace(chunk)) yield return chunk;
-
                     var tail = chunk.Length > _overlap ? chunk[^_overlap..] : chunk;
                     buffer.Clear();
                     if (!string.IsNullOrWhiteSpace(tail)) buffer.Append(tail).Append(' ');
                 }
-                buffer.Append(sentence).Append(' ');
+                buffer.Append(s).Append(' ');
             }
         }
-
         var last = buffer.ToString().Trim();
         if (!string.IsNullOrWhiteSpace(last)) yield return last;
     }
 
-    // Metni tablo blokları ve normal metin segmentlerine ayır
+    private static string WrapMarkdownTables(string text)
+    {
+        var lines = text.Split('\n'); var result = new List<string>(); var tableBuffer = new List<string>(); var inMarked = false;
+        foreach (var line in lines)
+        {
+            var t = line.Trim();
+            if (t == "[TABLO BAŞLANGIÇ]") { inMarked = true; result.Add(t); continue; }
+            if (t == "[TABLO BİTİŞ]") { inMarked = false; result.Add(t); continue; }
+            if (inMarked) { result.Add(t); continue; }
+            if (t.StartsWith("|")) { tableBuffer.Add(t); }
+            else
+            {
+                if (tableBuffer.Count > 0) { result.Add("[TABLO BAŞLANGIÇ]"); result.AddRange(tableBuffer); result.Add("[TABLO BİTİŞ]"); tableBuffer.Clear(); }
+                result.Add(t);
+            }
+        }
+        if (tableBuffer.Count > 0) { result.Add("[TABLO BAŞLANGIÇ]"); result.AddRange(tableBuffer); result.Add("[TABLO BİTİŞ]"); }
+        return string.Join("\n", result);
+    }
+
     private static IEnumerable<string> SplitPreservingTables(string text)
     {
         var start = 0;
         while (start < text.Length)
         {
             var tableStart = text.IndexOf("[TABLO BAŞLANGIÇ]", start, StringComparison.Ordinal);
-            if (tableStart < 0)
-            {
-                // Geri kalan normal metin
-                var remaining = text[start..];
-                if (!string.IsNullOrWhiteSpace(remaining))
-                    yield return remaining;
-                yield break;
-            }
-
-            // Tablo öncesi normal metin
-            if (tableStart > start)
-            {
-                var before = text[start..tableStart];
-                if (!string.IsNullOrWhiteSpace(before))
-                    yield return before;
-            }
-
-            // Tablo bloğu
+            if (tableStart < 0) { var remaining = text[start..]; if (!string.IsNullOrWhiteSpace(remaining)) yield return remaining; yield break; }
+            if (tableStart > start) { var before = text[start..tableStart]; if (!string.IsNullOrWhiteSpace(before)) yield return before; }
             var tableEnd = text.IndexOf("[TABLO BİTİŞ]", tableStart, StringComparison.Ordinal);
-            if (tableEnd < 0)
-            {
-                // Kapanmayan tablo — geri kalanı normal metin olarak ver
-                var rest = text[tableStart..];
-                if (!string.IsNullOrWhiteSpace(rest))
-                    yield return rest;
-                yield break;
-            }
-
+            if (tableEnd < 0) { var rest = text[tableStart..]; if (!string.IsNullOrWhiteSpace(rest)) yield return rest; yield break; }
             tableEnd += "[TABLO BİTİŞ]".Length;
             yield return text[tableStart..tableEnd];
             start = tableEnd;
         }
-    }
-
-    private static IEnumerable<string> SplitIntoSentences(string text)
-    {
-        foreach (var part in Regex.Split(text, @"(?<=[.!?;])\s+|(?<=\n)\s*\n|\n"))
-        {
-            var s = part.Trim();
-            if (!string.IsNullOrWhiteSpace(s)) yield return s;
-        }
-    }
-
-    // ── Yardımcı record ───────────────────────────────────────────────────
-    private record TsvWord(string Text, float Left, float Top, float Right, float Bottom, int PageWidth)
-    {
-        public float CenterY => (Top + Bottom) / 2f;
     }
 }

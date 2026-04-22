@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getDocuments, uploadDocument, deleteDocument, getDocumentChunks, adminGetUsers, adminCreateUser, adminDeleteUser } from '../services/api';
-import { useToast } from '../components/Toast';
-import { DocumentSkeleton, UserSkeleton } from '../components/Skeleton';
-import Modal from '../components/ui/Modal';
-import SearchInput from '../components/ui/SearchInput';
+import { useToast } from '../components/shared/Toast';
+import { DocumentSkeleton, UserSkeleton } from '../components/shared/Skeleton';
+import Modal from '../components/shared/Modal';
+import SearchInput from '../components/shared/SearchInput';
 
 // ── Yardımcı ──────────────────────────────────────────────────────────────
 function formatSize(bytes) {
