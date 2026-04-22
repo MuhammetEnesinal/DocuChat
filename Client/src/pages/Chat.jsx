@@ -8,6 +8,8 @@ import ChatSidebar from '../components/chat/ChatSidebar';
 import MessageBubble from '../components/chat/MessageBubble';
 import SourcePanel from '../components/chat/SourcePanel';
 import EmptyState from '../components/chat/EmptyState';
+import ChatInput from '../components/chat/ChatInput';
+import TypingIndicator from '../components/chat/TypingIndicator';
 
 export default function Chat() {
     const [sessions, setSessions] = useState([]);
@@ -22,10 +24,9 @@ export default function Chat() {
     const [editingTitle, setEditingTitle] = useState('');
     const [sessionsLoading, setSessionsLoading] = useState(true);
     const [popularQuestions, setPopularQuestions] = useState([]);
-    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(window.innerWidth < 768);
 
     const messagesEndRef = useRef(null);
-    const textareaRef = useRef(null);
     const { user, logout } = useAuth();
     const navigate = useNavigate();
     const toast = useToast();
@@ -53,6 +54,7 @@ export default function Chat() {
         setActiveSession(session);
         setChunks([]);
         setShowChunks(false);
+        if (window.innerWidth < 768) setSidebarCollapsed(true);
         try {
             const res = await getMessages(session.id);
             setMessages(res.data.data || []);
@@ -64,17 +66,16 @@ export default function Chat() {
         setMessages([]);
         setChunks([]);
         setShowChunks(false);
+        if (window.innerWidth < 768) setSidebarCollapsed(true);
     };
 
     const handleSend = async () => {
         if (!question.trim() || loading) return;
         const q = question.trim();
         setQuestion('');
-        if (textareaRef.current) textareaRef.current.style.height = 'auto';
         setLoading(true);
 
-        const userMsg = { role: 'User', content: q, id: Date.now(), createdAt: new Date().toISOString() };
-        setMessages((prev) => [...prev, userMsg]);
+        setMessages((prev) => [...prev, { role: 'User', content: q, id: Date.now(), createdAt: new Date().toISOString() }]);
 
         try {
             const res = await askQuestion(q, activeSession?.id || null);
@@ -86,24 +87,16 @@ export default function Chat() {
                 setSessions((prev) => [newSession, ...prev]);
             }
 
-            setMessages((prev) => [...prev, {
-                role: 'Assistant', content: answer,
-                id: Date.now() + 1, createdAt: new Date().toISOString(),
-            }]);
+            setMessages((prev) => [...prev, { role: 'Assistant', content: answer, id: Date.now() + 1, createdAt: new Date().toISOString() }]);
             setChunks(sourceChunks || []);
         } catch (err) {
-            const msg = getRateLimitMessage(err);
-            toast.error(msg);
+            toast.error(getRateLimitMessage(err));
             setMessages((prev) => [...prev, {
                 role: 'Assistant',
-                content: err?.response?.status === 429
-                    ? '⏳ Sunucu meşgul. Lütfen birkaç saniye bekleyip tekrar deneyin.'
-                    : 'Bir hata oluştu. Lütfen tekrar deneyin.',
+                content: err?.response?.status === 429 ? '⏳ Sunucu meşgul. Lütfen birkaç saniye bekleyip tekrar deneyin.' : 'Bir hata oluştu. Lütfen tekrar deneyin.',
                 id: Date.now() + 1, createdAt: new Date().toISOString(),
             }]);
-        } finally {
-            setLoading(false);
-        }
+        } finally { setLoading(false); }
     };
 
     const handleCopy = (content, id) => {
@@ -121,10 +114,7 @@ export default function Chat() {
         } catch { toast.error('Sohbet silinemedi.'); }
     };
 
-    const handleStartRename = (session) => {
-        setEditingSessionId(session.id);
-        setEditingTitle(session.title);
-    };
+    const handleStartRename = (session) => { setEditingSessionId(session.id); setEditingTitle(session.title); };
 
     const handleCommitRename = async (sessionId) => {
         const title = editingTitle.trim();
@@ -138,8 +128,6 @@ export default function Chat() {
         setEditingSessionId(null);
     };
 
-    const handleLogout = () => { logout(); navigate('/login'); };
-
     const groupedMessages = messages.reduce((acc, msg) => {
         const date = formatDateShort(msg.createdAt);
         if (!acc[date]) acc[date] = [];
@@ -148,8 +136,7 @@ export default function Chat() {
     }, {});
 
     return (
-        <div className="flex h-screen" style={{ background: 'var(--navy)' }}>
-            {/* Sidebar */}
+        <div style={{ display: 'flex', height: '100vh', background: 'var(--navy)' }}>
             <ChatSidebar
                 sessions={sessions}
                 sessionsLoading={sessionsLoading}
@@ -166,134 +153,67 @@ export default function Chat() {
                 onSetEditingSessionId={setEditingSessionId}
                 onDeleteSession={handleDeleteSession}
                 user={user}
-                onLogout={handleLogout}
+                onLogout={() => { logout(); navigate('/login'); }}
             />
 
-            {/* Ana Alan */}
-            <div className="flex flex-col flex-1 min-w-0">
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
                 {/* Header */}
-                <div className="flex items-center justify-between px-4 sm:px-6 py-4"
-                    style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
-                    <div className="min-w-0">
-                        <h1 className="text-base font-semibold text-white truncate">
+                <div className="chat-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+                    <div style={{ minWidth: 0 }}>
+                        <h1 style={{ fontSize: '15px', fontWeight: 600, color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>
                             {activeSession?.title || 'Yeni Sohbet'}
                         </h1>
-                        <p className="text-xs mt-0.5" style={{ color: 'var(--gray-light)' }}>
+                        <p style={{ fontSize: '12px', marginTop: '2px', color: 'var(--gray-light)', margin: '2px 0 0' }}>
                             Tüm belgeler üzerinde arama yapılıyor
                         </p>
                     </div>
                     {chunks.length > 0 && (
                         <button onClick={() => setShowChunks(!showChunks)}
-                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex-shrink-0 ml-3"
-                            style={{
-                                background: showChunks ? 'var(--accent)' : 'var(--surface2)',
-                                color: showChunks ? 'white' : '#94a3b8',
-                                border: '1px solid var(--border)',
-                            }}>
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: 500, flexShrink: 0, marginLeft: '12px', cursor: 'pointer', background: showChunks ? 'var(--accent)' : 'var(--surface2)', color: showChunks ? 'white' : '#94a3b8', border: '1px solid var(--border)' }}>
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                                <polyline points="14 2 14 8 20 8" />
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
                             </svg>
-                            <span className="hidden sm:inline">Kaynaklar</span> ({chunks.length})
+                            Kaynaklar ({chunks.length})
                         </button>
                     )}
                 </div>
 
-                <div className="flex flex-1 min-h-0">
+                <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
                     {/* Mesaj alanı */}
-                    <div className="flex flex-col flex-1 min-w-0">
-                        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-6">
+                    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+                        <div style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
                             {messages.length === 0 && (
-                                <EmptyState
-                                    popularQuestions={popularQuestions}
-                                    onSelectQuestion={setQuestion}
-                                />
+                                <EmptyState popularQuestions={popularQuestions} onSelectQuestion={setQuestion} />
                             )}
 
                             {Object.entries(groupedMessages).map(([date, msgs]) => (
                                 <div key={date}>
-                                    {/* Tarih ayracı */}
-                                    <div className="flex items-center gap-3 my-4">
-                                        <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
-                                        <span className="text-xs px-2" style={{ color: 'var(--gray-light)' }}>{date}</span>
-                                        <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '8px 0' }}>
+                                        <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+                                        <span style={{ fontSize: '12px', color: 'var(--gray-light)', padding: '0 8px' }}>{date}</span>
+                                        <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
                                     </div>
-                                    <div className="space-y-6">
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                                         {msgs.map((msg) => (
-                                            <MessageBubble
-                                                key={msg.id}
-                                                msg={msg}
-                                                copiedId={copiedId}
-                                                onCopy={handleCopy}
-                                            />
+                                            <MessageBubble key={msg.id} msg={msg} copiedId={copiedId} onCopy={handleCopy} />
                                         ))}
                                     </div>
                                 </div>
                             ))}
 
-                            {/* Typing indicator */}
-                            {loading && (
-                                <div className="flex justify-start">
-                                    <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mr-3"
-                                        style={{ background: 'var(--accent)' }}>
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
-                                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                                        </svg>
-                                    </div>
-                                    <div className="px-4 py-3 rounded-2xl rounded-tl-sm text-sm"
-                                        style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
-                                        <div className="flex gap-1 items-center">
-                                            <div className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--accent)', animationDelay: '0ms' }} />
-                                            <div className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--accent)', animationDelay: '150ms' }} />
-                                            <div className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--accent)', animationDelay: '300ms' }} />
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
+                            {loading && <TypingIndicator />}
                             <div ref={messagesEndRef} />
                         </div>
 
-                        {/* Input */}
-                        <div className="px-4 sm:px-6 pb-4 sm:pb-6">
-                            <div className="flex gap-3 items-end p-3 rounded-2xl"
-                                style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
-                                <textarea
-                                    ref={textareaRef}
-                                    value={question}
-                                    onChange={(e) => setQuestion(e.target.value)}
-                                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                                    placeholder="Belge hakkında soru sorun... (Enter ile gönder)"
-                                    rows={1}
-                                    style={{
-                                        resize: 'none', minHeight: '44px', maxHeight: '160px',
-                                        overflowY: 'auto', background: 'transparent', border: 'none',
-                                        outline: 'none', color: '#e2e8f0', fontSize: '0.9rem',
-                                        flex: 1, padding: '8px 4px', lineHeight: '1.6',
-                                    }}
-                                    onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
-                                />
-                                <button onClick={handleSend} disabled={loading || !question.trim()}
-                                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-all"
-                                    style={{
-                                        background: loading || !question.trim() ? 'var(--navy-light)' : 'var(--accent)',
-                                        cursor: loading || !question.trim() ? 'not-allowed' : 'pointer',
-                                    }}>
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
-                                        <line x1="22" y1="2" x2="11" y2="13" />
-                                        <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                                    </svg>
-                                </button>
-                            </div>
-                            <p className="text-center text-xs mt-2 hidden sm:block" style={{ color: 'var(--gray-light)' }}>
-                                Enter ile gönder · Shift+Enter yeni satır
-                            </p>
-                        </div>
+                        <ChatInput
+                            value={question}
+                            onChange={setQuestion}
+                            onSend={handleSend}
+                            loading={loading}
+                        />
                     </div>
 
-                    {/* Kaynak paneli */}
-                    {showChunks && chunks.length > 0 && (
-                        <SourcePanel chunks={chunks} />
-                    )}
+                    {showChunks && chunks.length > 0 && <SourcePanel chunks={chunks} />}
                 </div>
             </div>
         </div>

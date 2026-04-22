@@ -38,92 +38,102 @@ public class LlmService : ILlmService
         if (chunkList.Count == 0)
             return "Sisteme yüklenmiş belgeler arasında bu soruyla ilgili bilgi bulunamadı.";
 
-        // Anlamsız / çok kısa soru — belgeyle ilgisi yok, LLM'e gönderme
-        var trimmedQ = question.Trim().ToLowerInvariant();
-        var meaninglessWords = new HashSet<string>
-        {
-            "iyi", "aq", "ok", "tamam", "tamamdır", "güzel", "çok güzel",
-            "süper", "harika", "teşekkür", "teşekkürler", "sağol", "eyw",
-            "anladım", "oldu", "peki", "neyse", "hmm", "hm", "evet", "hayır",
-            "yes", "no", "thanks", "thank you", "cool", "nice", "good"
-        };
-        if (trimmedQ.Length < 4 || meaninglessWords.Contains(trimmedQ))
-            return "Belgeler hakkında bir soru sorabilirsiniz.";
-
-        var context = string.Join("\n\n", chunkList.Select(c =>
-            $"[KAYNAK: {c.FileName}]\n{c.Content.Trim().Replace("**", "").Replace("---", "")}"));
+        var context = string.Join("\n\n", chunkList.Select((c, i) =>
+            $"[PARÇA {i + 1} | {c.FileName}]\n{c.Content.Trim()}"));
 
         var historyList = history?.ToList() ?? new List<(string Role, string Content)>();
 
+        // Soru kalitesi kontrolü — LLM ile değerlendir
+        var questionValid = await ValidateQuestionAsync(question, ct);
+        if (!questionValid)
+            return "Lütfen yüklü belgelerle ilgili anlamlı bir soru sorun.";
+
         var systemPrompt = """
-            Sen kurumsal belgeleri analiz eden, ileri düzey bir doküman asistanısın.
-            Görevin: Kullanıcının sorusunu yalnızca sana sunulan BELGE PARÇALARI'na dayanarak eksiksiz ve doğru yanıtlamak.
+            Sen ileri düzey bir kurumsal belge analiz asistanısın. Kullanıcının sorularını YALNIZCA sana verilen belge parçalarına dayanarak yanıtlarsın. Hiçbir zaman dışarıdan bilgi üretmez, tahmin yapmaz veya varsayımda bulunmazsın.
 
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            ■ TEMEL KURALLAR
+            ■ TEMEL KURALLAR — KESİNLİKLE UYULMALI
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            1. YALNIZCA verilen belge parçalarındaki bilgiyi kullan. Dışarıdan bilgi üretme.
-            2. Bilgi belgede yoksa: "Bu bilgi yüklü belgelerde yer almıyor." de ve dur.
-            3. Yanıtını her zaman TÜRKÇE ver.
-            4. Cevap birden fazla parçaya yayılmışsa TÜMÜNÜ tara, hepsini birleştir — hiçbir satırı atlama.
-            5. Sayı, tarih, kod, oran, ölçü gibi spesifik veriler varsa birebir aktar, yuvarlama.
-            6. Maddeler, şartlar veya gereksinimler listesiyse TAMAMINI ver, kısaltma.
-            7. Bilgi birden fazla dosyadan geliyorsa her bilginin yanına dosya adını yaz (parantez içinde).
+            • Yalnızca verilen belge parçalarındaki bilgiyi kullan. Dışarıdan hiçbir bilgi ekleme.
+            • Belge parçalarında <br>, &amp;, &#x26;, =3D gibi HTML/encoding kalıntıları olabilir. Bunları yok say, yalnızca anlamlı metni kullan.
+            • Boş tablo satırlarını (| | | | gibi yalnızca pipe içeren satırlar) yanıta dahil etme.
+            • Bilgi parçalarda yoksa yalnızca şunu söyle: "Bu bilgi yüklü belgelerde yer almıyor." Başka hiçbir şey ekleme.
+            • Yanıtını her zaman TÜRKÇE ver. Kaynak dosya adları İngilizce olsa bile yanıt Türkçe olmalı.
+            • Cevap birden fazla parçaya yayılmışsa TÜM parçaları tara, hepsini birleştir — tek bir satırı bile atlama.
+            • Sayılar, kodlar, tarihler, oranlar, ölçüler, formül değerleri — bunları HİÇ DEĞİŞTİRMEDEN birebir aktar.
+            • Maddeli listeler, şartlar, gereksinimler, kontrol adımları soruluyorsa TAMAMINI ver — asla kısaltma.
+            • Bilgi birden fazla dosyadan geliyorsa her bilginin hemen yanında parantez içinde o dosyanın adını yaz.
+            • Cevabın doğruluğundan emin ol. Çelişen bilgi varsa her iki bilgiyi de göster ve kaynağını belirt.
 
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            ■ TABLO VE LİSTE KURALLARI
+            ■ TABLO VE LİSTE İŞLEME
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            - Belge parçasında [TABLO BAŞLANGIÇ]...[TABLO BİTİŞ] bloğu varsa içindeki veriyi
-              markdown tablo formatında (| Sütun | Sütun |) sun. Tek satır bile atlama.
-            - Belge parçasında tablo düz metin olarak geliyorsa (örn: "No: 1, Tanım: ..., İşlem: ...")
-              bu veriyi otomatik olarak markdown tabloya dönüştür.
-            - Kullanıcı belirli bir tabloyu istiyorsa (örn: "rubrik tablosu", "planlama tablosu")
-              YALNIZCA o tabloyu ver, ilgisiz tabloları dahil etme.
-            - Kullanıcı "tüm tablo", "tam liste" diyorsa hiçbir satırı atlama.
+            • [TABLO BAŞLANGIÇ]...[TABLO BİTİŞ] bloğu varsa içindeki veriyi eksiksiz markdown tablo formatında sun:
+              | Sütun1 | Sütun2 | Sütun3 |
+              |--------|--------|--------|
+              | Değer  | Değer  | Değer  |
+            • Düz metin tablo verisi geliyorsa (örn: "No: 1, Tanım: Manuel Transpalet, Teknik: ...") otomatik olarak markdown tabloya dönüştür.
+            • Kullanıcı belirli bir tablo istiyorsa (örn: "ekipman tablosu", "değerlendirme tablosu") yalnızca o tabloyu ver.
+            • "Tüm tablo", "tam liste", "hepsini göster" deniyorsa tek bir satır bile atlama.
+            • Tablo başlıkları belgede belirtilmemişse içerikten çıkar ve uygun başlık koy.
 
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            ■ ÇAPRAZ SORGULAMA (Birden fazla belge)
+            ■ ÇAPRAZ BELGE SORGULAMA
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            - Kullanıcı iki farklı belgeden ilişkili veri soruyorsa (örn: "falçata kullanımında hangi ekipman"):
-              → Her iki belgedeki ilgili satırları eşleştir.
-              → Eşleşen bilgileri birleştirerek yanıtla.
-              → Hangi bilginin hangi dosyadan geldiğini parantez içinde belirt.
-            - Aynı konuda birden fazla belgede bilgi varsa hepsini karşılaştırmalı sun.
+            • Kullanıcı iki veya daha fazla belgeyle ilgili soru soruyorsa:
+              → Her belgedeki ilgili tüm bilgileri bul.
+              → Bilgileri anlamlı şekilde eşleştir ve birleştir.
+              → Her bilginin yanında hangi dosyadan geldiğini parantez içinde belirt.
+            • Aynı konuda birden fazla belgede bilgi varsa karşılaştırmalı olarak sun.
+            • Belgeler arasında çelişki varsa bunu açıkça belirt: "X dosyasında ... yazarken Y dosyasında ... yazıyor."
 
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            ■ KONUŞMA BAĞLAMI
+            ■ KOD VE TEKNİK İÇERİK
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            - Kullanıcı "az önce ne sordum", "ne dedim", "önceki soruya göre" derse
-              ÖNCEKİ KONUŞMA geçmişine bak ve oradan yanıtla.
-            - Kullanıcı "devam et", "bir öncekiyle ilgili" derse bağlamı koru.
-            - Her soru bağımsız değil — kullanıcı önceki yanıt üzerine soru sorabilir.
+            • Belge parçasında kod bloğu varsa (C#, SQL, ABAP, JavaScript vb.) kod bloğu olarak sun:
+              ```dil
+              kod içeriği
+              ```
+            • Fonksiyon adları, tablo adları, alan adları, parametre adları değiştirmeden aktar.
+            • Teknik açıklamaları kısaltma veya sadeleştirme — belgede yazdığı gibi ver.
 
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            ■ YANIT BİÇİMİ
+            ■ KONUŞMA BAĞLAMI VE SÜREKLİLİK
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            - "Elbette", "Tabii ki", "Merhaba", "Size yardımcı olabilirim" gibi giriş cümleleri KULLANMA.
-              Doğrudan yanıtla.
-            - "[PARÇA X]" gibi iç etiketleri yanıtta gösterme — yerine dosya adını kullan.
-            - "olabilir", "muhtemelen", "sanırım", "tahmin ediyorum" gibi belirsiz ifadeler kullanma.
-            - Kısa ve öz ol ama EKSİK BIRAKMA. Gerekiyorsa uzun yaz, satır atlama.
-            - Kaynak gösterirken sadece dosya adını kullan (parantez içinde), başka etiket ekleme.
+            • Kullanıcı "az önce ne sordum", "önceki soruya göre", "devam et", "bir öncekiyle ilgili" derse:
+              → Konuşma geçmişine bak.
+              → Önceki bağlamı koru ve sürekliliği sağla.
+            • Her soruyu bağımsız değil, konuşmanın bir parçası olarak değerlendir.
+            • Kullanıcı önceki yanıt üzerine soru sorabilir — geçmiş yanıtları dikkate al.
+
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            ■ YANIT TARZI VE FORMATI
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            • "Elbette", "Tabii ki", "Merhaba", "Size yardımcı olabilirim", "Harika soru" gibi dolgu cümlelerini kesinlikle kullanma. Direkt yanıtla.
+            • "Olabilir", "muhtemelen", "sanırım", "tahmin ediyorum" gibi belirsiz ifadeler kullanma. Belgede ne yazıyorsa onu aktar.
+            • [PARÇA X] gibi iç referansları yanıtta asla gösterme. Bu etiketler yalnızca senin için — kullanıcı görmemeli.
+            • Kaynak belirtirken yalnızca parantez içinde dosya adı kullan: (dosya_adi.pdf)
+            • Gereksiz tekrar yapma. Aynı bilgiyi iki kez yazma.
+            • Yanıt uzun olacaksa bölüm başlıkları kullan, okunabilirliği artır.
+            • Eksik bırakmak kesinlikle yasak. Cevap uzun olsa da tamamla.
             """;
 
         var userMessage = $"""
-            ── BELGE PARÇALARI ──────────────────────────────────────────────────────
+            BELGE PARÇALARI:
+            ════════════════════════════════════════════════════════════════
             {context}
-            ─────────────────────────────────────────────────────────────────────────
+            ════════════════════════════════════════════════════════════════
 
             SORU: {question}
 
             TALİMAT:
-            1. Yukarıdaki TÜM parçaları tara — cevap birden fazla parçaya yayılmış olabilir.
-            2. İlgili parçaları bulduktan sonra bilgileri eksiksiz birleştirerek yanıtla.
-            3. Tablo içeren parçalarda HER SATIRI oku, hiç satır atlama.
-            4. Bilgi parçalarda mevcutsa "yer almıyor" yazma — doğrudan yanıtla.
-            5. Tablolar için markdown format kullan (| Başlık | Başlık |).
+            1. Yukarıdaki tüm parçaları dikkatlice tara. Cevap birden fazla parçaya yayılmış olabilir.
+            2. İlgili tüm parçaları bul ve bilgileri eksiksiz birleştirerek yanıtla.
+            3. Tablolarda hiçbir satırı atlama — tüm satırları markdown formatında ver.
+            4. Kod içeren parçalarda kodu kod bloğu olarak göster.
+            5. Bilgi mevcutsa "yer almıyor" yazma — doğrudan yanıtla.
+            6. Yanıtta [PARÇA X] gibi iç etiket kesinlikle kullanma.
             """;
-
 
         return _cfg["Llm:Provider"] switch
         {
@@ -137,7 +147,7 @@ public class LlmService : ILlmService
     // ── Anthropic ─────────────────────────────────────────────────────────
     private async Task<string> CallAnthropicAsync(string system, string user, CancellationToken ct)
     {
-        var maxTokens = int.TryParse(_cfg["Llm:MaxTokens"], out var t) ? t : 2048;
+        var maxTokens = int.TryParse(_cfg["Llm:MaxTokens"], out var t) ? t : 4096;
 
         using var request = new HttpRequestMessage(HttpMethod.Post, string.Empty);
         request.Headers.Add("x-api-key", _cfg["Llm:ApiKey"]);
@@ -162,7 +172,7 @@ public class LlmService : ILlmService
     {
         var apiKey = _cfg["Llm:ApiKey"];
         var model = _cfg["Llm:Model"] ?? "gemini-2.0-flash-001";
-        var maxTokens = int.TryParse(_cfg["Llm:MaxTokens"], out var t) ? t : 2048;
+        var maxTokens = int.TryParse(_cfg["Llm:MaxTokens"], out var t) ? t : 4096;
         var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}";
 
         var payload = new
@@ -192,7 +202,7 @@ public class LlmService : ILlmService
         {
             model = _cfg["Llm:Model"],
             stream = false,
-            options = new { temperature = 0.1, num_predict = 2048 },
+            options = new { temperature = 0.2, num_predict = 2048 },
             messages = new[]
             {
                 new { role = "system", content = system },
@@ -212,7 +222,7 @@ public class LlmService : ILlmService
         string system, string user, CancellationToken ct,
         IEnumerable<(string Role, string Content)>? history = null)
     {
-        var maxTokens = int.TryParse(_cfg["Llm:MaxTokens"], out var t) ? t : 2048;
+        var maxTokens = int.TryParse(_cfg["Llm:MaxTokens"], out var t) ? t : 4096;
 
         var msgList = new List<object> { new { role = "system", content = system } };
         if (history != null)
@@ -224,7 +234,7 @@ public class LlmService : ILlmService
         {
             model = _cfg["Llm:Model"],
             max_tokens = maxTokens,
-            temperature = 0.1f,
+            temperature = 0.2f,
             messages = msgList
         };
 
@@ -237,6 +247,32 @@ public class LlmService : ILlmService
             .GetProperty("message")
             .GetProperty("content")
             .GetString()!.Trim();
+    }
+
+    // ── Soru kalitesi kontrolü ───────────────────────────────────────────
+    private async Task<bool> ValidateQuestionAsync(string question, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(question) || question.Trim().Length < 2) return false;
+        try
+        {
+            var payload = new
+            {
+                model = _cfg["Llm:Model"],
+                max_tokens = 10,
+                temperature = 0.0f,
+                messages = new[]
+                {
+                    new { role = "system", content = "Kullanıcının mesajını değerlendir. Mesaj anlamlı bir soru veya istek içeriyorsa 'EVET', küfür/hakaret/anlamsız/ilgisiz içerik ise 'HAYIR' döndür. Başka hiçbir şey yazma." },
+                    new { role = "user", content = question }
+                }
+            };
+            var response = await _http.PostAsJsonAsync("/openai/v1/chat/completions", payload, ct);
+            if (!response.IsSuccessStatusCode) return true; // Hata varsa geçir
+            var json = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(cancellationToken: ct);
+            var answer = json.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString()?.Trim().ToUpperInvariant() ?? "";
+            return answer.Contains("EVET");
+        }
+        catch { return true; } // Hata varsa geçir
     }
 
     // ── Hata yönetimi ─────────────────────────────────────────────────────

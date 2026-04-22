@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "docuchat-494108",
+  "private_key_id": "9fc706f61c884d0d1d80b0d5114bc2b11f4cf8b7",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCWzmJNEa/Mmzi7\nNJeVX2iBD5PQx6k9U1eSuseX0nv0BJMRKhTLCRGSVr1DCz9lJt2MJMF/UtHiS0do\n9knKEZ4K0HE8dD6++YN/3F8sN3zoWGuH6nryz+IX0Jk+gK6udK3iofG4C7MPFpi3\nPShFe/YhBFih9ENeQVD/4tbhaOfHrPz2V+Hty3igzj6V+5TJint+okQItwgl2Ctf\nw+/wf2eZ6AfrgVnw+ITKA/qserPUl82EqRamB9gPT+8AhrJZs6mlFjiwj+bVEHw2\nl0vI+hQX9WJ+g3jaIN59zhUOfcfRUSTolbR0YqOITGQw5XBxeVHI0Hu2hQ5KkAM/\nkXxBG+3/AgMBAAECggEANLGVmI9TCZ+9IXCdfLSTK/F4+U0ingqGgX8hKbQC2r9U\ncf1tuYoIKUWEqS3/b0U2yXa4Y9hY/QTHxW21V9VzDx1JS9HkcM93etBSMv2KeBcZ\nL6snXbt0qVSaj0PghZXAgn2Km//+h4miP/ivHyRS2rONkr1qYr9Y4aht4+JHhrWq\nd/DPIIJ8BXRdioqBoXuELg/fsyzsvL1kb0UlqrGTCxFqIc1LeHMxGxe3cZQlnPDR\n8Pn0rv+VPJnMT69ddaOUiEsfq6A6mYGw/u6F+fMfUxLDArpVGVxJUp7myGn+BTRD\nNPdBYP5UJEqe66XJ4VlojIM+uuy/BXCBySuPCvKk2QKBgQDFj/86/bTxX1jQ9A9J\nIMjtqaqs3t7eJNRTy30N46hrO3ddoKTM0wtqi51NDmW+kXcUhIqsi2adeXG2QUvk\nKM213rbVA1ZQv1OtctSDc6AHSeqKW06ToYYRST6ARgS2MipGqhxARqKUoeNwKTNC\nEolt7y3n1MhSPjeTwikLHdCxuQKBgQDDad1a4x/XIHQAwL/W1fgS1ig6hpj2hYKr\nS9b9gh0FeQwZh4sik1n/0X6XHD0zioCxSf4fDtl1QJNIRnPNKClEMcl5v1NI8Ivg\nPI2FFx8FNNLfz+2lazWBCUtmWh0R1Pc6hsbgsAlwAH/eT7GgoI5lirkKKvqEeVON\noJL7edBZdwKBgAeb0ByZgMp6/ZSukZgjZxmgGy6lNrgfev3vLFXImsfmdmZotXAe\nAKaN0fURxOFeANQNdrnGdKFD+Bko0p9q4uFKPohdpIlflP1tGrolTdh6BEpn0dLl\nuaAYzgtqpuvNastl6cif78sBoRzEuXCl/hz5xS7UhxKDyugp5iLDdzIhAoGAdtrM\nBLzCIAGgLNkPlabc1PAm1boKDV8VJATjxZs+9ZYzUs/LQ4NmKR+NpHFLlC64qZx8\nkP1iLFvTeRFI286CkvTJO2CwUlvkZ8XMuddfSbZgUDrSq1sy1sIFd0J2DeN/X7yb\n+At6IgJbw6arPiyJj585fsK3Tp3QwQKag5QKsm8CgYEAwg6qNn1rsGHM6IawJ0Az\nHQK6jIQD1KJ7ooQ4T9h2GDgW4mMhB5+KFApT0wUGTNTGDhvU8K6sbZe3ahxjcqYX\nAqaLBVj44spTxjkUXEesyNB1ghf1q+Ebkgx0EBremQQaWMbB+JY7+Csxufdyf4Sg\nq+OIUrEJLdvMMH0bmszs5tQ=\n-----END PRIVATE KEY-----\n",
+  "client_email": "docuchat-ocr@docuchat-494108.iam.gserviceaccount.com",
+  "client_id": "117370023880808820980",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/docuchat-ocr%40docuchat-494108.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

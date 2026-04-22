@@ -114,7 +114,7 @@ public class DocumentService : IDocumentService
     private static FileType DetectFileType(string contentType) => contentType switch
     {
         "application/pdf" => FileType.Pdf,
-        "application/msword" => FileType.Docx, // .doc — WordprocessingDocument ile işlenir
+        "application/msword" => FileType.Doc,
         var t when t.Contains("wordprocessingml") => FileType.Docx,
         var t when t.Contains("spreadsheetml") => FileType.Xlsx,
         "text/csv" => FileType.Csv,

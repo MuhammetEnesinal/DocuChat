@@ -174,3 +174,93 @@ input::-webkit-credentials-auto-fill-button,
 input::-webkit-textfield-decoration-container {
     display: none !important;
 }
+
+/* ── Admin responsive ── */
+@media (max-width: 640px) {
+    .admin-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .admin-tabs {
+        width: 100%;
+    }
+
+    .admin-tab-btn {
+        flex: 1;
+        justify-content: center;
+    }
+
+    .admin-content {
+        padding: 16px;
+    }
+
+    .admin-list-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .admin-search {
+        width: 100%;
+    }
+
+    .admin-users-actions {
+        width: 100%;
+        display: flex;
+        gap: 8px;
+    }
+
+    .admin-tab-label {
+        display: none;
+    }
+
+    .doc-status-badge {
+        display: none;
+    }
+}
+
+/* ── Chat responsive ── */
+@media (max-width: 640px) {
+    .chat-sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100vh;
+        z-index: 50;
+        width: 256px !important;
+        box-shadow: 4px 0 20px rgba(0,0,0,0.5);
+    }
+
+    .chat-sidebar-overlay {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 40;
+    }
+
+    .chat-header {
+        padding: 12px 16px;
+    }
+
+    .chat-input-area {
+        padding: 12px 16px;
+    }
+
+    .source-hint {
+        display: none;
+    }
+}
+
+@media (min-width: 641px) {
+    .chat-sidebar-overlay {
+        display: none;
+    }
+}
+
+/* Session action butonları hover */
+.group:hover .session-actions {
+    opacity: 1 !important;
+}
