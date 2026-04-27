@@ -1,7 +1,7 @@
 ﻿using DocuChat.Application.Common;
 using DocuChat.Application.DTOs.Document;
 
-namespace DocuChat.Application.Abstractions;
+namespace DocuChat.Application.Interfaces.Services;
 
 public interface IDocumentService
 {

@@ -2,7 +2,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using DocuChat.Application.Abstractions;
+using DocuChat.Application.Interfaces.Services;
+using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Application.DTOs.Document;
 using DocuChat.API.Extensions;
 using DocuChat.Domain.Enums;

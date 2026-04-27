@@ -1,9 +1,9 @@
 ﻿using Mapster;
 using Microsoft.Extensions.Logging;
-using DocuChat.Application.Abstractions;
+using DocuChat.Application.Interfaces.Services;
+using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Application.Common;
 using DocuChat.Application.DTOs.Document;
-using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Domain.Entities;
 using DocuChat.Domain.Enums;
 
@@ -61,15 +61,16 @@ public class DocumentService : IDocumentService
             var chunks = _parser.Parse(req.FileStream, doc.FileType);
             int idx = 0;
 
-            foreach (var text in chunks)
+            foreach (var parsed in chunks)
             {
-                var vec = await _embedder.GetEmbeddingAsync(text, ct);
+                var vec = await _embedder.GetEmbeddingAsync(parsed.Content, ct);
                 await _uow.Chunks.AddAsync(new DocumentChunk
                 {
                     DocumentId = doc.Id,
-                    Content = text,
+                    Content = parsed.Content,
                     ChunkIndex = idx++,
                     Embedding = vec,
+                    ImagePath = parsed.ImagePath,
                 }, ct);
             }
 

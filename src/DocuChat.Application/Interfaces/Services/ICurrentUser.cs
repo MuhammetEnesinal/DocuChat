@@ -1,4 +1,5 @@
-﻿namespace DocuChat.Application.Abstractions;
+﻿
+namespace DocuChat.Application.Interfaces.Services;
 
 public interface ICurrentUser
 {

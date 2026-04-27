@@ -1,8 +1,8 @@
 ﻿using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
-using DocuChat.Application.Abstractions;
+using DocuChat.Application.Interfaces.Services;
 
-namespace DocuChat.Infrastructure.Identity;
+namespace DocuChat.Infrastructure.Services;
 
 public class CurrentUserService : ICurrentUser
 {

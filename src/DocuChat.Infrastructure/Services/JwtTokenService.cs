@@ -1,10 +1,11 @@
-﻿using System.IdentityModel.Tokens.Jwt;
+﻿using DocuChat.Infrastructure.Identity;
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 
-namespace DocuChat.Infrastructure.Identity;
+namespace DocuChat.Infrastructure.Services;
 
 public class JwtTokenService
 {

@@ -1,9 +1,11 @@
-﻿using Microsoft.AspNetCore.Identity;
-using DocuChat.Application.Abstractions;
+﻿using DocuChat.Infrastructure.Identity;
+using Microsoft.AspNetCore.Identity;
+using DocuChat.Application.Interfaces.Services;
+using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Application.Common;
 using DocuChat.Application.DTOs.Auth;
 using DocuChat.Domain.Enums;
-using DocuChat.Infrastructure.Identity;
+
 
 namespace DocuChat.Infrastructure.Services;
 

@@ -2,7 +2,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using DocuChat.Application.Abstractions;
+using DocuChat.Application.Interfaces.Services;
 using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Application.Mappings;
 using DocuChat.Application.Services;

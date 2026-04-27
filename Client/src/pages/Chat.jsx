@@ -57,7 +57,11 @@ export default function Chat() {
         if (window.innerWidth < 768) setSidebarCollapsed(true);
         try {
             const res = await getMessages(session.id);
-            setMessages(res.data.data || []);
+            const msgs = (res.data.data || []).map(m => ({
+                ...m,
+                images: m.imagesJson ? (() => { try { return JSON.parse(m.imagesJson); } catch { return []; } })() : undefined
+            }));
+            setMessages(msgs);
         } catch { toast.error('Mesajlar yüklenemedi.'); }
     };
 
@@ -87,7 +91,26 @@ export default function Chat() {
                 setSessions((prev) => [newSession, ...prev]);
             }
 
-            setMessages((prev) => [...prev, { role: 'Assistant', content: answer, id: Date.now() + 1, createdAt: new Date().toISOString() }]);
+            // Chunk'lardan imagePath olanları topla — JSON array olabilir
+            const images = (sourceChunks || [])
+                .flatMap(c => {
+                    if (!c.imagePath) return [];
+                    try {
+                        const parsed = JSON.parse(c.imagePath);
+                        return Array.isArray(parsed) ? parsed : [c.imagePath];
+                    } catch {
+                        return [c.imagePath];
+                    }
+                })
+                .filter(Boolean);
+
+            setMessages((prev) => [...prev, {
+                role: 'Assistant',
+                content: answer,
+                id: Date.now() + 1,
+                createdAt: new Date().toISOString(),
+                images: images.length > 0 ? images : undefined
+            }]);
             setChunks(sourceChunks || []);
         } catch (err) {
             toast.error(getRateLimitMessage(err));

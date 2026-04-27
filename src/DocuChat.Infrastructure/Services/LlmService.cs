@@ -1,7 +1,8 @@
 ﻿using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
-using DocuChat.Application.Abstractions;
+using DocuChat.Application.Interfaces.Services;
+using DocuChat.Application.Interfaces.Repositories;
 using Microsoft.Extensions.Configuration;
 
 namespace DocuChat.Infrastructure.Services;
@@ -39,7 +40,12 @@ public class LlmService : ILlmService
             return "Sisteme yüklenmiş belgeler arasında bu soruyla ilgili bilgi bulunamadı.";
 
         var context = string.Join("\n\n", chunkList.Select((c, i) =>
-            $"[PARÇA {i + 1} | {c.FileName}]\n{c.Content.Trim()}"));
+        {
+            // [RESIM:...] yazılarını LLM'e gönderme — bunlar görsel referans, LLM metin olarak işlememeli
+            var cleanContent = System.Text.RegularExpressions.Regex.Replace(
+                c.Content.Trim(), @"\[RESIM:[^\]]*\]", "").Trim();
+            return $"[PARÇA {i + 1} | {c.FileName}]\n{cleanContent}";
+        }));
 
         var historyList = history?.ToList() ?? new List<(string Role, string Content)>();
 

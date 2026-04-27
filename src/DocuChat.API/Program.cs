@@ -5,6 +5,7 @@ using DocuChat.Infrastructure;
 using DocuChat.Infrastructure.Persistence;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
@@ -33,12 +34,12 @@ try
 
         c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
         {
-            Name         = "Authorization",
-            Type         = SecuritySchemeType.Http,   
-            Scheme       = "bearer",
+            Name = "Authorization",
+            Type = SecuritySchemeType.Http,
+            Scheme = "bearer",
             BearerFormat = "JWT",
-            In           = ParameterLocation.Header,
-            Description  = "Token'ı direkt yapıştırın, 'Bearer ' otomatik eklenir."
+            In = ParameterLocation.Header,
+            Description = "Token'ı direkt yapıştırın, 'Bearer ' otomatik eklenir."
         });
 
         c.AddSecurityRequirement(new OpenApiSecurityRequirement
@@ -67,19 +68,19 @@ try
     builder.Services.AddAuthentication(options =>
     {
         options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-        options.DefaultChallengeScheme    = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
     })
     .AddJwtBearer(options =>
     {
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            ValidateIssuer           = true,
-            ValidateAudience         = true,
-            ValidateLifetime         = true,
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer              = builder.Configuration["Jwt:Issuer"],
-            ValidAudience            = builder.Configuration["Jwt:Audience"],
-            IssuerSigningKey         = new SymmetricSecurityKey(
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Secret"]!))
         };
     });
@@ -104,6 +105,15 @@ try
     app.UseAuthentication();
     app.UseAuthorization();
     app.MapControllers();
+
+    // uploads klasörünü static file olarak serve et
+    var storagePath = builder.Configuration["Storage:LocalPath"] ?? "uploads";
+    Directory.CreateDirectory(storagePath);
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(Path.GetFullPath(storagePath)),
+        RequestPath = "/uploads"
+    });
 
     app.Run();
 }
@@ -141,7 +151,7 @@ public class FileUploadOperationFilter : IOperationFilter
                         {
                             ["file"] = new OpenApiSchema
                             {
-                                Type   = "string",
+                                Type = "string",
                                 Format = "binary"
                             }
                         },

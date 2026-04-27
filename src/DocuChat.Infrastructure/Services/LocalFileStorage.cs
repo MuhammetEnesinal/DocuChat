@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Configuration;
-using DocuChat.Application.Abstractions;
+using DocuChat.Application.Interfaces.Services;
+using DocuChat.Application.Interfaces.Repositories;
 
 namespace DocuChat.Infrastructure.Services;
 

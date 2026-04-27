@@ -4,4 +4,5 @@ public record ChatMessageResponseDto(
     Guid Id,
     string Role,
     string Content,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    string? ImagesJson = null);

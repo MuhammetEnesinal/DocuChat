@@ -1,5 +1,5 @@
 ﻿using CsvHelper;
-using DocuChat.Application.Abstractions;
+using DocuChat.Application.Interfaces.Services;
 using DocuChat.Domain.Enums;
 using ExcelDataReader;
 using NPOI.XWPF.UserModel;
@@ -11,6 +11,8 @@ using System.Text;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Tesseract;
+using UglyToad.PdfPig;
+using UglyToad.PdfPig.Content;
 
 namespace DocuChat.Infrastructure.Services;
 
@@ -23,11 +25,13 @@ public class DocumentParserService : IDocumentParser
     private readonly string? _groqApiKey;
     private readonly string _groqVisionModel;
     private readonly string? _llamaParseApiKey;
-
+    private readonly IFileStorage _fileStorage;
 
     private const int RenderDpi = 400;
 
-    public DocumentParserService(Microsoft.Extensions.Configuration.IConfiguration cfg)
+    public DocumentParserService(
+        Microsoft.Extensions.Configuration.IConfiguration cfg,
+        IFileStorage fileStorage)
     {
         _chunkSize = int.Parse(cfg["Chunking:ChunkSize"] ?? "800");
         _overlap = int.Parse(cfg["Chunking:Overlap"] ?? "150");
@@ -36,9 +40,10 @@ public class DocumentParserService : IDocumentParser
         _groqApiKey = cfg["Llm:ApiKey"];
         _groqVisionModel = cfg["GroqVision:Model"] ?? "meta-llama/llama-4-scout-17b-16e-instruct";
         _llamaParseApiKey = cfg["LlamaParse:ApiKey"];
+        _fileStorage = fileStorage;
     }
 
-    public IEnumerable<string> Parse(Stream stream, FileType fileType)
+    public IEnumerable<ParsedChunk> Parse(Stream stream, FileType fileType)
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
@@ -50,9 +55,8 @@ public class DocumentParserService : IDocumentParser
             return SemanticChunk(docText);
         }
 
-        // PDF: Her sayfa ayrı chunk — sayfa sınırı doğal bölüm sınırı
         if (fileType == FileType.Pdf)
-            return ExtractPdfPages(stream).SelectMany(page => SemanticChunk(page));
+            return ExtractPdfPages(stream).SelectMany(r => SemanticChunk(r.Text, r.ImagePath));
 
         var text = fileType switch
         {
@@ -63,19 +67,22 @@ public class DocumentParserService : IDocumentParser
         return Chunk(text);
     }
 
-    // ── PDF — Her sayfa ayrı string olarak döner ────────────────────────
-    private IEnumerable<string> ExtractPdfPages(Stream stream)
+    // ── PDF ───────────────────────────────────────────────────────────────
+    private record PageResult(string Text, string? ImagePath);
+
+    private IEnumerable<PageResult> ExtractPdfPages(Stream stream)
     {
-        var ms = new MemoryStream();
-        stream.CopyTo(ms);
-        ms.Position = 0;
-        var pages = new List<string>();
+        var pdfBytes = ReadAllBytes(stream);
+        var pages = new List<PageResult>();
 
         if (!string.IsNullOrWhiteSpace(_groqApiKey))
         {
             try
             {
-                var pageImages = Conversion.ToImages(ms, options: new RenderOptions { Dpi = RenderDpi }).ToList();
+                using var ms = new MemoryStream(pdfBytes);
+                var pageImageBitmaps = Conversion.ToImages(ms, options: new RenderOptions { Dpi = RenderDpi }).ToList();
+                var pageImages = pageImageBitmaps; // ikinci çağrı için sakla
+
                 foreach (var bitmap in pageImages)
                 {
                     try
@@ -93,36 +100,45 @@ public class DocumentParserService : IDocumentParser
                                 if (attempt == 0) { Console.WriteLine($"[OCR] Retry: {ex.Message}"); System.Threading.Thread.Sleep(3000); }
                             }
                         }
-                        if (!string.IsNullOrWhiteSpace(pageText)) pages.Add(pageText);
+                        if (!string.IsNullOrWhiteSpace(pageText))
+                            pages.Add(new PageResult(pageText, null));
                     }
                     finally { bitmap.Dispose(); }
                 }
-                if (pages.Count > 0) { ms.Dispose(); return pages; }
+
+                if (pages.Count > 0)
+                {
+                    // PdfPig ile resimleri çıkar
+                    var rawPages = ExtractImagesWithPdfPig(pdfBytes, pages).GetAwaiter().GetResult();
+                    // Groq Vision ile resim açıklamalarını al ve eşleştir
+                    pages = MatchImagesWithDescriptions(rawPages, pageImages, _groqApiKey!, _groqVisionModel).GetAwaiter().GetResult();
+                    return pages;
+                }
                 Console.WriteLine("[OCR] Groq Vision metin döndürmedi, Tesseract fallback");
-                ms.Position = 0;
             }
-            catch (Exception ex) { Console.WriteLine("[OCR] Groq Vision hata: " + ex.Message); ms.Position = 0; }
+            catch (Exception ex) { Console.WriteLine("[OCR] Groq Vision hata: " + ex.Message); }
         }
 
-        // Tesseract fallback — her sayfa ayrı
+        // Tesseract fallback
         TesseractEngine? engine = null;
         try { engine = new TesseractEngine(_tessDataPath, _tessLang, EngineMode.LstmOnly); } catch { }
         try
         {
-            ms.Position = 0;
-            var pageImages = Conversion.ToImages(ms, options: new RenderOptions { Dpi = RenderDpi });
+            using var ms2 = new MemoryStream(pdfBytes);
+            var pageImages = Conversion.ToImages(ms2, options: new RenderOptions { Dpi = RenderDpi });
             foreach (var bitmap in pageImages)
             {
                 try
                 {
                     var pageText = engine is not null ? OcrPageWithTesseract(bitmap, engine) : string.Empty;
-                    if (!string.IsNullOrWhiteSpace(pageText)) pages.Add(pageText);
+                    if (!string.IsNullOrWhiteSpace(pageText))
+                        pages.Add(new PageResult(pageText, null));
                 }
                 finally { bitmap.Dispose(); }
             }
         }
-        catch (Exception ex) { pages.Add($"[PDF okuma hatası: {ex.Message}]"); }
-        finally { engine?.Dispose(); ms.Dispose(); }
+        catch (Exception ex) { pages.Add(new PageResult($"[PDF okuma hatası: {ex.Message}]", null)); }
+        finally { engine?.Dispose(); }
         return pages;
     }
 
@@ -134,8 +150,65 @@ public class DocumentParserService : IDocumentParser
             using var image = SKImage.FromBitmap(bitmap);
             using var data = image.Encode(SKEncodedImageFormat.Png, 100);
             var base64 = Convert.ToBase64String(data.ToArray());
+
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
             http.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
+
+            var prompt = """
+                Sen kurumsal belge analizi konusunda uzmanlaşmış bir yapay zeka sistemsin.
+                Görevin: Bu PDF sayfasındaki içeriği yapısal bütünlüğünü koruyarak eksiksiz çıkarmak.
+
+                ═══════════════════════════════════════════════════
+                TEMEL KURALLAR
+                ═══════════════════════════════════════════════════
+                ✦ Sayfadaki HER bilgiyi çıkar, hiçbir şeyi atlama.
+                ✦ Orijinal dili koru, asla çeviri yapma.
+                ✦ Sayfa numarası, üstbilgi, altbilgi dahil etme.
+                ✦ Yorumlama yapma, sadece belgede yazanı aktar.
+
+                ═══════════════════════════════════════════════════
+                METİN VE PARAGRAF
+                ═══════════════════════════════════════════════════
+                ✦ Her paragrafı ayrı satır yaz, aralarında boş satır bırak.
+                ✦ Kalın metinleri **böyle** işaretle.
+
+                ═══════════════════════════════════════════════════
+                BAŞLIKLAR
+                ═══════════════════════════════════════════════════
+                ✦ Ana başlıklar: ## Başlık
+                ✦ Alt başlıklar: ### Alt Başlık
+
+                ═══════════════════════════════════════════════════
+                LİSTELER
+                ═══════════════════════════════════════════════════
+                ✦ Madde listeleri: - madde
+                ✦ Numaralı listeler: 1. madde
+
+                ═══════════════════════════════════════════════════
+                TABLOLAR
+                ═══════════════════════════════════════════════════
+                ✦ Tablolar markdown formatında:
+                  | Sütun1 | Sütun2 |
+                  |--------|--------|
+                  | Değer  | Değer  |
+                ✦ Tüm satırları eksiksiz yaz.
+
+                ═══════════════════════════════════════════════════
+                RESİMLER — ÇOK ÖNEMLİ
+                ═══════════════════════════════════════════════════
+                ✦ Sayfada fotoğraf, resim, grafik, diyagram, şema görürsen:
+                  Tam olarak göründüğü yere [R1] yaz. Sonraki resim [R2], sonraki [R3] ...
+                ✦ Sayım 1den başlar, her resim için bir sonraki sayıyı kullan.
+                ✦ Tablo hücresindeyse o hücreye yaz: | 1 | [R1] | Güvenli Falçata |
+                ✦ Paragraf içindeyse yanına yaz: Şekil 1 [R1] açıklaması
+                ✦ Logo, imza, arka plan deseni için kullanma.
+
+                ═══════════════════════════════════════════════════
+                ÇIKTI
+                ═══════════════════════════════════════════════════
+                ✦ Sadece içerik, yorum veya açıklama ekleme.
+                """;
+
             var payload = new
             {
                 model,
@@ -145,19 +218,159 @@ public class DocumentParserService : IDocumentParser
                 {
                     new { role = "user", content = new object[]
                     {
-                        new { type = "text", text = "Sen bir belge analiz uzmanisın. Bu PDF sayfasındaki içeriği aşağıdaki kurallara göre çıkar:\n\nGENEL KURALLAR:\n- Tüm metni eksiksiz çıkar, hiçbir bilgiyi atlama.\n- Sayfa numarası, üstbilgi, altbilgi gibi tekrar eden öğeleri dahil etme.\n- Orijinal dili koru, çeviri yapma.\n\nTABLO KURALLARI:\n- Tablolar varsa mutlaka markdown formatında ver:\n  | Sütun1 | Sütun2 | Sütun3 |\n  |--------|--------|--------|\n  | Değer  | Değer  | Değer  |\n- Tablo başlıklarını ilk satıra yaz.\n- Birleştirilmiş hücreleri ayrı hücreler olarak yaz.\n- Tablo sayfanın ortasında kesilmişse mevcut satırları yine de markdown formatında ver.\n- Boş hücreleri boş bırak ama sütun sayısını koru.\n\nLİSTE KURALLARI:\n- Madde listeleri için - işareti kullan.\n- Numaralı listeler için 1. 2. 3. formatını kullan.\n- Alt maddeler için iki boşluk girintili - kullan.\n- Liste öğelerini ayrı satırlara yaz.\n\nBAŞLIK KURALLARI:\n- Ana başlıklar için ## kullan.\n- Alt başlıklar için ### kullan.\n- Başlık gibi görünen büyük/kalın metinleri başlık olarak işaretle.\n\nSadece içeriği ver, açıklama veya yorum ekleme." },
+                        new { type = "text", text = prompt },
                         new { type = "image_url", image_url = new { url = $"data:image/png;base64,{base64}" } }
                     }}
                 }
             };
+
             var response = await http.PostAsJsonAsync("https://api.groq.com/openai/v1/chat/completions", payload);
             var body = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode) { Console.WriteLine($"[OCR] HTTP {(int)response.StatusCode}: {body}"); return string.Empty; }
+
             var json = JsonSerializer.Deserialize<JsonElement>(body);
             if (!json.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0) return string.Empty;
+
             return choices[0].GetProperty("message").GetProperty("content").GetString()?.Trim() ?? string.Empty;
         }
         catch (Exception ex) { Console.WriteLine("[OCR] Groq Vision hata: " + ex.Message); return string.Empty; }
+    }
+
+    // ── PdfPig — gömülü resimleri çıkar ──────────────────────────────────
+    // Groq Vision ile her sayfanın resimlerini açıkla, chunk'larla eşleştir
+    private static async Task<List<PageResult>> MatchImagesWithDescriptions(
+        List<PageResult> pages, List<SKBitmap> bitmaps, string apiKey, string model)
+    {
+        for (var i = 0; i < pages.Count && i < bitmaps.Count; i++)
+        {
+            var page = pages[i];
+
+            // Bu sayfada imagePath (JSON array) var mı?
+            if (string.IsNullOrWhiteSpace(page.ImagePath)) continue;
+
+            List<string>? imagePaths;
+            try { imagePaths = System.Text.Json.JsonSerializer.Deserialize<List<string>>(page.ImagePath); }
+            catch { continue; }
+            if (imagePaths == null || imagePaths.Count == 0) continue;
+
+            try
+            {
+                // Groq Vision'a sayfayı gönder — resim açıklamalarını al
+                using var image = SKImage.FromBitmap(bitmaps[i]);
+                using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+                var base64 = Convert.ToBase64String(data.ToArray());
+
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+                http.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
+
+                var count = imagePaths.Count;
+                var prompt = "Bu sayfada " + count + " adet resim/fotograf var.\n" +
+                    "Her birini yukari-asagi, sol-sag siraya gore acikla.\n" +
+                    "SADECE su formatta cevap ver, baska hicbir sey yazma:\n" +
+                    "1: resmin kisa aciklamasi\n" +
+                    "2: resmin kisa aciklamasi\n" +
+                    "Ornek:\n" +
+                    "1: Guvenli falcata fotografi\n" +
+                    "2: Makas fotografi\n" +
+                    "3: Tornavida fotografi";
+
+                var payload = new
+                {
+                    model,
+                    max_tokens = 500,
+                    temperature = 0,
+                    messages = new object[]
+                    {
+                        new { role = "user", content = new object[]
+                        {
+                            new { type = "text", text = prompt },
+                            new { type = "image_url", image_url = new { url = $"data:image/png;base64,{base64}" } }
+                        }}
+                    }
+                };
+
+                var response = await http.PostAsJsonAsync("https://api.groq.com/openai/v1/chat/completions", payload);
+                var body = await response.Content.ReadAsStringAsync();
+                if (!response.IsSuccessStatusCode) continue;
+
+                var json = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(body);
+                if (!json.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0) continue;
+
+                var descriptions = choices[0].GetProperty("message").GetProperty("content").GetString()?.Trim() ?? "";
+                Console.WriteLine($"[Groq Vision] Sayfa {i + 1} resim aciklamalari: {descriptions}");
+
+                // "1: açıklama" formatını parse et
+                var descMap = new Dictionary<int, string>();
+                foreach (var line in descriptions.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var parts = line.Split(':', 2);
+                    if (parts.Length == 2 && int.TryParse(parts[0].Trim(), out var num))
+                        descMap[num] = parts[1].Trim();
+                }
+
+                // Açıklamaları page text'e ekle — her resim için "[Görsel N: açıklama]" formatında
+                var updatedText = page.Text;
+                for (var j = 0; j < imagePaths.Count; j++)
+                {
+                    var desc = descMap.TryGetValue(j + 1, out var d) ? d : $"Görsel {j + 1}";
+                    updatedText += $"\n[Gorsel {j + 1}: {desc}]";
+                }
+
+                pages[i] = new PageResult(updatedText, page.ImagePath);
+            }
+            catch (Exception ex) { Console.WriteLine($"[Groq Vision] Resim açıklama hatası: {ex.Message}"); }
+        }
+        return pages;
+    }
+
+    private async Task<List<PageResult>> ExtractImagesWithPdfPig(byte[] pdfBytes, List<PageResult> pages)
+    {
+        try
+        {
+            using var doc = PdfDocument.Open(pdfBytes);
+            var pageCount = doc.NumberOfPages;
+
+            for (var pageNum = 1; pageNum <= pageCount && pageNum <= pages.Count; pageNum++)
+            {
+                var page = doc.GetPage(pageNum);
+                var pageImages = page.GetImages()
+                    .OrderByDescending(img => img.Bounds.Top)
+                    .ThenBy(img => img.Bounds.Left)
+                    .ToList();
+
+                if (pageImages.Count == 0) continue;
+
+                var imagePaths = new List<string>();
+                foreach (var img in pageImages)
+                {
+                    try
+                    {
+                        byte[]? imgBytes = null;
+                        if (img.TryGetPng(out var pngBytes)) imgBytes = pngBytes;
+                        else if (img.TryGetBytesAsMemory(out var mem)) imgBytes = mem.ToArray();
+                        else if (img.RawMemory.Length > 0) imgBytes = img.RawMemory.ToArray();
+
+                        if (imgBytes == null || imgBytes.Length < 10) continue;
+
+                        var ext = imgBytes.Length >= 2 && imgBytes[0] == 0xFF && imgBytes[1] == 0xD8 ? "jpg" : "png";
+                        using var imgStream = new MemoryStream(imgBytes);
+                        var savedPath = await _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}");
+                        imagePaths.Add(savedPath);
+                        Console.WriteLine($"[PdfPig] Sayfa {pageNum}: resim {imagePaths.Count} -> {savedPath}");
+                    }
+                    catch (Exception ex) { Console.WriteLine($"[PdfPig] Hata: {ex.Message}"); }
+                }
+
+                if (imagePaths.Count > 0)
+                {
+                    var existing = pages[pageNum - 1];
+                    pages[pageNum - 1] = new PageResult(existing.Text, JsonSerializer.Serialize(imagePaths));
+                }
+            }
+        }
+        catch (Exception ex) { Console.WriteLine($"[PdfPig] Hata: {ex.Message}"); }
+
+        return pages;
     }
 
     private static string OcrPageWithTesseract(SKBitmap bitmap, TesseractEngine engine)
@@ -173,8 +386,8 @@ public class DocumentParserService : IDocumentParser
         catch { return string.Empty; }
     }
 
-    // ── DOCX — LlamaParse API, fallback NPOI ─────────────────────────────
-    private string ExtractDocx(Stream stream, string contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document", string fileName = "document.docx")
+    // ── DOCX ─────────────────────────────────────────────────────────────
+    private string ExtractDocx(Stream stream, string contentType, string fileName)
     {
         if (!string.IsNullOrWhiteSpace(_llamaParseApiKey))
         {
@@ -199,13 +412,11 @@ public class DocumentParserService : IDocumentParser
 
         var instruction =
             "Belgedeki tüm anlamlı içeriği eksiksiz çıkar. " +
-            "Tablolar varsa markdown formatında ver: | Başlık | Başlık |\n|---|---|\n| Değer | Değer |. " +
+            "Tablolar varsa markdown formatında ver. " +
             "Madde listeleri için - işareti, numaralı listeler için 1. 2. 3. formatını kullan. " +
             "Ana başlıklar için ##, alt başlıklar için ### kullan. " +
             "Sayfa numarası, üstbilgi, altbilgi gibi tekrar eden öğeleri dahil etme. " +
-            "CSS kodları, @media kuralları, !important gibi stil tanımlarını kesinlikle dahil etme. " +
-            "Base64 ile kodlanmış veriler, şifreli veya binary içerikler varsa bunları tamamen atla. " +
-            "Confluence veya CMS sistemlerinden gelen print stylesheet, navigation, sidebar gibi arayüz kodlarını atla. " +
+            "CSS kodları, binary içerikler varsa tamamen atla. " +
             "Yalnızca belgenin asıl içeriğini — metin, tablo, liste — çıkar.";
 
         using var uploadForm = new MultipartFormDataContent();
@@ -241,15 +452,14 @@ public class DocumentParserService : IDocumentParser
 
         var resultJson = JsonSerializer.Deserialize<JsonElement>(resultBody);
         var markdown = resultJson.TryGetProperty("markdown", out var md) ? md.GetString() ?? "" : resultBody;
-
         markdown = markdown.Replace("**", "");
+
         var lines = markdown.Split('\n');
         var cleaned = new StringBuilder();
         foreach (var line in lines)
         {
             var trimmed = line.TrimStart();
-            if (trimmed.StartsWith("#")) cleaned.AppendLine(trimmed.TrimStart('#').Trim());
-            else cleaned.AppendLine(line);
+            cleaned.AppendLine(trimmed.StartsWith("#") ? trimmed.TrimStart('#').Trim() : line);
         }
         markdown = cleaned.ToString();
         Console.WriteLine($"[LlamaParse] Başarılı, {markdown.Length} karakter");
@@ -417,7 +627,7 @@ public class DocumentParserService : IDocumentParser
         catch { return string.Empty; }
     }
 
-    // ── Encoding tespiti ─────────────────────────────────────────────────
+    // ── Encoding ─────────────────────────────────────────────────────────
     private static Encoding DetectEncoding(Stream stream)
     {
         stream.Position = 0;
@@ -442,8 +652,8 @@ public class DocumentParserService : IDocumentParser
         return ms.ToArray();
     }
 
-    // ── Semantic Chunk (DOCX/DOC) ─────────────────────────────────────────
-    private IEnumerable<string> SemanticChunk(string text)
+    // ── SemanticChunk ─────────────────────────────────────────────────────
+    private IEnumerable<ParsedChunk> SemanticChunk(string text, string? imagePath = null)
     {
         if (string.IsNullOrWhiteSpace(text)) yield break;
         text = WrapMarkdownTables(text);
@@ -457,21 +667,20 @@ public class DocumentParserService : IDocumentParser
                 if (buffer.Length > 0)
                 {
                     var p = buffer.ToString().Trim();
-                    // Buffer sadece başlık içeriyorsa tabloyu prefix olarak ekle
-                    if (!string.IsNullOrWhiteSpace(p) && p.Length > 100 && !IsBinaryContent(p))
-                        yield return p;
+                    if (!string.IsNullOrWhiteSpace(p) && !IsBinaryContent(p))
+                        yield return new ParsedChunk(p, imagePath);
                     else if (!string.IsNullOrWhiteSpace(p))
                     {
-                        // Başlığı tablo chunk'ına prefix olarak ekle
-                        yield return p + "\n" + segment.Trim();
+                        yield return new ParsedChunk(p + "\n" + segment.Trim(), imagePath);
                         buffer.Clear();
                         continue;
                     }
                     buffer.Clear();
                 }
-                yield return segment.Trim();
+                yield return new ParsedChunk(segment.Trim(), imagePath);
                 continue;
             }
+
             foreach (var line in segment.Split('\n'))
             {
                 var trimmed = line.Trim();
@@ -483,9 +692,8 @@ public class DocumentParserService : IDocumentParser
                 if (isSectionBreak && buffer.Length > 0)
                 {
                     var chunk = buffer.ToString().Trim();
-                    // Çok küçük chunk'ları atla, bir sonraki içerikle birleşsin
-                    if (!string.IsNullOrWhiteSpace(chunk) && !IsBinaryContent(chunk) && chunk.Length > 100)
-                        yield return chunk;
+                    if (!string.IsNullOrWhiteSpace(chunk) && !IsBinaryContent(chunk))
+                        yield return new ParsedChunk(chunk, imagePath);
                     buffer.Clear();
                     if (trimmed != "---") buffer.AppendLine(trimmed);
                     continue;
@@ -494,7 +702,8 @@ public class DocumentParserService : IDocumentParser
                 if (buffer.Length > 0 && buffer.Length + trimmed.Length + 1 > _chunkSize)
                 {
                     var chunk = buffer.ToString().Trim();
-                    if (!string.IsNullOrWhiteSpace(chunk) && !IsBinaryContent(chunk)) yield return chunk;
+                    if (!string.IsNullOrWhiteSpace(chunk) && !IsBinaryContent(chunk))
+                        yield return new ParsedChunk(chunk, imagePath);
                     var tail = chunk.Length > _overlap ? chunk[^_overlap..] : chunk;
                     buffer.Clear();
                     if (!string.IsNullOrWhiteSpace(tail)) buffer.Append(tail).Append(' ');
@@ -502,12 +711,14 @@ public class DocumentParserService : IDocumentParser
                 buffer.AppendLine(trimmed);
             }
         }
+
         var last = buffer.ToString().Trim();
-        if (!string.IsNullOrWhiteSpace(last) && !IsBinaryContent(last)) yield return last;
+        if (!string.IsNullOrWhiteSpace(last) && !IsBinaryContent(last))
+            yield return new ParsedChunk(last, imagePath);
     }
 
-    // ── Chunk (PDF/CSV/TXT) ───────────────────────────────────────────────
-    private IEnumerable<string> Chunk(string text)
+    // ── Chunk (XLSX/CSV/TXT) ──────────────────────────────────────────────
+    private IEnumerable<ParsedChunk> Chunk(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) yield break;
         text = WrapMarkdownTables(text);
@@ -518,8 +729,8 @@ public class DocumentParserService : IDocumentParser
         {
             if (segment.StartsWith("[TABLO BAŞLANGIÇ]"))
             {
-                if (buffer.Length > 0) { var p = buffer.ToString().Trim(); if (!string.IsNullOrWhiteSpace(p)) yield return p; buffer.Clear(); }
-                yield return segment.Trim();
+                if (buffer.Length > 0) { var p = buffer.ToString().Trim(); if (!string.IsNullOrWhiteSpace(p)) yield return new ParsedChunk(p); buffer.Clear(); }
+                yield return new ParsedChunk(segment.Trim());
                 continue;
             }
             foreach (var line in segment.Split('\n', StringSplitOptions.RemoveEmptyEntries))
@@ -529,7 +740,7 @@ public class DocumentParserService : IDocumentParser
                 if (buffer.Length > 0 && buffer.Length + s.Length + 1 > _chunkSize)
                 {
                     var chunk = buffer.ToString().Trim();
-                    if (!string.IsNullOrWhiteSpace(chunk) && !IsBinaryContent(chunk)) yield return chunk;
+                    if (!string.IsNullOrWhiteSpace(chunk) && !IsBinaryContent(chunk)) yield return new ParsedChunk(chunk);
                     var tail = chunk.Length > _overlap ? chunk[^_overlap..] : chunk;
                     buffer.Clear();
                     if (!string.IsNullOrWhiteSpace(tail)) buffer.Append(tail).Append(' ');
@@ -538,7 +749,7 @@ public class DocumentParserService : IDocumentParser
             }
         }
         var last = buffer.ToString().Trim();
-        if (!string.IsNullOrWhiteSpace(last)) yield return last;
+        if (!string.IsNullOrWhiteSpace(last)) yield return new ParsedChunk(last);
     }
 
     private static bool IsBinaryContent(string text)

@@ -16,9 +16,9 @@ public static class MappingConfig
 
         TypeAdapterConfig<ChatMessage, ChatMessageResponseDto>
             .NewConfig()
-            .Map(dest => dest.Role, src => src.Role.ToString());
+            .Map(dest => dest.Role, src => src.Role.ToString())
+            .Map(dest => dest.ImagesJson, src => src.ImagesJson);
 
-        // ChatSession artık Document'a bağlı değil
         TypeAdapterConfig<ChatSession, ChatSessionResponseDto>
             .NewConfig();
     }

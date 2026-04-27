@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Pgvector.EntityFrameworkCore;
-using DocuChat.Application.Abstractions;
+using DocuChat.Application.Interfaces.Services;
+using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Infrastructure.Persistence;
 
 namespace DocuChat.Infrastructure.Services;
@@ -112,6 +113,7 @@ public class VectorSearchService : IVectorSearch
                       doc.FileName,
                       chunk.Content,
                       chunk.ChunkIndex,
+                      chunk.ImagePath,
                       VectorDistance = chunk.Embedding!.CosineDistance(vector)
                   })
             .ToListAsync(ct);
@@ -136,12 +138,12 @@ public class VectorSearchService : IVectorSearch
             // Hibrit skor
             var hybridScore = VectorWeight * vectorScore + KeywordWeight * keywordScore;
 
-            return new { c.FileName, c.Content, c.ChunkIndex, HybridScore = hybridScore };
+            return new { c.FileName, c.Content, c.ChunkIndex, c.ImagePath, HybridScore = hybridScore };
         })
         .OrderByDescending(x => x.HybridScore)
         .Take(topK)
         .OrderBy(x => x.ChunkIndex)  // Orijinal sıraya göre döndür
-        .Select(x => new ChunkResult(x.FileName, x.Content))
+        .Select(x => new ChunkResult(x.FileName, x.Content, x.ImagePath))
         .ToList();
 
         return scored;
