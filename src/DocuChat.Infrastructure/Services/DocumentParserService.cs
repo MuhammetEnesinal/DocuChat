@@ -198,12 +198,15 @@ public class DocumentParserService : IDocumentParser
         http.DefaultRequestHeaders.Add("Authorization", $"Bearer {_llamaParseApiKey}");
 
         var instruction =
-            "Belgedeki tüm içeriği eksiksiz çıkar. " +
-            "Tablolar varsa markdown formatında ver: | Sütun1 | Sütun2 |\n|---|---|\n| Değer | Değer |. " +
+            "Belgedeki tüm anlamlı içeriği eksiksiz çıkar. " +
+            "Tablolar varsa markdown formatında ver: | Başlık | Başlık |\n|---|---|\n| Değer | Değer |. " +
             "Madde listeleri için - işareti, numaralı listeler için 1. 2. 3. formatını kullan. " +
             "Ana başlıklar için ##, alt başlıklar için ### kullan. " +
             "Sayfa numarası, üstbilgi, altbilgi gibi tekrar eden öğeleri dahil etme. " +
-            "Kod bloğu varsa ``` ile sarmalayarak ver.";
+            "CSS kodları, @media kuralları, !important gibi stil tanımlarını kesinlikle dahil etme. " +
+            "Base64 ile kodlanmış veriler, şifreli veya binary içerikler varsa bunları tamamen atla. " +
+            "Confluence veya CMS sistemlerinden gelen print stylesheet, navigation, sidebar gibi arayüz kodlarını atla. " +
+            "Yalnızca belgenin asıl içeriğini — metin, tablo, liste — çıkar.";
 
         using var uploadForm = new MultipartFormDataContent();
         var fileBytes = new ByteArrayContent(ms.ToArray());

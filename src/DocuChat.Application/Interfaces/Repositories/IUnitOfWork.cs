@@ -4,8 +4,8 @@ namespace DocuChat.Application.Interfaces.Repositories;
 
 public interface IUnitOfWork
 {
-    IDocumentRepository Documents { get; }
-    IChunkRepository Chunks { get; }
+    IRepository<Document> Documents { get; }
+    IRepository<DocumentChunk> Chunks { get; }
     IChatSessionRepository Sessions { get; }
     IRepository<ChatMessage> Messages { get; }
 

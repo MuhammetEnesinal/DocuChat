@@ -1,31 +1,28 @@
 ﻿using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Domain.Entities;
-using DocuChat.Infrastructure.Persistence.Repositories;
 
-namespace DocuChat.Infrastructure.Persistence;
+namespace DocuChat.Infrastructure.Persistence.Repositories;
 
-public class UnitOfWork : IUnitOfWork
+public class UnitOfWork : IUnitOfWork, IDisposable
 {
     private readonly AppDbContext _db;
 
-    public IDocumentRepository Documents { get; }
-    public IChunkRepository Chunks { get; }
+    public IRepository<Document> Documents { get; }
+    public IRepository<DocumentChunk> Chunks { get; }
     public IChatSessionRepository Sessions { get; }
     public IRepository<ChatMessage> Messages { get; }
 
-    public UnitOfWork(AppDbContext db,
-        IDocumentRepository documents,
-        IChunkRepository chunks,
-        IChatSessionRepository sessions,
-        IRepository<ChatMessage> messages)
+    public UnitOfWork(AppDbContext db)
     {
         _db = db;
-        Documents = documents;
-        Chunks = chunks;
-        Sessions = sessions;
-        Messages = messages;
+        Documents = new GenericRepository<Document>(db);
+        Chunks = new GenericRepository<DocumentChunk>(db);
+        Sessions = new ChatSessionRepository(db);
+        Messages = new GenericRepository<ChatMessage>(db);
     }
 
     public Task<int> SaveChangesAsync(CancellationToken ct = default)
         => _db.SaveChangesAsync(ct);
+
+    public void Dispose() => _db.Dispose();
 }

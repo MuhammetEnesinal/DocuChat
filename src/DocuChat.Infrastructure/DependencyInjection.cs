@@ -35,8 +35,6 @@ public static class DependencyInjection
 
         // Repositories
         services.AddScoped(typeof(IRepository<>), typeof(GenericRepository<>));
-        services.AddScoped<IDocumentRepository, DocumentRepository>();
-        services.AddScoped<IChunkRepository, ChunkRepository>();
         services.AddScoped<IChatSessionRepository, ChatSessionRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
@@ -54,7 +52,7 @@ public static class DependencyInjection
         services.AddHttpClient<IEmbeddingService, EmbeddingService>(client =>
         {
             client.BaseAddress = new Uri(cfg["Embedding:BaseUrl"]!);
-            client.Timeout = TimeSpan.FromMinutes(2);
+            client.Timeout = TimeSpan.FromMinutes(5);
 
             if (!string.IsNullOrEmpty(cfg["Embedding:ApiKey"]))
                 client.DefaultRequestHeaders.Add(
@@ -74,13 +72,11 @@ public static class DependencyInjection
                 client.DefaultRequestHeaders.Add("x-api-key", cfg["Llm:ApiKey"]);
                 client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
             }
-            else if (provider == "OpenAI") // düzeltildi: "OpenAi" → "OpenAI"
+            else if (provider == "OpenAI")
             {
                 client.DefaultRequestHeaders.Add(
                     "Authorization", $"Bearer {cfg["Llm:ApiKey"]}");
             }
-            // Ollama: header yok
-            // Gemini: API key URL'e ekleniyor (CallGeminiAsync içinde)
         });
 
         // Identity helpers
