@@ -12,6 +12,62 @@ export default function MessageBubble({ msg, copiedId, onCopy }) {
     const isUser = msg.role === 'User';
     const images = msg.images || [];
 
+    const resolveImgMarker = (text) => {
+        const match = text?.match(/^\[IMG:(\d+)\]$/);
+        if (!match) return null;
+        const idx = parseInt(match[1], 10) - 1;
+        return idx >= 0 && idx < images.length ? images[idx] : null;
+    };
+
+    const components = {
+        table: ({ node, ...props }) => (
+            <div className="table-wrapper"><table {...props} /></div>
+        ),
+        p: ({ node, children, ...props }) => {
+            const arr = Array.isArray(children) ? children : [children];
+            const processed = arr.flatMap((child, ci) => {
+                if (typeof child !== 'string') return [child];
+                const parts = child.split(/(\[IMG:\d+\])/g);
+                if (parts.length === 1) return [child];
+                return parts.map((part, j) => {
+                    const imgPath = resolveImgMarker(part.trim());
+                    if (imgPath) {
+                        return (
+                            <span key={`${ci}-${j}`} style={{ display: 'inline-block', margin: '4px 8px', verticalAlign: 'middle' }}>
+                                <img
+                                    src={`${API_BASE}/uploads/${imgPath}`}
+                                    alt="görsel"
+                                    style={{ maxWidth: '200px', maxHeight: '150px', objectFit: 'contain', borderRadius: '8px', border: '1px solid var(--border)', display: 'block' }}
+                                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                />
+                            </span>
+                        );
+                    }
+                    return part;
+                });
+            });
+            return <p {...props}>{processed}</p>;
+        },
+        td: ({ node, children, ...props }) => {
+            const text = typeof children === 'string' ? children
+                : Array.isArray(children) ? children.map(c => typeof c === 'string' ? c : '').join('') : '';
+            const imgPath = resolveImgMarker(text.trim());
+            if (imgPath) {
+                return (
+                    <td {...props}>
+                        <img
+                            src={`${API_BASE}/uploads/${imgPath}`}
+                            alt="görsel"
+                            style={{ width: '80px', height: '80px', objectFit: 'contain', borderRadius: '6px', display: 'block' }}
+                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        />
+                    </td>
+                );
+            }
+            return <td {...props}>{children}</td>;
+        },
+    };
+
     return (
         <div style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', alignItems: 'flex-start', gap: '12px' }}>
             {!isUser && (
@@ -21,7 +77,7 @@ export default function MessageBubble({ msg, copiedId, onCopy }) {
                     </svg>
                 </div>
             )}
-            <div style={{ maxWidth: '42rem' }}>
+            <div style={{ maxWidth: '48rem' }}>
                 <div className="prose-dark" style={{
                     borderRadius: '16px', padding: '12px 16px', fontSize: '14px',
                     background: isUser ? 'var(--accent)' : 'var(--surface2)',
@@ -32,38 +88,12 @@ export default function MessageBubble({ msg, copiedId, onCopy }) {
                     lineHeight: '1.7',
                 }}>
                     {!isUser ? (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-                            table: ({ node, ...props }) => (
-                                <div className="table-wrapper"><table {...props} /></div>
-                            ),
-                        }}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
                             {msg.content}
                         </ReactMarkdown>
                     ) : msg.content}
                 </div>
 
-                {/* Resimler — tablo altında yanyana */}
-                {!isUser && images.length > 0 && (
-                    <div style={{ marginTop: '10px', padding: '10px 12px', borderRadius: '12px', background: 'var(--surface2)', border: '1px solid var(--border)' }}>
-                        <p style={{ fontSize: '11px', color: '#64748b', marginBottom: '8px', marginTop: 0 }}>
-                            İlgili Görseller ({images.length})
-                        </p>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                            {images.map((imagePath, i) => (
-                                <div key={i} style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border)', background: '#0f172a', flexShrink: 0 }}>
-                                    <img
-                                        src={`${API_BASE}/uploads/${imagePath}`}
-                                        alt={`Görsel ${i + 1}`}
-                                        style={{ width: '140px', height: '140px', objectFit: 'contain', display: 'block' }}
-                                        onError={(e) => e.currentTarget.parentElement.style.display = 'none'}
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* Saat + Kopyala */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', justifyContent: isUser ? 'flex-end' : 'flex-start' }}>
                     <span style={{ fontSize: '12px', color: '#475569' }}>{formatTime(msg.createdAt)}</span>
                     {!isUser && (

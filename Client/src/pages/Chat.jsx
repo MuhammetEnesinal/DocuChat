@@ -11,6 +11,9 @@ import EmptyState from '../components/chat/EmptyState';
 import ChatInput from '../components/chat/ChatInput';
 import TypingIndicator from '../components/chat/TypingIndicator';
 
+let _msgCounter = 0;
+const nextMsgId = () => `msg_${Date.now()}_${++_msgCounter}`;
+
 export default function Chat() {
     const [sessions, setSessions] = useState([]);
     const [activeSession, setActiveSession] = useState(null);
@@ -79,7 +82,12 @@ export default function Chat() {
         setQuestion('');
         setLoading(true);
 
-        setMessages((prev) => [...prev, { role: 'User', content: q, id: Date.now(), createdAt: new Date().toISOString() }]);
+        setMessages((prev) => [...prev, {
+            role: 'User',
+            content: q,
+            id: nextMsgId(),
+            createdAt: new Date().toISOString()
+        }]);
 
         try {
             const res = await askQuestion(q, activeSession?.id || null);
@@ -91,33 +99,40 @@ export default function Chat() {
                 setSessions((prev) => [newSession, ...prev]);
             }
 
-            // Chunk'lardan imagePath olanları topla — JSON array olabilir
-            const images = (sourceChunks || [])
+            // sourceChunks'tan resimleri topla, tekrarları kaldır
+            const seen = new Set();
+            const chunkImages = (sourceChunks || [])
                 .flatMap(c => {
                     if (!c.imagePath) return [];
-                    try {
-                        const parsed = JSON.parse(c.imagePath);
-                        return Array.isArray(parsed) ? parsed : [c.imagePath];
-                    } catch {
-                        return [c.imagePath];
+                    const raw = c.imagePath;
+                    if (raw.startsWith('[')) {
+                        try {
+                            const parsed = JSON.parse(raw);
+                            return Array.isArray(parsed) ? parsed : [raw];
+                        } catch { return [raw]; }
                     }
+                    return [raw];
                 })
-                .filter(Boolean);
+                .filter(p => p && !p.startsWith('[') && !p.startsWith('{'))
+                .filter(p => { if (seen.has(p)) return false; seen.add(p); return true; });
 
             setMessages((prev) => [...prev, {
                 role: 'Assistant',
                 content: answer,
-                id: Date.now() + 1,
+                id: nextMsgId(),
                 createdAt: new Date().toISOString(),
-                images: images.length > 0 ? images : undefined
+                images: chunkImages.length > 0 ? chunkImages : undefined
             }]);
             setChunks(sourceChunks || []);
         } catch (err) {
             toast.error(getRateLimitMessage(err));
             setMessages((prev) => [...prev, {
                 role: 'Assistant',
-                content: err?.response?.status === 429 ? '⏳ Sunucu meşgul. Lütfen birkaç saniye bekleyip tekrar deneyin.' : 'Bir hata oluştu. Lütfen tekrar deneyin.',
-                id: Date.now() + 1, createdAt: new Date().toISOString(),
+                content: err?.response?.status === 429
+                    ? '⏳ Sunucu meşgul. Lütfen birkaç saniye bekleyip tekrar deneyin.'
+                    : 'Bir hata oluştu. Lütfen tekrar deneyin.',
+                id: nextMsgId(),
+                createdAt: new Date().toISOString(),
             }]);
         } finally { setLoading(false); }
     };
@@ -180,7 +195,6 @@ export default function Chat() {
             />
 
             <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
-                {/* Header */}
                 <div className="chat-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
                     <div style={{ minWidth: 0 }}>
                         <h1 style={{ fontSize: '15px', fontWeight: 600, color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>
@@ -202,7 +216,6 @@ export default function Chat() {
                 </div>
 
                 <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-                    {/* Mesaj alanı */}
                     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
                         <div style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
                             {messages.length === 0 && (

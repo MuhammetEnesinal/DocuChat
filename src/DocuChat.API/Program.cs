@@ -99,21 +99,23 @@ try
         app.UseSwaggerUI();
     }
 
+    // Static files ÖNCE — authentication gerekmez
+    var storagePath = builder.Configuration["Storage:LocalPath"] ?? "uploads";
+    Directory.CreateDirectory(Path.GetFullPath(storagePath));
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(Path.GetFullPath(storagePath)),
+        RequestPath = "/uploads",
+        ServeUnknownFileTypes = true,
+        DefaultContentType = "application/octet-stream"
+    });
+
     app.UseCors("AllowAll");
     app.UseMiddleware<ExceptionHandlingMiddleware>();
     app.UseSerilogRequestLogging();
     app.UseAuthentication();
     app.UseAuthorization();
     app.MapControllers();
-
-    // uploads klasörünü static file olarak serve et
-    var storagePath = builder.Configuration["Storage:LocalPath"] ?? "uploads";
-    Directory.CreateDirectory(storagePath);
-    app.UseStaticFiles(new StaticFileOptions
-    {
-        FileProvider = new PhysicalFileProvider(Path.GetFullPath(storagePath)),
-        RequestPath = "/uploads"
-    });
 
     app.Run();
 }
@@ -149,11 +151,7 @@ public class FileUploadOperationFilter : IOperationFilter
                         Type = "object",
                         Properties = new Dictionary<string, OpenApiSchema>
                         {
-                            ["file"] = new OpenApiSchema
-                            {
-                                Type = "string",
-                                Format = "binary"
-                            }
+                            ["file"] = new OpenApiSchema { Type = "string", Format = "binary" }
                         },
                         Required = new HashSet<string> { "file" }
                     }

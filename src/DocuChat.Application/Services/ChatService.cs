@@ -67,7 +67,7 @@ public class ChatService : IChatService
             var allMessages = sessionWithMessages.Messages.OrderBy(m => m.CreatedAt).ToList();
             history = allMessages
                 .Take(allMessages.Count - 1)
-                .TakeLast(4)
+                .TakeLast(10)
                 .Where(m => !m.Content.StartsWith("AŞAĞIDAKİ BELGE PARÇALARINI"))
                 .Select(m => (m.Role == MessageRole.User ? "user" : "assistant", m.Content))
                 .ToList();
@@ -112,7 +112,7 @@ public class ChatService : IChatService
 
         var answer = await _llm.AskAsync(req.Question, chunks, history, ct);
 
-        // Chunk'lardan image path'leri topla
+        // Chunk'lardan image path'leri topla — tekrar edenleri kaldir
         var imagePaths = chunks
             .Where(c => c.ImagePath != null)
             .SelectMany(c =>
@@ -125,6 +125,7 @@ public class ChatService : IChatService
                 catch { return new List<string> { c.ImagePath! }; }
             })
             .Distinct()
+            .Take(5) // max 5 resim
             .ToList();
 
         await _uow.Messages.AddAsync(new ChatMessage

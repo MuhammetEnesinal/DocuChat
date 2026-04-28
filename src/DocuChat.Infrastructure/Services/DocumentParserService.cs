@@ -37,7 +37,7 @@ public class DocumentParserService : IDocumentParser
         _overlap = int.Parse(cfg["Chunking:Overlap"] ?? "150");
         _tessDataPath = cfg["Tesseract:DataPath"] ?? @"C:\Users\bsstajyer\AppData\Local\Programs\Tesseract-OCR\tessdata";
         _tessLang = cfg["Tesseract:Language"] ?? "tur+eng";
-        _groqApiKey = cfg["Llm:ApiKey"];
+        _groqApiKey = cfg["GroqVision:ApiKey"] ?? cfg["Llm:ApiKey"];
         _groqVisionModel = cfg["GroqVision:Model"] ?? "meta-llama/llama-4-scout-17b-16e-instruct";
         _llamaParseApiKey = cfg["LlamaParse:ApiKey"];
         _fileStorage = fileStorage;
@@ -81,12 +81,16 @@ public class DocumentParserService : IDocumentParser
             {
                 using var ms = new MemoryStream(pdfBytes);
                 var pageImageBitmaps = Conversion.ToImages(ms, options: new RenderOptions { Dpi = RenderDpi }).ToList();
-                var pageImages = pageImageBitmaps; // ikinci çağrı için sakla
+                var pagePngBytes = new List<byte[]>();
 
-                foreach (var bitmap in pageImages)
+                foreach (var bitmap in pageImageBitmaps)
                 {
                     try
                     {
+                        using var img = SKImage.FromBitmap(bitmap);
+                        using var data = img.Encode(SKEncodedImageFormat.Png, 100);
+                        pagePngBytes.Add(data.ToArray());
+
                         string pageText = string.Empty;
                         for (var attempt = 0; attempt < 2; attempt++)
                         {
@@ -97,21 +101,21 @@ public class DocumentParserService : IDocumentParser
                             }
                             catch (Exception ex)
                             {
-                                if (attempt == 0) { Console.WriteLine($"[OCR] Retry: {ex.Message}"); System.Threading.Thread.Sleep(3000); }
+                                if (attempt == 0) { Console.WriteLine($"[OCR] Retry: {ex.Message}"); System.Threading.Thread.Sleep(10000); }
                             }
                         }
-                        if (!string.IsNullOrWhiteSpace(pageText))
+                        if (!string.IsNullOrWhiteSpace(pageText) && !pageText.Contains("[BOŞ_SAYFA]"))
                             pages.Add(new PageResult(pageText, null));
+
+                        System.Threading.Thread.Sleep(2000);
                     }
                     finally { bitmap.Dispose(); }
                 }
 
                 if (pages.Count > 0)
                 {
-                    // PdfPig ile resimleri çıkar
                     var rawPages = ExtractImagesWithPdfPig(pdfBytes, pages).GetAwaiter().GetResult();
-                    // Groq Vision ile resim açıklamalarını al ve eşleştir
-                    pages = MatchImagesWithDescriptions(rawPages, pageImages, _groqApiKey!, _groqVisionModel).GetAwaiter().GetResult();
+                    pages = MatchImagesWithDescriptions(rawPages, pagePngBytes, _groqApiKey!, _groqVisionModel).GetAwaiter().GetResult();
                     return pages;
                 }
                 Console.WriteLine("[OCR] Groq Vision metin döndürmedi, Tesseract fallback");
@@ -119,7 +123,6 @@ public class DocumentParserService : IDocumentParser
             catch (Exception ex) { Console.WriteLine("[OCR] Groq Vision hata: " + ex.Message); }
         }
 
-        // Tesseract fallback
         TesseractEngine? engine = null;
         try { engine = new TesseractEngine(_tessDataPath, _tessLang, EngineMode.LstmOnly); } catch { }
         try
@@ -142,7 +145,7 @@ public class DocumentParserService : IDocumentParser
         return pages;
     }
 
-    // ── Groq Vision ───────────────────────────────────────────────────────
+    // ── Groq Vision OCR ───────────────────────────────────────────────────
     private static async Task<string> OcrPageWithGroqAsync(SKBitmap bitmap, string apiKey, string model)
     {
         try
@@ -155,58 +158,114 @@ public class DocumentParserService : IDocumentParser
             http.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
 
             var prompt = """
-                Sen kurumsal belge analizi konusunda uzmanlaşmış bir yapay zeka sistemsin.
-                Görevin: Bu PDF sayfasındaki içeriği yapısal bütünlüğünü koruyarak eksiksiz çıkarmak.
+                Sen kurumsal belge OCR uzmanısın. Görevin bu PDF sayfasındaki TÜM içeriği eksiksiz ve yapısal olarak doğru çıkarmaktır.
 
-                ═══════════════════════════════════════════════════
-                TEMEL KURALLAR
-                ═══════════════════════════════════════════════════
-                ✦ Sayfadaki HER bilgiyi çıkar, hiçbir şeyi atlama.
-                ✦ Orijinal dili koru, asla çeviri yapma.
-                ✦ Sayfa numarası, üstbilgi, altbilgi dahil etme.
-                ✦ Yorumlama yapma, sadece belgede yazanı aktar.
+                ════════════════════════════════════════════════════════════
+                1. TEMEL KURALLAR
+                ════════════════════════════════════════════════════════════
+                • Sayfadaki HER kelimeyi, rakamı, sembolü çıkar. Hiçbir şey atlama.
+                • Orijinal dili koru. Çeviri yapma.
+                • Kendi yorum veya açıklamanı ekleme. Sadece belgede yazanı aktar.
+                • Giriş/kapanış cümleleri yazma ("İşte içerik:" gibi).
+                • Sayfa numarası, üstbilgi, altbilgi gibi tekrar eden öğeleri dahil etme.
 
-                ═══════════════════════════════════════════════════
-                METİN VE PARAGRAF
-                ═══════════════════════════════════════════════════
-                ✦ Her paragrafı ayrı satır yaz, aralarında boş satır bırak.
-                ✦ Kalın metinleri **böyle** işaretle.
+                ════════════════════════════════════════════════════════════
+                2. BAŞLIKLAR
+                ════════════════════════════════════════════════════════════
+                • Ana başlık → # Başlık
+                • Bölüm başlığı → ## Başlık
+                • Alt bölüm → ### Başlık
+                • Küçük başlık → #### Başlık
+                • Başlıktan önce ve sonra boş satır bırak.
 
-                ═══════════════════════════════════════════════════
-                BAŞLIKLAR
-                ═══════════════════════════════════════════════════
-                ✦ Ana başlıklar: ## Başlık
-                ✦ Alt başlıklar: ### Alt Başlık
+                ════════════════════════════════════════════════════════════
+                3. PARAGRAFLAR
+                ════════════════════════════════════════════════════════════
+                • Her paragraf ayrı satırda. Aralarında boş satır bırak.
+                • İki paragrafı birleştirme.
+                • Kalın metin → **metin**, italik → *metin*
 
-                ═══════════════════════════════════════════════════
-                LİSTELER
-                ═══════════════════════════════════════════════════
-                ✦ Madde listeleri: - madde
-                ✦ Numaralı listeler: 1. madde
+                ════════════════════════════════════════════════════════════
+                4. TABLOLAR — EN KRİTİK BÖLÜM
+                ════════════════════════════════════════════════════════════
 
-                ═══════════════════════════════════════════════════
-                TABLOLAR
-                ═══════════════════════════════════════════════════
-                ✦ Tablolar markdown formatında:
-                  | Sütun1 | Sütun2 |
-                  |--------|--------|
-                  | Değer  | Değer  |
-                ✦ Tüm satırları eksiksiz yaz.
+                TABLO ÇIKARMA ADIMLARI:
+                Adım 1: Sayfadaki tüm tabloları tespit et.
+                Adım 2: Her tablonun kaç sütunu olduğunu say.
+                Adım 3: Her satırı soldan sağa, yukarıdan aşağıya oku.
+                Adım 4: Aşağıdaki formatta yaz:
 
-                ═══════════════════════════════════════════════════
-                RESİMLER — ÇOK ÖNEMLİ
-                ═══════════════════════════════════════════════════
-                ✦ Sayfada fotoğraf, resim, grafik, diyagram, şema görürsen:
-                  Tam olarak göründüğü yere [R1] yaz. Sonraki resim [R2], sonraki [R3] ...
-                ✦ Sayım 1den başlar, her resim için bir sonraki sayıyı kullan.
-                ✦ Tablo hücresindeyse o hücreye yaz: | 1 | [R1] | Güvenli Falçata |
-                ✦ Paragraf içindeyse yanına yaz: Şekil 1 [R1] açıklaması
-                ✦ Logo, imza, arka plan deseni için kullanma.
+                | Sütun1 | Sütun2 | Sütun3 |
+                |--------|--------|--------|
+                | Değer  | Değer  | Değer  |
+                | Değer  | Değer  | Değer  |
 
-                ═══════════════════════════════════════════════════
-                ÇIKTI
-                ═══════════════════════════════════════════════════
-                ✦ Sadece içerik, yorum veya açıklama ekleme.
+                TABLO KURALLARI — KESİN:
+                • İlk satır MUTLAKA başlık satırı olsun.
+                • İkinci satır MUTLAKA |---|---|---| ayırıcısı olsun.
+                • Her satır tam olarak aynı sayıda | işareti içersin.
+                • Boş hücre varsa boş bırak ama | işaretini koru: |  |
+                • HER SATIRI YAZ — tek satır bile atlama.
+                • HER SÜTUNU DAHİL ET — tek sütun bile atlama.
+                • Birleşik hücre varsa değeri ilgili tüm satırlara yaz.
+                • Tablo öncesi ve sonrası boş satır bırak.
+
+                TABLO HATASI — YANLIŞ:
+                | No | Tanım |
+                | 1 | Falçata |
+                (Ayırıcı satır YOK — YANLIŞ!)
+
+                TABLO DOĞRU:
+                | No | Tanım   |
+                |----|---------|
+                | 1  | Falçata |
+                | 2  | Makas   |
+
+                ÇOK ÖNEMLİ — TABLO SÜTUN SAYISI:
+                Bir tabloda 5 sütun varsa her satırda 5 sütun olmalı:
+                | S1 | S2 | S3 | S4 | S5 |
+                |----|----|----|----|----|
+                | V1 | V2 | V3 | V4 | V5 |
+                Hiçbir satırda sütun sayısı eksik veya fazla olmasın.
+
+                ════════════════════════════════════════════════════════════
+                5. LİSTELER
+                ════════════════════════════════════════════════════════════
+                • Sırasız liste: - madde (her madde yeni satırda)
+                • Sıralı liste: 1. madde, 2. madde
+                • Alt madde: iki boşluk girintisi
+                • Liste öğelerini tek satırda birleştirme.
+
+                ════════════════════════════════════════════════════════════
+                6. TEKNİK İÇERİK
+                ════════════════════════════════════════════════════════════
+                • Model numaraları, kodlar, ölçüler — birebir kopyala.
+                • Formüller, matematiksel ifadeler — olduğu gibi aktar.
+                • Tarihler, yüzdeler, para birimleri — değiştirme.
+
+                ════════════════════════════════════════════════════════════
+                7. RESİMLER
+                ════════════════════════════════════════════════════════════
+                • Sayfada resim, fotoğraf, grafik varsa YOKSAY — sadece metni çıkar.
+                • Resim altındaki/yanındaki metin açıklamalarını yaz.
+                • Resimler ayrıca işlenecektir.
+
+                ════════════════════════════════════════════════════════════
+                8. FORM VE BOŞLUKLAR
+                ════════════════════════════════════════════════════════════
+                • Formda doldurulması gereken boş alanlar varsa (........ gibi) olduğu gibi aktar.
+                • İmza alanları, tarih alanları — boş bırak ama etiketini yaz.
+                • Onay kutuları (☐ veya ☑) — olduğu gibi yaz.
+
+                ════════════════════════════════════════════════════════════
+                9. ÇIKTI KALİTESİ
+                ════════════════════════════════════════════════════════════
+                • Çıktıyı okuyan kişi belgeyi hiç görmemiş olsun — yine de tüm bilgiyi anlasın.
+                • Aynı türdeki öğeler her yerde aynı formatta olsun.
+                • Sayfanın tüm köşelerini tara — dipnot, kenar notu dahil.
+                • Yalnızca belge içeriğini ver. Meta-yorum ekleme.
+                • Sayfada okunabilir metin yoksa (binary, şifreli, CSS, HTML kodu vb.) SADECE şunu yaz: [BOŞ_SAYFA]
+                • Asla "belge içeriği mevcut değil", "anlamlı içerik yok" gibi açıklama yazma. Ya içeriği yaz ya da [BOŞ_SAYFA] yaz.
                 """;
 
             var payload = new
@@ -230,114 +289,28 @@ public class DocumentParserService : IDocumentParser
 
             var json = JsonSerializer.Deserialize<JsonElement>(body);
             if (!json.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0) return string.Empty;
-
             return choices[0].GetProperty("message").GetProperty("content").GetString()?.Trim() ?? string.Empty;
         }
         catch (Exception ex) { Console.WriteLine("[OCR] Groq Vision hata: " + ex.Message); return string.Empty; }
     }
 
-    // ── PdfPig — gömülü resimleri çıkar ──────────────────────────────────
-    // Groq Vision ile her sayfanın resimlerini açıkla, chunk'larla eşleştir
-    private static async Task<List<PageResult>> MatchImagesWithDescriptions(
-        List<PageResult> pages, List<SKBitmap> bitmaps, string apiKey, string model)
-    {
-        for (var i = 0; i < pages.Count && i < bitmaps.Count; i++)
-        {
-            var page = pages[i];
+    private static Task<List<PageResult>> MatchImagesWithDescriptions(
+        List<PageResult> pages, List<byte[]> pagePngBytes, string apiKey, string model)
+        => Task.FromResult(pages);
 
-            // Bu sayfada imagePath (JSON array) var mı?
-            if (string.IsNullOrWhiteSpace(page.ImagePath)) continue;
-
-            List<string>? imagePaths;
-            try { imagePaths = System.Text.Json.JsonSerializer.Deserialize<List<string>>(page.ImagePath); }
-            catch { continue; }
-            if (imagePaths == null || imagePaths.Count == 0) continue;
-
-            try
-            {
-                // Groq Vision'a sayfayı gönder — resim açıklamalarını al
-                using var image = SKImage.FromBitmap(bitmaps[i]);
-                using var data = image.Encode(SKEncodedImageFormat.Png, 100);
-                var base64 = Convert.ToBase64String(data.ToArray());
-
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
-                http.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
-
-                var count = imagePaths.Count;
-                var prompt = "Bu sayfada " + count + " adet resim/fotograf var.\n" +
-                    "Her birini yukari-asagi, sol-sag siraya gore acikla.\n" +
-                    "SADECE su formatta cevap ver, baska hicbir sey yazma:\n" +
-                    "1: resmin kisa aciklamasi\n" +
-                    "2: resmin kisa aciklamasi\n" +
-                    "Ornek:\n" +
-                    "1: Guvenli falcata fotografi\n" +
-                    "2: Makas fotografi\n" +
-                    "3: Tornavida fotografi";
-
-                var payload = new
-                {
-                    model,
-                    max_tokens = 500,
-                    temperature = 0,
-                    messages = new object[]
-                    {
-                        new { role = "user", content = new object[]
-                        {
-                            new { type = "text", text = prompt },
-                            new { type = "image_url", image_url = new { url = $"data:image/png;base64,{base64}" } }
-                        }}
-                    }
-                };
-
-                var response = await http.PostAsJsonAsync("https://api.groq.com/openai/v1/chat/completions", payload);
-                var body = await response.Content.ReadAsStringAsync();
-                if (!response.IsSuccessStatusCode) continue;
-
-                var json = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(body);
-                if (!json.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0) continue;
-
-                var descriptions = choices[0].GetProperty("message").GetProperty("content").GetString()?.Trim() ?? "";
-                Console.WriteLine($"[Groq Vision] Sayfa {i + 1} resim aciklamalari: {descriptions}");
-
-                // "1: açıklama" formatını parse et
-                var descMap = new Dictionary<int, string>();
-                foreach (var line in descriptions.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-                {
-                    var parts = line.Split(':', 2);
-                    if (parts.Length == 2 && int.TryParse(parts[0].Trim(), out var num))
-                        descMap[num] = parts[1].Trim();
-                }
-
-                // Açıklamaları page text'e ekle — her resim için "[Görsel N: açıklama]" formatında
-                var updatedText = page.Text;
-                for (var j = 0; j < imagePaths.Count; j++)
-                {
-                    var desc = descMap.TryGetValue(j + 1, out var d) ? d : $"Görsel {j + 1}";
-                    updatedText += $"\n[Gorsel {j + 1}: {desc}]";
-                }
-
-                pages[i] = new PageResult(updatedText, page.ImagePath);
-            }
-            catch (Exception ex) { Console.WriteLine($"[Groq Vision] Resim açıklama hatası: {ex.Message}"); }
-        }
-        return pages;
-    }
 
     private async Task<List<PageResult>> ExtractImagesWithPdfPig(byte[] pdfBytes, List<PageResult> pages)
     {
         try
         {
             using var doc = PdfDocument.Open(pdfBytes);
-            var pageCount = doc.NumberOfPages;
-
-            for (var pageNum = 1; pageNum <= pageCount && pageNum <= pages.Count; pageNum++)
+            for (var pageNum = 1; pageNum <= doc.NumberOfPages && pageNum <= pages.Count; pageNum++)
             {
                 var page = doc.GetPage(pageNum);
                 var pageImages = page.GetImages()
                     .OrderByDescending(img => img.Bounds.Top)
                     .ThenBy(img => img.Bounds.Left)
                     .ToList();
-
                 if (pageImages.Count == 0) continue;
 
                 var imagePaths = new List<string>();
@@ -349,7 +322,6 @@ public class DocumentParserService : IDocumentParser
                         if (img.TryGetPng(out var pngBytes)) imgBytes = pngBytes;
                         else if (img.TryGetBytesAsMemory(out var mem)) imgBytes = mem.ToArray();
                         else if (img.RawMemory.Length > 0) imgBytes = img.RawMemory.ToArray();
-
                         if (imgBytes == null || imgBytes.Length < 10) continue;
 
                         var ext = imgBytes.Length >= 2 && imgBytes[0] == 0xFF && imgBytes[1] == 0xD8 ? "jpg" : "png";
@@ -369,7 +341,6 @@ public class DocumentParserService : IDocumentParser
             }
         }
         catch (Exception ex) { Console.WriteLine($"[PdfPig] Hata: {ex.Message}"); }
-
         return pages;
     }
 
@@ -416,8 +387,9 @@ public class DocumentParserService : IDocumentParser
             "Madde listeleri için - işareti, numaralı listeler için 1. 2. 3. formatını kullan. " +
             "Ana başlıklar için ##, alt başlıklar için ### kullan. " +
             "Sayfa numarası, üstbilgi, altbilgi gibi tekrar eden öğeleri dahil etme. " +
-            "CSS kodları, binary içerikler varsa tamamen atla. " +
-            "Yalnızca belgenin asıl içeriğini — metin, tablo, liste — çıkar.";
+            "CSS kodları, JavaScript kodları, binary içerikler, stil tanımları, HTML etiketleri varsa tamamen atla. " +
+            "Confluence, SharePoint veya benzeri sistemlerin otomatik ürettiği stil sayfalarını dahil etme. " +
+            "Yalnızca belgenin asıl içeriğini — metin, tablo, liste, başlık — çıkar.";
 
         using var uploadForm = new MultipartFormDataContent();
         var fileBytes = new ByteArrayContent(ms.ToArray());
@@ -462,6 +434,27 @@ public class DocumentParserService : IDocumentParser
             cleaned.AppendLine(trimmed.StartsWith("#") ? trimmed.TrimStart('#').Trim() : line);
         }
         markdown = cleaned.ToString();
+        // LlamaParse çıktısındaki sahte "belge içeriği yok" paragraflarını temizle
+        var mdLines = markdown.Split('\n');
+        var cleanedLines = new List<string>();
+        var skipNext = false;
+        foreach (var mdLine in mdLines)
+        {
+            var mdLower = mdLine.ToLowerInvariant();
+            var isJunk = mdLower.Contains("belge içeriği mevcut değil") ||
+                         mdLower.Contains("hiçbir içerik mevcut değil") ||
+                         mdLower.Contains("anlamlı içerik sunmamaktadır") ||
+                         mdLower.Contains("anlamlı bir içerik") ||
+                         mdLower.Contains("şifreli veya kodlanmış") ||
+                         mdLower.Contains("lütfen başka bir belge") ||
+                         mdLower.Contains("okunabilir bir içerik sunmamaktadır") ||
+                         mdLower.Contains("yalnızca rastgele karakterlerden") ||
+                         mdLower.Contains("daha fazla bilgi isteyin") ||
+                         mdLower.Contains("içerik özeti") && mdLower.Length < 20;
+            if (!isJunk) cleanedLines.Add(mdLine);
+        }
+        markdown = string.Join("\n", cleanedLines);
+
         Console.WriteLine($"[LlamaParse] Başarılı, {markdown.Length} karakter");
         return markdown;
     }
@@ -656,6 +649,7 @@ public class DocumentParserService : IDocumentParser
     private IEnumerable<ParsedChunk> SemanticChunk(string text, string? imagePath = null)
     {
         if (string.IsNullOrWhiteSpace(text)) yield break;
+
         text = WrapMarkdownTables(text);
         var segments = SplitPreservingTables(text).ToList();
         var buffer = new StringBuilder();
@@ -681,36 +675,93 @@ public class DocumentParserService : IDocumentParser
                 continue;
             }
 
-            foreach (var line in segment.Split('\n'))
+            // Paragraf bazli kesme — paragraf bitmeden bolme
+            var segLines2 = segment.Split('\n');
+            var paraBuffer = new System.Text.StringBuilder();
+
+            Action flushPara = () =>
             {
-                var trimmed = line.Trim();
-                if (string.IsNullOrWhiteSpace(trimmed)) continue;
+                var para = paraBuffer.ToString().Trim();
+                paraBuffer.Clear();
+                if (string.IsNullOrWhiteSpace(para)) return;
+
+                if (buffer.Length > 0 && buffer.Length + para.Length + 2 > _chunkSize)
+                {
+                    var chunk2 = buffer.ToString().Trim();
+                    if (!string.IsNullOrWhiteSpace(chunk2) && !IsBinaryContent(chunk2))
+                        ; // yield edilecek — ama Action içinde yield yok, buffer'a ekle
+                }
+                buffer.AppendLine(para);
+            };
+
+            foreach (var line2 in segLines2)
+            {
+                var trimmed = line2.Trim();
 
                 var isSectionBreak = trimmed == "---"
                     || trimmed.StartsWith("# ") || trimmed.StartsWith("## ") || trimmed.StartsWith("### ");
 
-                if (isSectionBreak && buffer.Length > 0)
+                if (isSectionBreak)
                 {
-                    var chunk = buffer.ToString().Trim();
-                    if (!string.IsNullOrWhiteSpace(chunk) && !IsBinaryContent(chunk))
-                        yield return new ParsedChunk(chunk, imagePath);
-                    buffer.Clear();
+                    // Mevcut paragrafı bitir
+                    var para = paraBuffer.ToString().Trim();
+                    paraBuffer.Clear();
+                    if (!string.IsNullOrWhiteSpace(para)) buffer.AppendLine(para);
+
+                    // Buffer'ı ver
+                    if (buffer.Length > 0)
+                    {
+                        var chunk2 = buffer.ToString().Trim();
+                        if (!string.IsNullOrWhiteSpace(chunk2) && !IsBinaryContent(chunk2))
+                            yield return new ParsedChunk(chunk2, imagePath);
+                        buffer.Clear();
+                    }
                     if (trimmed != "---") buffer.AppendLine(trimmed);
                     continue;
                 }
 
-                if (buffer.Length > 0 && buffer.Length + trimmed.Length + 1 > _chunkSize)
+                // Boş satır = paragraf sonu
+                if (string.IsNullOrWhiteSpace(trimmed))
                 {
-                    var chunk = buffer.ToString().Trim();
-                    if (!string.IsNullOrWhiteSpace(chunk) && !IsBinaryContent(chunk))
-                        yield return new ParsedChunk(chunk, imagePath);
-                    var tail = chunk.Length > _overlap ? chunk[^_overlap..] : chunk;
-                    buffer.Clear();
-                    if (!string.IsNullOrWhiteSpace(tail)) buffer.Append(tail).Append(' ');
+                    var para = paraBuffer.ToString().Trim();
+                    paraBuffer.Clear();
+                    if (string.IsNullOrWhiteSpace(para)) continue;
+
+                    // Paragraf buffer'a sığmıyor mu?
+                    if (buffer.Length > 0 && buffer.Length + para.Length + 2 > _chunkSize)
+                    {
+                        var chunk2 = buffer.ToString().Trim();
+                        if (!string.IsNullOrWhiteSpace(chunk2) && !IsBinaryContent(chunk2))
+                            yield return new ParsedChunk(chunk2, imagePath);
+                        var tail2 = chunk2.Length > _overlap ? chunk2[^_overlap..] : chunk2;
+                        buffer.Clear();
+                        if (!string.IsNullOrWhiteSpace(tail2)) buffer.AppendLine(tail2);
+                    }
+                    buffer.AppendLine(para);
+                    continue;
                 }
-                buffer.AppendLine(trimmed);
+
+                paraBuffer.AppendLine(trimmed);
             }
-        }
+
+            // Son paragraf
+            var lastPara = paraBuffer.ToString().Trim();
+            if (!string.IsNullOrWhiteSpace(lastPara))
+            {
+                if (buffer.Length > 0 && buffer.Length + lastPara.Length + 2 > _chunkSize)
+                {
+                    var chunk2 = buffer.ToString().Trim();
+                    if (!string.IsNullOrWhiteSpace(chunk2) && !IsBinaryContent(chunk2))
+                        yield return new ParsedChunk(chunk2, imagePath);
+                    var tail2 = chunk2.Length > _overlap ? chunk2[^_overlap..] : chunk2;
+                    buffer.Clear();
+                    if (!string.IsNullOrWhiteSpace(tail2)) buffer.AppendLine(tail2);
+                }
+                buffer.AppendLine(lastPara);
+            }
+
+
+        } // foreach segment end
 
         var last = buffer.ToString().Trim();
         if (!string.IsNullOrWhiteSpace(last) && !IsBinaryContent(last))
@@ -755,13 +806,25 @@ public class DocumentParserService : IDocumentParser
     private static bool IsBinaryContent(string text)
     {
         if (string.IsNullOrWhiteSpace(text) || text.Length < 50) return false;
-        var words = text.Split(new[] { ' ', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+
+        var lower = text.ToLowerInvariant();
+        if (lower.Contains("[boş_sayfa]")) return true;
+
+        // Groq'un uydurduğu "belge içeriği yok" chunk'larını filtrele
+        // Bu chunk'lar kısa ve belirli kalıplar içeriyor
+        var junkIndicators = new[] { "belge içeriği", "lütfen başka bir belge", "içerik mevcut değil", "hiçbir içerik", "anlamlı içerik", "şifreli veya kodlanmış", "okunabilir içerik" };
+        var hasJunk = junkIndicators.Any(p => lower.Contains(p));
+        if (hasJunk && text.Length < 600) return true;
+
+        var words = text.Split(new char[] { ' ', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries);
         if (words.Length == 0) return true;
         if (words.Average(w => w.Length) > 20) return true;
-        var nonAlpha = text.Count(c => !char.IsLetterOrDigit(c) && c != ' ' && c != '\n' && c != '\r' && c != '\t'
-            && c != '.' && c != ',' && c != ';' && c != ':' && c != '!' && c != '?' && c != '(' && c != ')' && c != '-' && c != '/' && c != '_');
+
+        var allowed = new HashSet<char> { ' ', '\n', '\r', '\t', '.', ',', ';', ':', '!', '?', '(', ')', '-', '/', '_' };
+        var nonAlpha = text.Count(c => !char.IsLetterOrDigit(c) && !allowed.Contains(c));
         return (double)nonAlpha / text.Length > 0.5;
     }
+
 
     private static string WrapMarkdownTables(string text)
     {
