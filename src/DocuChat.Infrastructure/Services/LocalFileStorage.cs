@@ -37,7 +37,10 @@ public class LocalFileStorage : IFileStorage
 
     public Stream Read(string storagePath)
     {
-        var fullPath = Path.Combine(_basePath, storagePath);
+        var fullPath = Path.GetFullPath(Path.Combine(_basePath, storagePath));
+        Console.WriteLine($"[FileStorage] Read: {fullPath} | Exists: {File.Exists(fullPath)}");
+        if (!File.Exists(fullPath))
+            throw new FileNotFoundException($"Dosya bulunamadı: {fullPath}");
         return File.OpenRead(fullPath);
     }
 }

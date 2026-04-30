@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getDocuments, uploadDocument, deleteDocument, getDocumentChunks, adminGetUsers, adminCreateUser, adminDeleteUser } from '../services/api';
+import { getDocuments, uploadDocument, deleteDocument, reprocessDocument, getDocumentChunks, adminGetUsers, adminCreateUser, adminDeleteUser } from '../services/api';
 import { useToast } from '../components/shared/Toast';
 import Modal from '../components/shared/Modal';
 import DocumentUpload from '../components/admin/DocumentUpload';
 import DocumentList from '../components/admin/DocumentList';
 import UserList from '../components/admin/UserList';
 import UserModal from '../components/admin/UserModal';
+import ThemeToggle from '../components/shared/ThemeToggle';
 
 export default function Admin() {
     const [tab, setTab] = useState('documents');
@@ -139,7 +140,7 @@ export default function Admin() {
             <div className="admin-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', gap: '12px', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <button onClick={() => navigate('/chat')}
-                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', padding: '6px 10px', borderRadius: '8px' }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '6px 10px', borderRadius: '8px' }}
                         onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface2)'}
                         onMouseLeave={(e) => e.currentTarget.style.background = 'none'}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -148,7 +149,8 @@ export default function Admin() {
                         Geri
                     </button>
                     <div style={{ width: '1px', height: '20px', background: 'var(--border)' }} />
-                    <h1 style={{ fontSize: '16px', fontWeight: 700, color: 'white', margin: 0 }}>Admin Panel</h1>
+                    <h1 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Admin Panel</h1>
+                    <ThemeToggle />
                 </div>
 
                 <div className="admin-tabs" style={{ display: 'flex', gap: '4px', padding: '4px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '12px' }}>
@@ -186,6 +188,7 @@ export default function Admin() {
                             onSearchChange={setDocSearch}
                             onViewChunks={handleViewChunks}
                             onDelete={handleDeleteDoc}
+                            onReprocess={fetchDocs}
                         />
                     </>
                 )}
@@ -216,7 +219,7 @@ export default function Admin() {
                                     <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', fontWeight: 500, background: 'rgba(59,130,246,0.15)', color: '#93c5fd', border: '1px solid rgba(59,130,246,0.2)' }}>Chunk #{chunk.chunkIndex + 1}</span>
                                     <span style={{ fontSize: '12px', color: '#475569' }}>{chunk.content.length} karakter</span>
                                 </div>
-                                <p style={{ fontSize: '12px', lineHeight: 1.6, whiteSpace: 'pre-wrap', color: '#94a3b8', margin: 0 }}>{chunk.content}</p>
+                                <p style={{ fontSize: '12px', lineHeight: 1.6, whiteSpace: 'pre-wrap', color: 'var(--text-muted)', margin: 0 }}>{chunk.content}</p>
                             </div>
                         ))}
                     </div>

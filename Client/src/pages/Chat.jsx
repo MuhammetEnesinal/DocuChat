@@ -9,6 +9,7 @@ import MessageBubble from '../components/chat/MessageBubble';
 import SourcePanel from '../components/chat/SourcePanel';
 import EmptyState from '../components/chat/EmptyState';
 import ChatInput from '../components/chat/ChatInput';
+import ThemeToggle from '../components/shared/ThemeToggle';
 import TypingIndicator from '../components/chat/TypingIndicator';
 
 let _msgCounter = 0;
@@ -197,22 +198,25 @@ export default function Chat() {
             <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
                 <div className="chat-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
                     <div style={{ minWidth: 0 }}>
-                        <h1 style={{ fontSize: '15px', fontWeight: 600, color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>
+                        <h1 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>
                             {activeSession?.title || 'Yeni Sohbet'}
                         </h1>
                         <p style={{ fontSize: '12px', marginTop: '2px', color: 'var(--gray-light)', margin: '2px 0 0' }}>
                             Tüm belgeler üzerinde arama yapılıyor
                         </p>
                     </div>
-                    {chunks.length > 0 && (
-                        <button onClick={() => setShowChunks(!showChunks)}
-                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: 500, flexShrink: 0, marginLeft: '12px', cursor: 'pointer', background: showChunks ? 'var(--accent)' : 'var(--surface2)', color: showChunks ? 'white' : '#94a3b8', border: '1px solid var(--border)' }}>
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
-                            </svg>
-                            Kaynaklar ({chunks.length})
-                        </button>
-                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: '12px' }}>
+                        {chunks.length > 0 && (
+                            <button onClick={() => setShowChunks(!showChunks)}
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: 500, cursor: 'pointer', background: showChunks ? 'var(--accent)' : 'var(--surface2)', color: showChunks ? 'white' : '#94a3b8', border: '1px solid var(--border)' }}>
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+                                </svg>
+                                Kaynaklar ({chunks.length})
+                            </button>
+                        )}
+                        <ThemeToggle />
+                    </div>
                 </div>
 
                 <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>

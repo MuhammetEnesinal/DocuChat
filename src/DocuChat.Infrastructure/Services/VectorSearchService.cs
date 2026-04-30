@@ -16,8 +16,8 @@ public class VectorSearchService : IVectorSearch
     private const double FallbackThreshold = 0.65;
     private const int TopChunksPerDoc = 5;
     private const int TopChunksPerDocMulti = 3;
-    private const double MultiDocAbsoluteThreshold = 0.45;
-    private const double MultiDocRelativeMargin = 0.08;
+    private const double MultiDocAbsoluteThreshold = 0.35;
+    private const double MultiDocRelativeMargin = 0.05;
 
     // Hibrit arama ağırlıkları (toplam 1.0)
     private const double VectorWeight = 0.70;  // Anlamsal benzerlik
@@ -35,18 +35,32 @@ public class VectorSearchService : IVectorSearch
     public async Task<IReadOnlyList<ChunkResult>> SearchAsync(
         string question,
         CancellationToken ct = default,
-        Guid? preferredDocumentId = null)
+        Guid? preferredDocumentId = null,
+        List<Guid>? relevantDocumentIds = null)
     {
         var queryVec = await _embedder.GetEmbeddingAsync(question, ct);
         var vector = new Pgvector.Vector(queryVec);
 
-        // 1. Primary belgeyi bul
+        // LLM belge tespiti yaptıysa sadece o belgelerden ara
+        if (relevantDocumentIds != null && relevantDocumentIds.Any())
+        {
+            Console.WriteLine($"[VectorSearch] Kısıtlı arama: {string.Join(", ", relevantDocumentIds)}");
+            var results = new List<ChunkResult>();
+            foreach (var docId in relevantDocumentIds)
+            {
+                var topK = relevantDocumentIds.Count == 1 ? TopChunksPerDoc : TopChunksPerDocMulti;
+                var docChunks = await GetHybridChunks(docId, vector, question, topK, ct);
+                results.AddRange(docChunks);
+            }
+            return results;
+        }
+
+        // Normal arama — tüm belgelerden
         var bestMatch = await FindBestDocument(vector, SimilarityThreshold, ct)
                      ?? await FindBestDocument(vector, FallbackThreshold, ct);
 
         if (bestMatch == null) return Array.Empty<ChunkResult>();
 
-        // 2. Bağlam koruması — önceki belgeden devam
         var primaryDocId = bestMatch.Id;
         if (preferredDocumentId.HasValue && preferredDocumentId.Value != bestMatch.Id)
         {
@@ -60,7 +74,6 @@ public class VectorSearchService : IVectorSearch
                 primaryDocId = preferredDocumentId.Value;
         }
 
-        // 3. Ek belgeler (çapraz sorgulama)
         var maxExtraDistance = bestMatch.Distance + MultiDocRelativeMargin;
         var nearbyDocs = await _db.DocumentChunks
             .Where(c => c.DocumentId != primaryDocId
@@ -73,20 +86,18 @@ public class VectorSearchService : IVectorSearch
             .Select(g => g.DocId)
             .ToListAsync(ct);
 
-        var results = new List<ChunkResult>();
-
-        // 4. Hibrit arama + reranking
+        var results2 = new List<ChunkResult>();
         var primaryTopK = nearbyDocs.Count > 0 ? TopChunksPerDocMulti : TopChunksPerDoc;
         var primaryChunks = await GetHybridChunks(primaryDocId, vector, question, primaryTopK, ct);
-        results.AddRange(primaryChunks);
+        results2.AddRange(primaryChunks);
 
         foreach (var docId in nearbyDocs)
         {
             var extraChunks = await GetHybridChunks(docId, vector, question, TopChunksPerDocMulti, ct);
-            results.AddRange(extraChunks);
+            results2.AddRange(extraChunks);
         }
 
-        return results;
+        return results2;
     }
 
     // ── Hibrit arama: vektör + keyword skoru birleştir, rerank et ─────────

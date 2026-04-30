@@ -1,7 +1,9 @@
+export const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:5025';
+
 import axios from 'axios';
 
 const api = axios.create({
-    baseURL: 'http://localhost:5025/api',
+    baseURL: (import.meta.env.VITE_API_URL ?? 'http://localhost:5025') + '/api',
     headers: { 'Content-Type': 'application/json' },
 });
 
@@ -59,6 +61,7 @@ export const uploadDocument = (file, onProgress) => {
     });
 };
 export const deleteDocument = (id) => api.delete(`/documents/${id}`);
+export const reprocessDocument = (id) => api.post(`/documents/${id}/reprocess`);
 
 export const getPopularQuestions = (limit = 6) =>
     api.get(`/chat/popular-questions?limit=${limit}`);

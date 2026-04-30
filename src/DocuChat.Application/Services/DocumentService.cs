@@ -112,6 +112,95 @@ public class DocumentService : IDocumentService
         return Result<bool>.Success(true);
     }
 
+    public async Task<Result<(string StoragePath, string ContentType, string FileName)>> GetFileInfoAsync(Guid id, CancellationToken ct)
+    {
+        var doc = await _uow.Documents.GetByIdAsync(id, ct);
+        if (doc is null || doc.StoragePath is null)
+            return Result<(string, string, string)>.Failure(Error.NotFound("Belge bulunamadı."));
+
+        var contentType = doc.ContentType == "application/pdf" ? "application/pdf" : "application/octet-stream";
+        return Result<(string, string, string)>.Success((doc.StoragePath, contentType, doc.FileName));
+    }
+
+
+    public async Task<Result<IReadOnlyList<DocumentChunkDto>>> GetChunksAsync(Guid id, CancellationToken ct)
+    {
+        var doc = await _uow.Documents.GetByIdAsync(id, ct);
+        if (doc is null)
+            return Result<IReadOnlyList<DocumentChunkDto>>.Failure(Error.NotFound("Belge bulunamadı."));
+
+        var chunks = await _uow.Chunks.FindAsync(c => c.DocumentId == id, ct);
+        var dtos = chunks
+            .OrderBy(c => c.ChunkIndex)
+            .Select(c => c.Adapt<DocumentChunkDto>())
+            .ToList();
+
+        return Result<IReadOnlyList<DocumentChunkDto>>.Success(dtos);
+    }
+
+    public async Task<Result<DocumentResponseDto>> ReprocessAsync(Guid id, CancellationToken ct)
+    {
+        var doc = await _uow.Documents.GetByIdAsync(id, ct);
+        if (doc is null)
+            return Result<DocumentResponseDto>.Failure(Error.NotFound("Belge bulunamadı."));
+
+        if (doc.StoragePath is null)
+            return Result<DocumentResponseDto>.Failure(Error.Validation("Orijinal dosya bulunamadı."));
+
+        // 1. Mevcut chunk'ları sil
+        var existingChunks = await _uow.Chunks.FindAsync(c => c.DocumentId == id, ct);
+        foreach (var chunk in existingChunks)
+            _uow.Chunks.Delete(chunk);
+
+        // 2. Belgeyi Processing durumuna al
+        doc.Status = DocumentStatus.Processing;
+        doc.ErrorMessage = null;
+        doc.ChunkCount = 0;
+        doc.UpdatedAt = DateTime.UtcNow;
+        await _uow.SaveChangesAsync(ct);
+
+        _logger.LogInformation("[Reprocess] Başlatıldı: {DocId} - {FileName}", id, doc.FileName);
+
+        try
+        {
+            // 3. Dosyayı storage'dan oku
+            using var stream = _fileStorage.Read(doc.StoragePath);
+
+            // 4. Parse et
+            var chunks = _parser.Parse(stream, doc.FileType);
+            int idx = 0;
+
+            // 5. Embed et ve kaydet
+            foreach (var parsed in chunks)
+            {
+                var vec = await _embedder.GetEmbeddingAsync(parsed.Content, ct);
+                await _uow.Chunks.AddAsync(new DocumentChunk
+                {
+                    DocumentId = doc.Id,
+                    Content = parsed.Content,
+                    ChunkIndex = idx++,
+                    Embedding = vec,
+                    ImagePath = parsed.ImagePath,
+                }, ct);
+            }
+
+            doc.Status = DocumentStatus.Ready;
+            doc.ChunkCount = idx;
+            doc.UpdatedAt = DateTime.UtcNow;
+            _logger.LogInformation("[Reprocess] Tamamlandı: {DocId} - {Count} chunk", id, idx);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Reprocess] Başarısız: {DocId}", id);
+            doc.Status = DocumentStatus.Failed;
+            doc.ErrorMessage = ex.Message;
+            doc.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await _uow.SaveChangesAsync(ct);
+        return Result<DocumentResponseDto>.Success(doc.Adapt<DocumentResponseDto>());
+    }
+
     private static FileType DetectFileType(string contentType) => contentType switch
     {
         "application/pdf" => FileType.Pdf,

@@ -7,7 +7,7 @@ export default function FormInput({
     return (
         <div>
             {label && (
-                <label className="block text-sm font-medium mb-2" style={{ color: '#94a3b8' }}>{label}</label>
+                <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-muted)' }}>{label}</label>
             )}
             <div className="relative">
                 <input

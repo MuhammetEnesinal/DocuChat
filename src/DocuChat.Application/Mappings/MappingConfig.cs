@@ -21,5 +21,11 @@ public static class MappingConfig
 
         TypeAdapterConfig<ChatSession, ChatSessionResponseDto>
             .NewConfig();
+
+        TypeAdapterConfig<DocumentChunk, DocumentChunkDto>
+            .NewConfig()
+            .Map(dest => dest.Id, src => src.Id)
+            .Map(dest => dest.ChunkIndex, src => src.ChunkIndex)
+            .Map(dest => dest.Content, src => src.Content);
     }
 }

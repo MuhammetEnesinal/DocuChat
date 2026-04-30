@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
+import useThemeStore from './store/useTheme'; // tema başlangıcı için import et
 import { ToastProvider } from './components/shared/Toast';
 import { useAuth } from './hooks/useAuth';
 import Login from './pages/Login';
@@ -21,6 +22,7 @@ function GuestRoute({ children }) {
 }
 
 export default function App() {
+    useThemeStore(); // tema localStorage'dan yüklensin
     return (
         <ToastProvider>
             <Routes>

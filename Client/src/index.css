@@ -4,7 +4,9 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+/* ── Dark tema (varsayılan) ── */
+:root,
+[data-theme="dark"] {
     --navy: #0f1f3d;
     --navy-mid: #1e2f5c;
     --navy-light: #1d3a6e;
@@ -16,18 +18,71 @@
     --border: #1e3a5f;
     --surface: #101d35;
     --surface2: #162440;
+    --text-primary: #e2e8f0;
+    --text-secondary: #cbd5e1;
+    --text-muted: #64748b;
+    --prose-text: #cbd5e1;
+    --prose-heading: #f1f5f9;
+    --prose-code-bg: #1e2f5c;
+    --prose-code-color: #93c5fd;
+    --prose-thead-bg: #1d3a6e;
+    --prose-tr-hover: rgba(30,58,95,0.3);
+    --scrollbar-track: #0f1f3d;
+    --scrollbar-thumb: #1d3a6e;
+}
+
+/* ── Light tema — açık mavi-gri, okunabilir ── */
+[data-theme="light"] {
+    --navy: #e8eef7;
+    --navy-mid: #d4dff0;
+    --navy-light: #c0d0e8;
+    --accent: #2563eb;
+    --accent-light: #3b82f6;
+    --gray-dark: #dde6f5;
+    --gray-mid: #c0d0e8;
+    --gray-light: #4a5568;
+    --border: #b0c4de;
+    --surface: #f0f5ff;
+    --surface2: #e4ecf8;
+    --text-primary: #1a2540;
+    --text-secondary: #2d3f6b;
+    --text-muted: #5a6a8a;
+    --prose-text: #2d3f6b;
+    --prose-heading: #1a2540;
+    --prose-code-bg: #dde6f5;
+    --prose-code-color: #1d4ed8;
+    --prose-thead-bg: #c0d0e8;
+    --prose-tr-hover: rgba(176,196,222,0.4);
+    --scrollbar-track: #e8eef7;
+    --scrollbar-thumb: #b0c4de;
 }
 
 * {
     box-sizing: border-box;
 }
 
+/* Input ve textarea placeholder rengi tema ile değişsin */
+input::placeholder,
+textarea::placeholder {
+    color: var(--text-muted);
+    opacity: 1;
+}
+
+/* Light modda input arka planı */
+[data-theme="light"] input,
+[data-theme="light"] textarea {
+    background: var(--surface);
+    color: var(--text-primary);
+    border-color: var(--border);
+}
+
 body {
     margin: 0;
     font-family: 'DM Sans', sans-serif;
     background-color: var(--navy);
-    color: #e2e8f0;
+    color: var(--text-primary);
     -webkit-font-smoothing: antialiased;
+    transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 ::-webkit-scrollbar {
@@ -35,11 +90,11 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-    background: var(--navy);
+    background: var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-    background: var(--navy-light);
+    background: var(--scrollbar-thumb);
     border-radius: 4px;
 }
 
@@ -47,15 +102,15 @@ body {
         background: var(--accent);
     }
 
-/* ── Prose (markdown render) ── */
+/* ── Prose (markdown) ── */
 .prose-dark p {
-    color: #cbd5e1;
+    color: var(--prose-text);
     line-height: 1.75;
     margin: 0.25rem 0;
 }
 
 .prose-dark h1, .prose-dark h2, .prose-dark h3 {
-    color: #f1f5f9;
+    color: var(--prose-heading);
     margin: 0.75rem 0 0.25rem;
 }
 
@@ -65,7 +120,7 @@ body {
 }
 
 .prose-dark li {
-    color: #cbd5e1;
+    color: var(--prose-text);
     line-height: 1.75;
 }
 
@@ -84,11 +139,11 @@ body {
 }
 
 .prose-dark thead {
-    background: var(--navy-light);
+    background: var(--prose-thead-bg);
 }
 
 .prose-dark th {
-    color: #93c5fd;
+    color: var(--accent-light);
     padding: 9px 14px;
     text-align: left;
     font-size: 0.75rem;
@@ -102,7 +157,7 @@ body {
 .prose-dark td {
     padding: 8px 14px;
     border-bottom: 1px solid var(--border);
-    color: #cbd5e1;
+    color: var(--prose-text);
     font-size: 0.85rem;
     vertical-align: top;
 }
@@ -112,21 +167,21 @@ body {
 }
 
 .prose-dark tbody tr:hover {
-    background: rgba(30, 58, 95, 0.3);
+    background: var(--prose-tr-hover);
 }
 
 /* ── Kod ── */
 .prose-dark code {
-    background: var(--navy-mid);
+    background: var(--prose-code-bg);
     padding: 2px 6px;
     border-radius: 4px;
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.8em;
-    color: #93c5fd;
+    color: var(--prose-code-color);
 }
 
 .prose-dark pre {
-    background: var(--navy-mid);
+    background: var(--prose-code-bg);
     padding: 12px;
     border-radius: 8px;
     overflow-x: auto;
@@ -142,34 +197,21 @@ body {
 .prose-dark blockquote {
     border-left: 3px solid var(--accent);
     padding-left: 12px;
-    color: #94a3b8;
+    color: var(--text-muted);
     margin: 0.5rem 0;
-}
-
-/* ── Mobil responsive ── */
-@media (max-width: 640px) {
-    .prose-dark table {
-        font-size: 0.75rem;
-    }
-
-    .prose-dark th, .prose-dark td {
-        padding: 6px 8px;
-    }
 }
 
 @keyframes shimmer {
     0% {
-        background-position: 200% 0
+        background-position: 200% 0;
     }
 
     100% {
-        background-position: -200% 0
+        background-position: -200% 0;
     }
 }
 
-/* Tarayıcının native şifre göster/gizle ikonunu gizle */
-input::-ms-reveal,
-input::-ms-clear,
+input::-ms-reveal, input::-ms-clear,
 input::-webkit-credentials-auto-fill-button,
 input::-webkit-textfield-decoration-container {
     display: none !important;
@@ -258,9 +300,4 @@ input::-webkit-textfield-decoration-container {
     .chat-sidebar-overlay {
         display: none;
     }
-}
-
-/* Session action butonları hover */
-.group:hover .session-actions {
-    opacity: 1 !important;
 }

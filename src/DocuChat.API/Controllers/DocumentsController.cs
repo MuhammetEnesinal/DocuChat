@@ -1,13 +1,12 @@
 ﻿using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+using DocuChat.Application.Common;
 using DocuChat.Application.Interfaces.Services;
 using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Application.DTOs.Document;
 using DocuChat.API.Extensions;
 using DocuChat.Domain.Enums;
-using DocuChat.Infrastructure.Persistence;
 
 namespace DocuChat.API.Controllers;
 
@@ -23,16 +22,17 @@ public class DocumentsController : ControllerBase
 {
     private readonly IDocumentService _documentService;
     private readonly IValidator<UploadDocumentRequest> _uploadValidator;
-    private readonly AppDbContext _db;
+
+    private readonly IFileStorage _fileStorage;
 
     public DocumentsController(
         IDocumentService documentService,
         IValidator<UploadDocumentRequest> uploadValidator,
-        AppDbContext db)
+        IFileStorage fileStorage)
     {
         _documentService = documentService;
         _uploadValidator = uploadValidator;
-        _db = db;
+        _fileStorage = fileStorage;
     }
 
     [HttpGet]
@@ -45,16 +45,8 @@ public class DocumentsController : ControllerBase
     [HttpGet("{id:guid}/chunks")]
     public async Task<IActionResult> GetChunks(Guid id, CancellationToken ct)
     {
-        var doc = await _db.Documents.FindAsync([id], ct);
-        if (doc is null) return NotFound();
-
-        var chunks = await _db.DocumentChunks
-            .Where(c => c.DocumentId == id)
-            .OrderBy(c => c.ChunkIndex)
-            .Select(c => new { c.Id, c.ChunkIndex, c.Content })
-            .ToListAsync(ct);
-
-        return Ok(new { success = true, data = chunks });
+        var result = await _documentService.GetChunksAsync(id, ct);
+        return result.ToActionResult();
     }
 
     [HttpPost("upload")]
@@ -73,6 +65,38 @@ public class DocumentsController : ControllerBase
                              .ToValidationResult<DocumentResponseDto>();
 
         var result = await _documentService.UploadAsync(req, ct);
+        return result.ToActionResult();
+    }
+
+    [HttpGet("{id:guid}/preview")]
+    public async Task<IActionResult> Preview(Guid id, CancellationToken ct)
+    {
+        var result = await _documentService.GetFileInfoAsync(id, ct);
+        if (!result.IsSuccess) return result.ToActionResult();
+
+        var (storagePath, contentType, fileName) = result.Value;
+        try
+        {
+            var stream = _fileStorage.Read(storagePath);
+            Response.Headers["Content-Disposition"] = $"inline; filename=\"{Uri.EscapeDataString(fileName)}\"";
+            return File(stream, contentType, enableRangeProcessing: true);
+        }
+        catch (FileNotFoundException)
+        {
+            var err = Error.NotFound("Dosya storage'da bulunamadı. Belgeyi yeniden yükleyin.");
+            return Result<string>.Failure(err).ToActionResult();
+        }
+        catch (Exception ex)
+        {
+            var err = Error.Internal(ex.Message);
+            return Result<string>.Failure(err).ToActionResult();
+        }
+    }
+
+    [HttpPost("{id:guid}/reprocess")]
+    public async Task<IActionResult> Reprocess(Guid id, CancellationToken ct)
+    {
+        var result = await _documentService.ReprocessAsync(id, ct);
         return result.ToActionResult();
     }
 

@@ -1,10 +1,10 @@
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:5025';
+import { API_BASE } from '../../services/api';
 
 export default function SourcePanel({ chunks }) {
     return (
         <div style={{ width: '288px', flexShrink: 0, overflowY: 'auto', background: 'var(--surface)', borderLeft: '1px solid var(--border)' }}>
             <div style={{ padding: '16px', borderBottom: '1px solid var(--border)' }}>
-                <h3 style={{ fontWeight: 600, color: 'white', fontSize: '14px', margin: 0 }}>Kaynak Belgeler</h3>
+                <h3 style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '14px', margin: 0 }}>Kaynak Belgeler</h3>
                 <p style={{ fontSize: '12px', marginTop: '4px', color: 'var(--gray-light)' }}>{chunks.length} ilgili bölüm</p>
             </div>
             <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>

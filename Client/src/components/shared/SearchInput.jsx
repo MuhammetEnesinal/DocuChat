@@ -11,7 +11,7 @@ export default function SearchInput({ value, onChange, placeholder = 'Ara...' })
                 onChange={(e) => onChange(e.target.value)}
                 placeholder={placeholder}
                 className="flex-1 text-sm bg-transparent outline-none"
-                style={{ color: '#e2e8f0', minWidth: 0 }}
+                style={{ color: 'var(--text-primary)', minWidth: 0 }}
             />
             {value && (
                 <button

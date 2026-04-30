@@ -83,6 +83,7 @@ try
             IssuerSigningKey = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Secret"]!))
         };
+
     });
 
     builder.Services.AddCors(o => o.AddPolicy("AllowAll", p =>

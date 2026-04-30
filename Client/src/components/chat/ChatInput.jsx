@@ -29,7 +29,7 @@ export default function ChatInput({ value, onChange, onSend, loading }) {
                     style={{
                         resize: 'none', minHeight: '44px', maxHeight: '160px',
                         overflowY: 'auto', background: 'transparent', border: 'none',
-                        outline: 'none', color: '#e2e8f0', fontSize: '0.9rem',
+                        outline: 'none', color: 'var(--text-primary)', fontSize: '0.9rem',
                         flex: 1, padding: '8px 4px', lineHeight: '1.6',
                     }}
                 />

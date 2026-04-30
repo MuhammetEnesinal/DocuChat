@@ -1,7 +1,7 @@
 export default function DocumentUpload({ uploads, dragOver, onDragOver, onDragLeave, onDrop, onClick, fileInputRef, onFileChange }) {
     return (
         <div style={{ marginBottom: '24px', borderRadius: '16px', padding: '20px', background: 'var(--surface)', border: '1px solid var(--border)' }}>
-            <h2 style={{ fontSize: '15px', fontWeight: 600, color: 'white', marginBottom: '6px' }}>Belge Yükle</h2>
+            <h2 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '6px' }}>Belge Yükle</h2>
             <p style={{ fontSize: '13px', color: 'var(--gray-light)', marginBottom: '16px' }}>
                 Birden fazla dosya seçebilir veya sürükleyip bırakabilirsiniz.
             </p>
@@ -16,7 +16,7 @@ export default function DocumentUpload({ uploads, dragOver, onDragOver, onDragLe
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
                     </svg>
                 </div>
-                <p style={{ fontSize: '14px', fontWeight: 500, color: 'white', marginBottom: '4px' }}>Dosya seçin veya buraya sürükleyin</p>
+                <p style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)', marginBottom: '4px' }}>Dosya seçin veya buraya sürükleyin</p>
                 <p style={{ fontSize: '12px', color: 'var(--gray-light)' }}>PDF, DOC, DOCX, XLSX, CSV · Maks. 50 MB</p>
             </div>
             <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xlsx,.csv" style={{ display: 'none' }} multiple onChange={onFileChange} />

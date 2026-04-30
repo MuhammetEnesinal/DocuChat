@@ -15,7 +15,7 @@ export default function UserList({ users, loading, search, onSearchChange, onAdd
         <div style={{ borderRadius: '16px', overflow: 'hidden', background: 'var(--surface)', border: '1px solid var(--border)' }}>
             <div className="admin-list-header" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <h2 style={{ fontSize: '15px', fontWeight: 600, color: 'white', margin: 0 }}>Kullanıcılar</h2>
+                    <h2 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Kullanıcılar</h2>
                     <span style={{ fontSize: '13px', color: 'var(--gray-light)' }}>{users.length} kullanıcı</span>
                 </div>
                 <div className="admin-users-actions" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -23,7 +23,7 @@ export default function UserList({ users, loading, search, onSearchChange, onAdd
                         <SearchInput value={search} onChange={onSearchChange} placeholder="Kullanıcı ara..." />
                     </div>
                     <button onClick={onAdd}
-                        style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '10px', fontSize: '14px', fontWeight: 500, color: 'white', background: 'var(--accent)', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '10px', fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)', background: 'var(--accent)', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}
                         onMouseEnter={(e) => e.currentTarget.style.opacity = '0.85'}
                         onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -50,7 +50,7 @@ export default function UserList({ users, loading, search, onSearchChange, onAdd
                             </div>
                             <div style={{ minWidth: 0 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                    <p style={{ fontSize: '14px', fontWeight: 500, color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>{u.fullName}</p>
+                                    <p style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>{u.fullName}</p>
                                     {isAdmin && <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', fontWeight: 500, background: 'rgba(59,130,246,0.15)', color: '#93c5fd', border: '1px solid rgba(59,130,246,0.2)', flexShrink: 0 }}>Admin</span>}
                                 </div>
                                 <p style={{ fontSize: '12px', color: 'var(--gray-light)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email} · {formatDate(u.createdAt)}</p>

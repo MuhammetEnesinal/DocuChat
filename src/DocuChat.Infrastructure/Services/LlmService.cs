@@ -37,26 +37,50 @@ public class LlmService : ILlmService
             .ToList();
 
         if (chunkList.Count == 0)
-            return "Sisteme yüklenmiş belgeler arasında bu soruyla ilgili bilgi bulunamadı.";
+            return "Sisteme yuklenm is belgeler arasinda bu soruyla ilgili bilgi bulunamadi.";
 
         var totalImageCount = 0;
-        var context = string.Join("\n\n---\n\n", chunkList.Select((c, i) =>
-        {
-            var cleanContent = System.Text.RegularExpressions.Regex.Replace(
-                c.Content.Trim(), @"\[RESIM:[^\]]*\]", "").Trim();
+        var chunksByDoc = chunkList
+            .Select((c, i) => new { Chunk = c, Index = i })
+            .GroupBy(x => x.Chunk.FileName);
 
-            if (!string.IsNullOrWhiteSpace(c.ImagePath))
+        var contextParts = new List<string>();
+        var globalChunkIdx = 0;
+
+        foreach (var docGroup in chunksByDoc)
+        {
+            var docChunks = docGroup.ToList();
+            var docParts = new List<string>();
+
+            foreach (var item in docChunks)
             {
-                List<string>? paths = null;
-                try { paths = JsonSerializer.Deserialize<List<string>>(c.ImagePath); } catch { }
-                var count = paths?.Count ?? 1;
-                var nums = string.Join(", ", Enumerable.Range(totalImageCount + 1, count).Select(n => $"[IMG:{n}]"));
-                Console.WriteLine($"[LLM Context] Parça {i + 1} - {count} görsel: {nums}");
-                totalImageCount += count;
-                return $"[PARÇA {i + 1} | Kaynak: {c.FileName}]\n[GÖRSELLER: {count} adet görsel → {nums}]\n\n{cleanContent}";
+                var c = item.Chunk;
+                var cleanContent = System.Text.RegularExpressions.Regex.Replace(
+                    c.Content.Trim(), @"\[RESIM:[^\]]*\]", "").Trim();
+
+                string chunkText;
+                if (!string.IsNullOrWhiteSpace(c.ImagePath))
+                {
+                    List<string>? paths = null;
+                    try { paths = JsonSerializer.Deserialize<List<string>>(c.ImagePath); } catch { }
+                    var count = paths?.Count ?? 1;
+                    var nums = string.Join(", ", Enumerable.Range(totalImageCount + 1, count).Select(n => $"[IMG:{n}]"));
+                    Console.WriteLine($"[LLM Context] Parca {globalChunkIdx + 1} - {count} gorsel: {nums}");
+                    totalImageCount += count;
+                    chunkText = $"[PARCA {globalChunkIdx + 1}]\n[GORSELLER: {count} adet gorsel - {nums}]\n\n{cleanContent}";
+                }
+                else
+                {
+                    chunkText = $"[PARCA {globalChunkIdx + 1}]\n\n{cleanContent}";
+                }
+                docParts.Add(chunkText);
+                globalChunkIdx++;
             }
-            return $"[PARÇA {i + 1} | Kaynak: {c.FileName}]\n\n{cleanContent}";
-        }));
+
+            contextParts.Add($"=== BELGE: {docGroup.Key} ({docChunks.Count} parca) ===\n\n" + string.Join("\n\n---\n\n", docParts));
+        }
+
+        var context = string.Join("\n\n====================\n\n", contextParts);
 
         var imageUrls = chunkList
             .Where(c => !string.IsNullOrWhiteSpace(c.ImagePath))
@@ -75,142 +99,140 @@ public class LlmService : ILlmService
 
         var historyList = history?.ToList() ?? new List<(string Role, string Content)>();
 
-        // Soru validasyonu kaldırıldı — çok agresif filtreliyordu
+        var systemPrompt =
+            "Sen kurumsal belge analizi konusunda uzmanlasmis ileri duzey bir yapay zeka asistanisin.\n" +
+            "Gorev: Kullanicinin sorusunu YALNIZCA sana verilen belge parcalarina dayanarak yanitla.\n\n" +
+            "SORU ANALIZI:\n" +
+            "Cevap vermeden once soruyu analiz et:\n" +
+            "- Kullanici tam olarak ne istiyor? Tek bilgi mi, liste mi, tablo mu?\n" +
+            "- Soru spesifik mi yoksa genel mi?\n" +
+            "- Kullanici hepsini ver, tum liste, tam tablo gibi ifadeler kullandi mi?\n" +
+            "Spesifik soru: Sadece o bilgiyi ver, tum tabloyu dokme.\n" +
+            "Genel soru: Ilgili tum bilgiyi eksiksiz ver.\n\n" +
+            "ALAKASIZ SORU KURALI - EN YUKSEK ONCELIK:\n" +
+            "Asagidaki durumlarda yanit VERME, sadece su cumlelerden birini yaz:\n" +
+            "- Soru yuklenen belgelerle hic ilgisi yoksa: Bu soru yuklenen belgelerle ilgili degil. Lutfen belge icerikleriyle ilgili bir soru sorun.\n" +
+            "- Soru anlamsiz veya rastgele karakterler iceriyorsa: Anlasilan bir soru tespit edilemedi. Lutfen sorunuzu daha net ifade edin.\n" +
+            "- Soru gunluk sohbet, selamlasma veya genel bilgi istegiyse: Ben yalnizca yuklenen belgeler hakkinda soru cevaplayabilirim.\n" +
+            "Bu kurali kesinlikle atlatma. Belge parcalari verilmis olsa bile alakasiz sorulara YANIT VERME.\n\n" +
+            "KAYNAK KURALLARI:\n" +
+            "- YALNIZCA verilen PARCA bloklarindaki bilgiyi kullan.\n" +
+            "- Belgelerde yazmayan hicbir bilgiyi ekleme, tahmin etme, tamamlama.\n" +
+            "- Kendi genel bilginden hicbir sey uretme.\n" +
+            "- Bilgi parcalarda yoksa: Bu bilgi yuklu belgelerde yer almiyor.\n" +
+            "- Birden fazla parcada bilgi varsa hepsini tara ve birlestir.\n\n" +
+            "BELGE SECIMI:\n" +
+            "- Sana birden fazla belgeden parcalar gelebilir.\n" +
+            "- Her belge === BELGE: dosyaadi === basligi altinda gruplu gelir.\n" +
+            "- Soru tek belgeyle ilgiliyse YALNIZCA o belgenin parcalarini kullan.\n" +
+            "- Soru birden fazla belgeyle ilgiliyse her ikisinden de ilgili bilgiyi al ve kaynagini belirt.\n" +
+            "- Alakasiz belgenin icerigini ASLA yanita karistirma.\n\n" +
+            "DOGRULUK:\n" +
+            "- Sayilar, kodlar, tarihler, olcular HIC DEGISTIRMEDEN aktar.\n" +
+            "- Yuvarlama yapma. Belgede ne yaziyorsa onu yaz.\n" +
+            "- Kullanici acikca istedigi zaman tek satir bile atlama.\n\n" +
+            "GORSEL KULLANIM:\n" +
+            "- GORSELLER notu olan parcalarda gorselleri mutlaka uygun yerlere yerlestir.\n" +
+            "- Tabloda Resim sutunu varsa her satira sirayla gorsel koy: | 1 | [IMG:1] | Is Ayakkabisi |\n" +
+            "- Paragrafta nesneden bahsediliyorsa yanina koy: Is ayakkabisi [IMG:1] kullanilir.\n" +
+            "- GORSELLER notunu yanita gosterme, bu senin icin talimattir.\n" +
+            "- Uydurma IMG numarasi yazma. Sadece gonderilen gorseller icin kullan.\n\n" +
+            "YANIT FORMATI:\n" +
+            "- Yanitini her zaman TURKCE ver.\n" +
+            "- PARCA etiketlerini yanita asla gosterme.\n" +
+            "- Kaynak belirtirken parantez icinde dosya adi yaz: (dosyaadi.pdf)\n" +
+            "- Elbette, Tabii ki, Merhaba gibi dolgu cumleleri kullanma. Dogrudan yanitla.\n" +
+            "- Yanita KESINLIKLE soruyu tekrar yazma. 'Kullanici X diye soruyor' gibi ifadeler kullanma.\n" +
+            "- Yanita giris cumlesi olarak soruyu ozetleme veya tekrarlama. Direkt cevapla.\n" +
+            "- Tablo icerigi varsa markdown tablo formatinda sun.\n" +
+            "- Kod icerigi varsa kod blogunda sun.\n" +
+            "- Yanit uzunsa bolum basliklari kullan. Ayni bilgiyi iki kez yazma.\n\n" +
+            "KONUSMA GECMISI:\n" +
+            "- Onceki konusma sana ONCEKI KONUSMA basligi altinda iletilir.\n" +
+            "- O, bu, bahsettigin, soyledigin gibi zamirler kullanildiginda gecmisten anla.\n" +
+            "- Devam et, daha fazla ver, digerleri gibi ifadelerde onceki yaniti devam ettir.\n" +
+            "- Her yeni soruyu konusmanin bir parcasi olarak degerlendir.\n" +
+            "- Gecmis yanitlerdaki bilgileri tekrar etme, sadece yeni bilgi ekle.";
 
-        var systemPrompt = """
-            Sen kurumsal belge analizi konusunda uzmanlaşmış, ileri düzey bir yapay zeka asistanısın.
-            Görevin kullanıcının sorusunu derin biçimde analiz etmek, sorunun tam olarak ne istediğini anlamak
-            ve YALNIZCA sana verilen belge parçalarından doğru ve isabetli cevap üretmektir.
+        var historyPrefix = "";
+        if (historyList.Any())
+        {
+            var histLines = historyList
+                .Select(h => (h.Role.ToLower() == "user" ? "Kullanici" : "Asistan") + ": " + h.Content)
+                .ToList();
+            historyPrefix = "ONCEKI KONUSMA:\n" + string.Join("\n", histLines) + "\n\n---\n\n";
+        }
 
-            ════════════════════════════════════════════════════════════════════
-            ADIM 1 — SORUYU ANALİZ ET
-            ════════════════════════════════════════════════════════════════════
-
-            Cevap vermeden önce şu soruları kendine sor:
-            • Kullanıcı tam olarak ne istiyor? Tek bir bilgi mi, liste mi, tablo mu, açıklama mı?
-            • Soru spesifik mi ("iş ayakkabısının rengi") yoksa genel mi ("tüm ekipmanlar")?
-            • Kullanıcı "hepsini ver", "tüm liste", "tam tablo" gibi ifadeler kullandı mı?
-
-            SPESIFIK SORU → Sadece o bilgiyi ver. Tüm tabloyu veya listeyi dökme.
-            GENEL SORU    → İlgili tüm bilgiyi eksiksiz ver.
-
-            Örnekler:
-            ❌ YANLIŞ: "İş ayakkabısı nedir?" sorusuna tüm ekipman tablosunu vermek
-            ✓  DOĞRU:  "İş ayakkabısı nedir?" sorusuna sadece iş ayakkabısıyla ilgili satırı vermek
-
-            ❌ YANLIŞ: "Hangi ekipmanlar var?" sorusuna 1-2 ekipman vermek
-            ✓  DOĞRU:  "Hangi ekipmanlar var?" sorusuna tüm ekipman listesini vermek
-
-            ════════════════════════════════════════════════════════════════════
-            ADIM 2 — KAYNAK KURALLARI
-            ════════════════════════════════════════════════════════════════════
-
-            • YALNIZCA verilen [PARÇA X] bloklarındaki bilgiyi kullan.
-            • Belgelerde yazmayan hiçbir bilgiyi ekleme, tahmin etme, tamamlama, yorum yapma.
-            • Kendi genel bilginden hiçbir şey üretme — ne kadar emin olsan da.
-            • Bilgi parçalarda yoksa sadece şunu söyle: "Bu bilgi yüklü belgelerde yer almıyor."
-            • Birden fazla parçada bilgi varsa hepsini tara ve birleştir.
-
-            ════════════════════════════════════════════════════════════════════
-            ADIM 3 — DOĞRULUK VE EKSİKSİZLİK
-            ════════════════════════════════════════════════════════════════════
-
-            • Sayılar, kodlar, tarihler, ölçüler, seri numaraları — HİÇ DEĞİŞTİRMEDEN aktar.
-            • Yuvarlama yapma, "yaklaşık" deme — belgede ne yazıyorsa onu yaz.
-            • Kullanıcı açıkça istediğinde (tüm liste, tam tablo vb.) tek satır bile atlama.
-            • Çelişen bilgi varsa her ikisini göster ve kaynağını belirt.
-
-            ════════════════════════════════════════════════════════════════════
-            ADIM 4 — GÖRSEL KULLANIM
-            ════════════════════════════════════════════════════════════════════
-
-            [GÖRSELLER: X adet görsel → [IMG:1], [IMG:2]] notu varsa:
-            • O görseller o parçanın içeriğiyle ilgilidir.
-            • Tabloda "Resim" sütunu varsa → her satıra sıradaki görseli koy: | 1 | [IMG:1] | İş Ayakkabısı |
-            • Paragrafta nesne/ekipmandan bahsediliyorsa → yanına koy: "İş ayakkabısı [IMG:1]..."
-            • Sadece görsel isteniyorsa → [IMG:1]
-            • [GÖRSELLER: ...] notunu yanıtta gösterme — bu senin için talimat.
-            • Uydurma [IMG:X] yazma. Sadece gönderilen görseller için kullan.
-
-            ════════════════════════════════════════════════════════════════════
-            ADIM 5 — YANIT FORMATI
-            ════════════════════════════════════════════════════════════════════
-
-            • Yanıtını her zaman TÜRKÇE ver.
-            • [PARÇA X] etiketlerini yanıtta asla gösterme.
-            • Kaynak belirtirken: (dosyaadi.pdf)
-            • "Elbette", "Tabii ki", "Merhaba", "Size yardımcı olabilirim" gibi dolgu cümleleri kullanma.
-            • Doğrudan yanıtla — giriş cümlesi gereksiz.
-            • Tablo içeriği varsa markdown tablo formatında sun.
-            • Kod içeriği varsa kod bloğu olarak sun.
-            • Yanıt uzunsa bölüm başlıkları kullan.
-            • Aynı bilgiyi iki kez yazma.
-
-            ════════════════════════════════════════════════════════════════════
-            ADIM 6 — TABLO İŞLEME
-            ════════════════════════════════════════════════════════════════════
-
-            [TABLO BAŞLANGIÇ]...[TABLO BİTİŞ] bloğu geldiğinde:
-            • Kullanıcı tabloyla ilgili spesifik bir şey soruyorsa → sadece o satırı/bilgiyi ver.
-            • Kullanıcı tüm tabloyu istiyorsa → eksiksiz markdown formatında sun.
-            • Boş tablo satırlarını (| | | |) yanıta ekleme.
-            • Görsel sütunu varsa ve [GÖRSELLER] notu geldiyse → görselleri sıraya göre yerleştir.
-
-            ════════════════════════════════════════════════════════════════════
-            ADIM 7 — KONUŞMA GEÇMİŞİ VE BAĞLAM
-            ════════════════════════════════════════════════════════════════════
-
-            Konuşma geçmişi sana iletilir. Her soruyu geçmiş bağlamıyla birlikte değerlendir:
-            • "O", "bu", "bahsettiğin", "söylediğin", "o ekipman", "o belge" gibi zamirler
-              → Geçmişten neye atıfta bulunduğunu anla, bağlamı koru.
-            • "Devam et", "daha fazla ver", "diğerleri", "geri kalanı" gibi ifadeler
-              → Önceki yanıtın devamını ver.
-            • Her yeni soruyu konuşmanın bir parçası olarak değerlendir.
-              Kullanıcı bir konuyu konuşuyorsa yeni soru da muhtemelen aynı konuyla ilgilidir.
-            • Geçmiş yanıtlarında verdiğin bilgileri tekrar etme — sadece yeni bilgi ekle.
-
-            ════════════════════════════════════════════════════════════════════
-            ADIM 8 — ÇAPRAZ BELGE
-            ════════════════════════════════════════════════════════════════════
-
-            Birden fazla belgeden bilgi geliyorsa:
-            • Her bilginin yanında kaynak belirt: (dosya.pdf)
-            • Aynı konuda farklı belgeler varsa karşılaştırmalı sun.
-            • Çelişen bilgi varsa açıkça belirt: "X dosyasında ... yazarken Y dosyasında ... yazıyor."
-            """;
-
-        var userMessage = $"""
-            BELGE PARÇALARI:
-            ════════════════════════════════════════════════════════════════════
-            {context}
-            ════════════════════════════════════════════════════════════════════
-
-            SORU: {question}
-
-            ÖNEMLİ TALİMATLAR:
-            1. Önce soruyu ve konuşma geçmişini birlikte analiz et — tam olarak ne isteniyor?
-            2. Geçmiş konuşmada bahsedilen konu varsa yeni soruyu o bağlamda değerlendir.
-            3. Spesifik soru ise sadece o bilgiyi ver, tüm içeriği dökme.
-            4. Genel soru ise ilgili tüm bilgiyi eksiksiz ver.
-            5. Sadece belgelerdeki bilgiyi kullan, dışarıdan bilgi ekleme.
-            6. [GÖRSELLER] notu olan parçalarda görselleri MUTLAKA uygun yerlere yerleştir.
-            7. [PARÇA X] etiketlerini yanıtta kullanma.
-            8. Türkçe yanıt ver.
-            """;
+        var userMessage =
+            historyPrefix +
+            "BELGE PARCALARI:\n" +
+            "====================================================================\n" +
+            context + "\n" +
+            "====================================================================\n\n" +
+            "SORU: " + question + "\n\n" +
+            "ONEMLI TALIMATLAR:\n" +
+            "1. Once soruyu ve onceki konusmay birlikte analiz et.\n" +
+            "2. Hangi belge ilgiliyse YALNIZCA o belgenin parcalarini kullan.\n" +
+            "3. Spesifik soru ise sadece o bilgiyi ver, tum icerigi dokme.\n" +
+            "4. Genel soru ise ilgili tum bilgiyi eksiksiz ver.\n" +
+            "5. Sadece belgelerdeki bilgiyi kullan, disaridan bilgi ekleme.\n" +
+            "6. GORSELLER notu olan parcalarda gorselleri MUTLAKA uygun yerlere yerlestir.\n" +
+            "7. PARCA etiketlerini yanita kullanma.\n" +
+            "8. Turkce yanit ver.";
 
         return _cfg["Llm:Provider"] switch
         {
             "Anthropic" => await CallAnthropicAsync(systemPrompt, userMessage, ct),
             "Gemini" => await CallGeminiAsync(systemPrompt, userMessage, ct),
             "Ollama" => await CallOllamaAsync(systemPrompt, userMessage, ct),
-            _ => await CallOpenAiWithVisionAsync(systemPrompt, userMessage, imageUrls, ct, historyList)
+            _ => await CallOpenAiWithVisionAsync(systemPrompt, userMessage, imageUrls, ct)
         };
     }
 
-    // ── OpenAI uyumlu + Vision ────────────────────────────────────────────
+    public async Task<List<string>> DetectRelevantDocumentsAsync(
+        string question,
+        IEnumerable<(string Role, string Content)> history,
+        IEnumerable<string> availableDocuments,
+        CancellationToken ct = default)
+    {
+        var docList = availableDocuments.ToList();
+        if (!docList.Any()) return new List<string>();
+
+        var historyText = string.Join("\n", history.TakeLast(6).Select(h => h.Role + ": " + h.Content));
+        var docsText = string.Join("\n", docList.Select((d, i) => (i + 1) + ". " + d));
+
+        var prompt =
+            "Asagidaki sohbet gecmisi ve soruyu analiz et.\n" +
+            "Hangi belgeler bu soruyla ilgili? Sadece belge isimlerini dondur, baska hicbir sey yazma.\n" +
+            "Birden fazla belge ilgiliyse hepsini yaz. Ilgisiz belgeleri yazma.\n\n" +
+            "MEVCUT BELGELER:\n" + docsText + "\n\n" +
+            "SOHBET GECMISI:\n" + historyText + "\n\n" +
+            "SORU: " + question + "\n\n" +
+            "SADECE ilgili belge isimlerini virgülle ayirarak yaz. Ornek: belge1.pdf, belge2.pdf\n" +
+            "Hicbir belge ilgili degilse bos birak.";
+
+        try
+        {
+            var payload = new
+            {
+                model = _cfg["Llm:Model"],
+                max_tokens = 100,
+                temperature = 0.0f,
+                messages = new[] { new { role = "user", content = prompt } }
+            };
+            var response = await _http.PostAsJsonAsync("/openai/v1/chat/completions", payload, ct);
+            if (!response.IsSuccessStatusCode) return new List<string>();
+            var json = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
+            var answer = json.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString()?.Trim() ?? "";
+            Console.WriteLine($"[DocDetect] Tespit edilen belgeler: {answer}");
+            if (string.IsNullOrWhiteSpace(answer)) return new List<string>();
+            return answer.Split(',').Select(d => d.Trim()).Where(d => !string.IsNullOrWhiteSpace(d)).ToList();
+        }
+        catch { return new List<string>(); }
+    }
+
     private async Task<string> CallOpenAiWithVisionAsync(
-        string system, string user, List<string> imageUrls, CancellationToken ct,
-        IEnumerable<(string Role, string Content)>? history = null)
+        string system, string user, List<string> imageUrls, CancellationToken ct)
     {
         var maxTokens = int.TryParse(_cfg["Llm:MaxTokens"], out var t) ? t : 4096;
 
@@ -221,7 +243,12 @@ public class LlmService : ILlmService
             try
             {
                 var fullPath = Path.Combine("uploads", imgPath);
-                if (!File.Exists(fullPath)) continue;
+                if (!File.Exists(fullPath))
+                {
+                    Console.WriteLine($"[LLM] Resim bulunamadi: {fullPath}");
+                    continue;
+                }
+                Console.WriteLine($"[LLM] Resim gonderiliyor: {imgPath}");
                 var imgBytes = await File.ReadAllBytesAsync(fullPath, ct);
                 var ext = imgPath.EndsWith(".jpg") || imgPath.EndsWith(".jpeg") ? "jpeg" : "png";
                 var base64 = Convert.ToBase64String(imgBytes);
@@ -230,14 +257,13 @@ public class LlmService : ILlmService
             catch (Exception ex) { Console.WriteLine($"[LLM] Resim eklenemedi: {ex.Message}"); }
         }
 
-        var msgList = new List<object> { new { role = "system", content = system } };
-        if (history != null)
-            foreach (var h in history)
-                msgList.Add(new { role = h.Role, content = h.Content });
-
-        msgList.Add(userContent.Count > 1
-            ? new { role = "user", content = (object)userContent }
-            : new { role = "user", content = (object)user });
+        var msgList = new List<object>
+        {
+            new { role = "system", content = system },
+            userContent.Count > 1
+                ? (object)new { role = "user", content = userContent }
+                : (object)new { role = "user", content = user }
+        };
 
         var payload = new { model = _cfg["Llm:Model"], max_tokens = maxTokens, temperature = 0.1f, messages = msgList };
         var response = await _http.PostAsJsonAsync("/openai/v1/chat/completions", payload, ct);
@@ -247,7 +273,6 @@ public class LlmService : ILlmService
         return json.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString()!.Trim();
     }
 
-    // ── Anthropic ─────────────────────────────────────────────────────────
     private async Task<string> CallAnthropicAsync(string system, string user, CancellationToken ct)
     {
         var maxTokens = int.TryParse(_cfg["Llm:MaxTokens"], out var t) ? t : 4096;
@@ -267,7 +292,6 @@ public class LlmService : ILlmService
         return json.GetProperty("content")[0].GetProperty("text").GetString()!.Trim();
     }
 
-    // ── Gemini ────────────────────────────────────────────────────────────
     private async Task<string> CallGeminiAsync(string system, string user, CancellationToken ct)
     {
         var apiKey = _cfg["Llm:ApiKey"];
@@ -287,7 +311,6 @@ public class LlmService : ILlmService
         return json.GetProperty("candidates")[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString()!.Trim();
     }
 
-    // ── Ollama ────────────────────────────────────────────────────────────
     private async Task<string> CallOllamaAsync(string system, string user, CancellationToken ct)
     {
         var payload = new
@@ -303,37 +326,10 @@ public class LlmService : ILlmService
         return json.GetProperty("message").GetProperty("content").GetString()!.Trim();
     }
 
-    // ── Soru kalitesi kontrolü ────────────────────────────────────────────
-    private async Task<bool> ValidateQuestionAsync(string question, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(question) || question.Trim().Length < 2) return false;
-        try
-        {
-            var payload = new
-            {
-                model = _cfg["Llm:Model"],
-                max_tokens = 10,
-                temperature = 0.0f,
-                messages = new[]
-                {
-                    new { role = "system", content = "Kullanıcının mesajını değerlendir. Mesaj anlamlı bir soru veya istek içeriyorsa 'EVET', küfür/hakaret/anlamsız/ilgisiz içerik ise 'HAYIR' döndür. Başka hiçbir şey yazma." },
-                    new { role = "user",   content = question }
-                }
-            };
-            var response = await _http.PostAsJsonAsync("/openai/v1/chat/completions", payload, ct);
-            if (!response.IsSuccessStatusCode) return true;
-            var json = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
-            var answer = json.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString()?.Trim().ToUpperInvariant() ?? "";
-            return answer.Contains("EVET");
-        }
-        catch { return true; }
-    }
-
-    // ── Hata yönetimi ─────────────────────────────────────────────────────
     private static async Task EnsureSuccessAsync(HttpResponseMessage response)
     {
         if (response.IsSuccessStatusCode) return;
         var body = await response.Content.ReadAsStringAsync();
-        throw new HttpRequestException($"LLM API hatası [{(int)response.StatusCode}]: {body}", inner: null, statusCode: response.StatusCode);
+        throw new HttpRequestException($"LLM API hatasi [{(int)response.StatusCode}]: {body}", inner: null, statusCode: response.StatusCode);
     }
 }

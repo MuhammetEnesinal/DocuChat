@@ -2,6 +2,7 @@
 using DocuChat.Application.Interfaces.Services;
 using DocuChat.Domain.Enums;
 using ExcelDataReader;
+using MimeKit;
 using NPOI.XWPF.UserModel;
 using PDFtoImage;
 using SkiaSharp;
@@ -10,9 +11,8 @@ using System.Globalization;
 using System.Text;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Tesseract;
+using ClosedXML.Excel;
 using UglyToad.PdfPig;
-using UglyToad.PdfPig.Content;
 
 namespace DocuChat.Infrastructure.Services;
 
@@ -20,11 +20,9 @@ public class DocumentParserService : IDocumentParser
 {
     private readonly int _chunkSize;
     private readonly int _overlap;
-    private readonly string _tessDataPath;
-    private readonly string _tessLang;
-    private readonly string? _groqApiKey;
+    private readonly string _groqApiKey;
     private readonly string _groqVisionModel;
-    private readonly string? _llamaParseApiKey;
+    private readonly string _llamaParseApiKey;
     private readonly IFileStorage _fileStorage;
 
     private const int RenderDpi = 400;
@@ -35,39 +33,37 @@ public class DocumentParserService : IDocumentParser
     {
         _chunkSize = int.Parse(cfg["Chunking:ChunkSize"] ?? "800");
         _overlap = int.Parse(cfg["Chunking:Overlap"] ?? "150");
-        _tessDataPath = cfg["Tesseract:DataPath"] ?? @"C:\Users\bsstajyer\AppData\Local\Programs\Tesseract-OCR\tessdata";
-        _tessLang = cfg["Tesseract:Language"] ?? "tur+eng";
-        _groqApiKey = cfg["GroqVision:ApiKey"] ?? cfg["Llm:ApiKey"];
+        _groqApiKey = cfg["GroqVision:ApiKey"] ?? cfg["Llm:ApiKey"]
+            ?? throw new InvalidOperationException("GroqVision:ApiKey yapılandırılmamış.");
         _groqVisionModel = cfg["GroqVision:Model"] ?? "meta-llama/llama-4-scout-17b-16e-instruct";
-        _llamaParseApiKey = cfg["LlamaParse:ApiKey"];
+        _llamaParseApiKey = cfg["LlamaParse:ApiKey"]
+            ?? throw new InvalidOperationException("LlamaParse:ApiKey yapılandırılmamış.");
         _fileStorage = fileStorage;
     }
 
+    // ─────────────────────────────────────────────────────────────────────
     public IEnumerable<ParsedChunk> Parse(Stream stream, FileType fileType)
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
-        if (fileType is FileType.Docx or FileType.Doc)
+        return fileType switch
         {
-            var docText = fileType == FileType.Doc
-                ? ExtractDocx(stream, "application/msword", "document.doc")
-                : ExtractDocx(stream, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "document.docx");
-            return SemanticChunk(docText);
-        }
+            FileType.Docx => SemanticChunk(ExtractDocxViaLlamaParse(stream,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "document.docx")),
 
-        if (fileType == FileType.Pdf)
-            return ExtractPdfPages(stream).SelectMany(r => SemanticChunk(r.Text, r.ImagePath));
+            FileType.Doc => SemanticChunk(ExtractDocViaLlamaParse(stream)),
 
-        var text = fileType switch
-        {
-            FileType.Xlsx => ExtractXlsx(stream),
-            FileType.Csv => ExtractCsv(stream),
-            _ => ExtractTxt(stream),
+            FileType.Pdf => ExtractPdfPages(stream)
+                                .SelectMany(r => SemanticChunk(r.Text, r.ImagePath)),
+
+            FileType.Xlsx => ChunkWithImages(ExtractXlsx(stream), ExtractXlsxImages(stream)),
+            FileType.Csv => Chunk(ExtractCsv(stream)),
+            _ => Chunk(ExtractTxt(stream)),
         };
-        return Chunk(text);
     }
 
-    // ── PDF ───────────────────────────────────────────────────────────────
+    // ── PDF — Groq Vision + PdfPig resimleri ─────────────────────────────
     private record PageResult(string Text, string? ImagePath);
 
     private IEnumerable<PageResult> ExtractPdfPages(Stream stream)
@@ -75,332 +71,540 @@ public class DocumentParserService : IDocumentParser
         var pdfBytes = ReadAllBytes(stream);
         var pages = new List<PageResult>();
 
-        if (!string.IsNullOrWhiteSpace(_groqApiKey))
+        using var ms = new MemoryStream(pdfBytes);
+        var pageImageBitmaps = Conversion.ToImages(ms, options: new RenderOptions { Dpi = RenderDpi }).ToList();
+
+        foreach (var bitmap in pageImageBitmaps)
         {
             try
             {
-                using var ms = new MemoryStream(pdfBytes);
-                var pageImageBitmaps = Conversion.ToImages(ms, options: new RenderOptions { Dpi = RenderDpi }).ToList();
-                var pagePngBytes = new List<byte[]>();
-
-                foreach (var bitmap in pageImageBitmaps)
+                string pageText = string.Empty;
+                for (var attempt = 0; attempt < 2; attempt++)
                 {
                     try
                     {
-                        using var img = SKImage.FromBitmap(bitmap);
-                        using var data = img.Encode(SKEncodedImageFormat.Png, 100);
-                        pagePngBytes.Add(data.ToArray());
-
-                        string pageText = string.Empty;
-                        for (var attempt = 0; attempt < 2; attempt++)
-                        {
-                            try
-                            {
-                                pageText = OcrPageWithGroqAsync(bitmap, _groqApiKey!, _groqVisionModel).GetAwaiter().GetResult();
-                                if (!string.IsNullOrWhiteSpace(pageText)) break;
-                            }
-                            catch (Exception ex)
-                            {
-                                if (attempt == 0) { Console.WriteLine($"[OCR] Retry: {ex.Message}"); System.Threading.Thread.Sleep(10000); }
-                            }
-                        }
-                        if (!string.IsNullOrWhiteSpace(pageText) && !pageText.Contains("[BOŞ_SAYFA]"))
-                            pages.Add(new PageResult(pageText, null));
-
-                        System.Threading.Thread.Sleep(2000);
+                        pageText = OcrPageWithGroqAsync(bitmap, _groqApiKey, _groqVisionModel)
+                                       .GetAwaiter().GetResult();
+                        if (!string.IsNullOrWhiteSpace(pageText)) break;
                     }
-                    finally { bitmap.Dispose(); }
+                    catch (Exception ex)
+                    {
+                        if (attempt == 0)
+                        {
+                            Console.WriteLine($"[OCR] Retry: {ex.Message}");
+                            Thread.Sleep(10_000);
+                        }
+                        else throw;
+                    }
                 }
 
-                if (pages.Count > 0)
-                {
-                    var rawPages = ExtractImagesWithPdfPig(pdfBytes, pages).GetAwaiter().GetResult();
-                    pages = MatchImagesWithDescriptions(rawPages, pagePngBytes, _groqApiKey!, _groqVisionModel).GetAwaiter().GetResult();
-                    return pages;
-                }
-                Console.WriteLine("[OCR] Groq Vision metin döndürmedi, Tesseract fallback");
+                if (!string.IsNullOrWhiteSpace(pageText) && !pageText.Contains("[BOŞ_SAYFA]"))
+                    pages.Add(new PageResult(pageText, null));
+
+                Thread.Sleep(2_000);
             }
-            catch (Exception ex) { Console.WriteLine("[OCR] Groq Vision hata: " + ex.Message); }
+            finally { bitmap.Dispose(); }
         }
 
-        TesseractEngine? engine = null;
-        try { engine = new TesseractEngine(_tessDataPath, _tessLang, EngineMode.LstmOnly); } catch { }
-        try
-        {
-            using var ms2 = new MemoryStream(pdfBytes);
-            var pageImages = Conversion.ToImages(ms2, options: new RenderOptions { Dpi = RenderDpi });
-            foreach (var bitmap in pageImages)
-            {
-                try
-                {
-                    var pageText = engine is not null ? OcrPageWithTesseract(bitmap, engine) : string.Empty;
-                    if (!string.IsNullOrWhiteSpace(pageText))
-                        pages.Add(new PageResult(pageText, null));
-                }
-                finally { bitmap.Dispose(); }
-            }
-        }
-        catch (Exception ex) { pages.Add(new PageResult($"[PDF okuma hatası: {ex.Message}]", null)); }
-        finally { engine?.Dispose(); }
+        // PdfPig ile resimleri çıkar ve sayfalarla eşleştir
+        pages = AttachPdfPigImages(pdfBytes, pages).GetAwaiter().GetResult();
         return pages;
     }
 
-    // ── Groq Vision OCR ───────────────────────────────────────────────────
     private static async Task<string> OcrPageWithGroqAsync(SKBitmap bitmap, string apiKey, string model)
     {
-        try
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+        var base64 = Convert.ToBase64String(data.ToArray());
+
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+        http.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
+
+        var prompt = """
+            Sen kurumsal belge OCR uzmanısın. Görevin bu PDF sayfasındaki TÜM içeriği eksiksiz ve yapısal olarak doğru çıkarmaktır.
+
+            ════════════════════════════════════════════════════════════
+            1. TEMEL KURALLAR
+            ════════════════════════════════════════════════════════════
+            • Sayfadaki HER kelimeyi, rakamı, sembolü çıkar. Hiçbir şey atlama.
+            • Orijinal dili koru. Çeviri yapma.
+            • Kendi yorum veya açıklamanı ekleme. Sadece belgede yazanı aktar.
+            • Giriş/kapanış cümleleri yazma ("İşte içerik:" gibi).
+            • Sayfa numarası, üstbilgi, altbilgi gibi tekrar eden öğeleri dahil etme.
+
+            ════════════════════════════════════════════════════════════
+            2. BAŞLIKLAR
+            ════════════════════════════════════════════════════════════
+            • Ana başlık → # Başlık
+            • Bölüm başlığı → ## Başlık
+            • Alt bölüm → ### Başlık
+            • Küçük başlık → #### Başlık
+            • Başlıktan önce ve sonra boş satır bırak.
+
+            ════════════════════════════════════════════════════════════
+            3. PARAGRAFLAR
+            ════════════════════════════════════════════════════════════
+            • Her paragraf ayrı satırda. Aralarında boş satır bırak.
+            • İki paragrafı birleştirme.
+            • Kalın metin → **metin**, italik → *metin*
+
+            ════════════════════════════════════════════════════════════
+            4. TABLOLAR — EN KRİTİK BÖLÜM
+            ════════════════════════════════════════════════════════════
+            TABLO ÇIKARMA ADIMLARI:
+            Adım 1: Sayfadaki tüm tabloları tespit et.
+            Adım 2: Her tablonun kaç sütunu olduğunu say.
+            Adım 3: Her satırı soldan sağa, yukarıdan aşağıya oku.
+            Adım 4: Aşağıdaki formatta yaz:
+
+            | Sütun1 | Sütun2 | Sütun3 |
+            |--------|--------|--------|
+            | Değer  | Değer  | Değer  |
+
+            TABLO KURALLARI — KESİN:
+            • İlk satır MUTLAKA başlık satırı olsun.
+            • İkinci satır MUTLAKA |---|---|---| ayırıcısı olsun.
+            • Her satır tam olarak aynı sayıda | işareti içersin.
+            • Boş hücre varsa boş bırak ama | işaretini koru: |  |
+            • HER SATIRI YAZ — tek satır bile atlama.
+            • HER SÜTUNU DAHİL ET — tek sütun bile atlama.
+            • Birleşik hücre varsa değeri ilgili tüm satırlara yaz.
+            • Tablo öncesi ve sonrası boş satır bırak.
+
+            ════════════════════════════════════════════════════════════
+            5. LİSTELER
+            ════════════════════════════════════════════════════════════
+            • Sırasız liste: - madde (her madde yeni satırda)
+            • Sıralı liste: 1. madde, 2. madde
+            • Alt madde: iki boşluk girintisi
+            • Liste öğelerini tek satırda birleştirme.
+
+            ════════════════════════════════════════════════════════════
+            6. TEKNİK İÇERİK
+            ════════════════════════════════════════════════════════════
+            • Model numaraları, kodlar, ölçüler — birebir kopyala.
+            • Formüller, matematiksel ifadeler — olduğu gibi aktar.
+            • Tarihler, yüzdeler, para birimleri — değiştirme.
+
+            ════════════════════════════════════════════════════════════
+            7. RESİMLER
+            ════════════════════════════════════════════════════════════
+            • Sayfada resim, fotoğraf, grafik varsa YOKSAY — sadece metni çıkar.
+            • Resim altındaki/yanındaki metin açıklamalarını yaz.
+            • Resimler ayrıca işlenecektir.
+
+            ════════════════════════════════════════════════════════════
+            8. ÇIKTI KALİTESİ
+            ════════════════════════════════════════════════════════════
+            • Çıktıyı okuyan kişi belgeyi hiç görmemiş olsun — yine de tüm bilgiyi anlasın.
+            • Sayfada okunabilir metin yoksa SADECE şunu yaz: [BOŞ_SAYFA]
+            • Asla "belge içeriği mevcut değil" gibi açıklama yazma.
+            """;
+
+        var payload = new
         {
-            using var image = SKImage.FromBitmap(bitmap);
-            using var data = image.Encode(SKEncodedImageFormat.Png, 100);
-            var base64 = Convert.ToBase64String(data.ToArray());
-
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
-            http.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
-
-            var prompt = """
-                Sen kurumsal belge OCR uzmanısın. Görevin bu PDF sayfasındaki TÜM içeriği eksiksiz ve yapısal olarak doğru çıkarmaktır.
-
-                ════════════════════════════════════════════════════════════
-                1. TEMEL KURALLAR
-                ════════════════════════════════════════════════════════════
-                • Sayfadaki HER kelimeyi, rakamı, sembolü çıkar. Hiçbir şey atlama.
-                • Orijinal dili koru. Çeviri yapma.
-                • Kendi yorum veya açıklamanı ekleme. Sadece belgede yazanı aktar.
-                • Giriş/kapanış cümleleri yazma ("İşte içerik:" gibi).
-                • Sayfa numarası, üstbilgi, altbilgi gibi tekrar eden öğeleri dahil etme.
-
-                ════════════════════════════════════════════════════════════
-                2. BAŞLIKLAR
-                ════════════════════════════════════════════════════════════
-                • Ana başlık → # Başlık
-                • Bölüm başlığı → ## Başlık
-                • Alt bölüm → ### Başlık
-                • Küçük başlık → #### Başlık
-                • Başlıktan önce ve sonra boş satır bırak.
-
-                ════════════════════════════════════════════════════════════
-                3. PARAGRAFLAR
-                ════════════════════════════════════════════════════════════
-                • Her paragraf ayrı satırda. Aralarında boş satır bırak.
-                • İki paragrafı birleştirme.
-                • Kalın metin → **metin**, italik → *metin*
-
-                ════════════════════════════════════════════════════════════
-                4. TABLOLAR — EN KRİTİK BÖLÜM
-                ════════════════════════════════════════════════════════════
-
-                TABLO ÇIKARMA ADIMLARI:
-                Adım 1: Sayfadaki tüm tabloları tespit et.
-                Adım 2: Her tablonun kaç sütunu olduğunu say.
-                Adım 3: Her satırı soldan sağa, yukarıdan aşağıya oku.
-                Adım 4: Aşağıdaki formatta yaz:
-
-                | Sütun1 | Sütun2 | Sütun3 |
-                |--------|--------|--------|
-                | Değer  | Değer  | Değer  |
-                | Değer  | Değer  | Değer  |
-
-                TABLO KURALLARI — KESİN:
-                • İlk satır MUTLAKA başlık satırı olsun.
-                • İkinci satır MUTLAKA |---|---|---| ayırıcısı olsun.
-                • Her satır tam olarak aynı sayıda | işareti içersin.
-                • Boş hücre varsa boş bırak ama | işaretini koru: |  |
-                • HER SATIRI YAZ — tek satır bile atlama.
-                • HER SÜTUNU DAHİL ET — tek sütun bile atlama.
-                • Birleşik hücre varsa değeri ilgili tüm satırlara yaz.
-                • Tablo öncesi ve sonrası boş satır bırak.
-
-                TABLO HATASI — YANLIŞ:
-                | No | Tanım |
-                | 1 | Falçata |
-                (Ayırıcı satır YOK — YANLIŞ!)
-
-                TABLO DOĞRU:
-                | No | Tanım   |
-                |----|---------|
-                | 1  | Falçata |
-                | 2  | Makas   |
-
-                ÇOK ÖNEMLİ — TABLO SÜTUN SAYISI:
-                Bir tabloda 5 sütun varsa her satırda 5 sütun olmalı:
-                | S1 | S2 | S3 | S4 | S5 |
-                |----|----|----|----|----|
-                | V1 | V2 | V3 | V4 | V5 |
-                Hiçbir satırda sütun sayısı eksik veya fazla olmasın.
-
-                ════════════════════════════════════════════════════════════
-                5. LİSTELER
-                ════════════════════════════════════════════════════════════
-                • Sırasız liste: - madde (her madde yeni satırda)
-                • Sıralı liste: 1. madde, 2. madde
-                • Alt madde: iki boşluk girintisi
-                • Liste öğelerini tek satırda birleştirme.
-
-                ════════════════════════════════════════════════════════════
-                6. TEKNİK İÇERİK
-                ════════════════════════════════════════════════════════════
-                • Model numaraları, kodlar, ölçüler — birebir kopyala.
-                • Formüller, matematiksel ifadeler — olduğu gibi aktar.
-                • Tarihler, yüzdeler, para birimleri — değiştirme.
-
-                ════════════════════════════════════════════════════════════
-                7. RESİMLER
-                ════════════════════════════════════════════════════════════
-                • Sayfada resim, fotoğraf, grafik varsa YOKSAY — sadece metni çıkar.
-                • Resim altındaki/yanındaki metin açıklamalarını yaz.
-                • Resimler ayrıca işlenecektir.
-
-                ════════════════════════════════════════════════════════════
-                8. FORM VE BOŞLUKLAR
-                ════════════════════════════════════════════════════════════
-                • Formda doldurulması gereken boş alanlar varsa (........ gibi) olduğu gibi aktar.
-                • İmza alanları, tarih alanları — boş bırak ama etiketini yaz.
-                • Onay kutuları (☐ veya ☑) — olduğu gibi yaz.
-
-                ════════════════════════════════════════════════════════════
-                9. ÇIKTI KALİTESİ
-                ════════════════════════════════════════════════════════════
-                • Çıktıyı okuyan kişi belgeyi hiç görmemiş olsun — yine de tüm bilgiyi anlasın.
-                • Aynı türdeki öğeler her yerde aynı formatta olsun.
-                • Sayfanın tüm köşelerini tara — dipnot, kenar notu dahil.
-                • Yalnızca belge içeriğini ver. Meta-yorum ekleme.
-                • Sayfada okunabilir metin yoksa (binary, şifreli, CSS, HTML kodu vb.) SADECE şunu yaz: [BOŞ_SAYFA]
-                • Asla "belge içeriği mevcut değil", "anlamlı içerik yok" gibi açıklama yazma. Ya içeriği yaz ya da [BOŞ_SAYFA] yaz.
-                """;
-
-            var payload = new
+            model,
+            max_tokens = 4096,
+            temperature = 0,
+            messages = new object[]
             {
-                model,
-                max_tokens = 4096,
-                temperature = 0,
-                messages = new object[]
+                new { role = "user", content = new object[]
                 {
-                    new { role = "user", content = new object[]
-                    {
-                        new { type = "text", text = prompt },
-                        new { type = "image_url", image_url = new { url = $"data:image/png;base64,{base64}" } }
-                    }}
-                }
-            };
+                    new { type = "text", text = prompt },
+                    new { type = "image_url", image_url = new { url = $"data:image/png;base64,{base64}" } }
+                }}
+            }
+        };
 
-            var response = await http.PostAsJsonAsync("https://api.groq.com/openai/v1/chat/completions", payload);
-            var body = await response.Content.ReadAsStringAsync();
-            if (!response.IsSuccessStatusCode) { Console.WriteLine($"[OCR] HTTP {(int)response.StatusCode}: {body}"); return string.Empty; }
+        var response = await http.PostAsJsonAsync("https://api.groq.com/openai/v1/chat/completions", payload);
+        var body = await response.Content.ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException($"[OCR] HTTP {(int)response.StatusCode}: {body}");
 
-            var json = JsonSerializer.Deserialize<JsonElement>(body);
-            if (!json.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0) return string.Empty;
-            return choices[0].GetProperty("message").GetProperty("content").GetString()?.Trim() ?? string.Empty;
-        }
-        catch (Exception ex) { Console.WriteLine("[OCR] Groq Vision hata: " + ex.Message); return string.Empty; }
+        var json = JsonSerializer.Deserialize<JsonElement>(body);
+        return json.GetProperty("choices")[0]
+                   .GetProperty("message")
+                   .GetProperty("content")
+                   .GetString()?.Trim() ?? string.Empty;
     }
 
-    private static Task<List<PageResult>> MatchImagesWithDescriptions(
-        List<PageResult> pages, List<byte[]> pagePngBytes, string apiKey, string model)
-        => Task.FromResult(pages);
-
-
-    private async Task<List<PageResult>> ExtractImagesWithPdfPig(byte[] pdfBytes, List<PageResult> pages)
+    private async Task<List<PageResult>> AttachPdfPigImages(byte[] pdfBytes, List<PageResult> pages)
     {
-        try
+        using var doc = PdfDocument.Open(pdfBytes);
+        for (var pageNum = 1; pageNum <= doc.NumberOfPages && pageNum <= pages.Count; pageNum++)
         {
-            using var doc = PdfDocument.Open(pdfBytes);
-            for (var pageNum = 1; pageNum <= doc.NumberOfPages && pageNum <= pages.Count; pageNum++)
+            var page = doc.GetPage(pageNum);
+            var pageImages = page.GetImages()
+                                 .OrderByDescending(img => img.Bounds.Top)
+                                 .ThenBy(img => img.Bounds.Left)
+                                 .ToList();
+            if (pageImages.Count == 0) continue;
+
+            var imagePaths = new List<string>();
+            foreach (var img in pageImages)
             {
-                var page = doc.GetPage(pageNum);
-                var pageImages = page.GetImages()
-                    .OrderByDescending(img => img.Bounds.Top)
-                    .ThenBy(img => img.Bounds.Left)
-                    .ToList();
-                if (pageImages.Count == 0) continue;
+                byte[]? imgBytes = null;
+                if (img.TryGetPng(out var pngBytes)) imgBytes = pngBytes;
+                else if (img.TryGetBytesAsMemory(out var mem)) imgBytes = mem.ToArray();
+                else if (img.RawMemory.Length > 0) imgBytes = img.RawMemory.ToArray();
+                if (imgBytes == null || imgBytes.Length < 10) continue;
 
-                var imagePaths = new List<string>();
-                foreach (var img in pageImages)
-                {
-                    try
-                    {
-                        byte[]? imgBytes = null;
-                        if (img.TryGetPng(out var pngBytes)) imgBytes = pngBytes;
-                        else if (img.TryGetBytesAsMemory(out var mem)) imgBytes = mem.ToArray();
-                        else if (img.RawMemory.Length > 0) imgBytes = img.RawMemory.ToArray();
-                        if (imgBytes == null || imgBytes.Length < 10) continue;
+                var ext = imgBytes.Length >= 2 && imgBytes[0] == 0xFF && imgBytes[1] == 0xD8 ? "jpg" : "png";
+                using var imgStream = new MemoryStream(imgBytes);
+                var savedPath = await _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}");
+                imagePaths.Add(savedPath);
+                Console.WriteLine($"[PdfPig] Sayfa {pageNum}: resim -> {savedPath}");
+            }
 
-                        var ext = imgBytes.Length >= 2 && imgBytes[0] == 0xFF && imgBytes[1] == 0xD8 ? "jpg" : "png";
-                        using var imgStream = new MemoryStream(imgBytes);
-                        var savedPath = await _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}");
-                        imagePaths.Add(savedPath);
-                        Console.WriteLine($"[PdfPig] Sayfa {pageNum}: resim {imagePaths.Count} -> {savedPath}");
-                    }
-                    catch (Exception ex) { Console.WriteLine($"[PdfPig] Hata: {ex.Message}"); }
-                }
-
-                if (imagePaths.Count > 0)
-                {
-                    var existing = pages[pageNum - 1];
-                    pages[pageNum - 1] = new PageResult(existing.Text, JsonSerializer.Serialize(imagePaths));
-                }
+            if (imagePaths.Count > 0)
+            {
+                var existing = pages[pageNum - 1];
+                pages[pageNum - 1] = new PageResult(existing.Text, JsonSerializer.Serialize(imagePaths));
             }
         }
-        catch (Exception ex) { Console.WriteLine($"[PdfPig] Hata: {ex.Message}"); }
         return pages;
     }
 
-    private static string OcrPageWithTesseract(SKBitmap bitmap, TesseractEngine engine)
+    // ── DOCX — MHTML tespiti → HTML parse, yoksa LlamaParse + XWPFDocument ──
+    private string ExtractDocxViaLlamaParse(Stream stream, string contentType, string fileName)
+    {
+        stream.Position = 0;
+        using var ms = new MemoryStream();
+        stream.CopyTo(ms);
+        stream.Position = 0;
+        var rawBytes = ms.ToArray();
+
+        // MHTML mi? (.docx uzantılı ama Confluence/Word HTML export olabilir)
+        var header = System.Text.Encoding.ASCII.GetString(rawBytes, 0, Math.Min(20, rawBytes.Length));
+        if (header.StartsWith("Message-ID:") || header.StartsWith("MIME-Version:"))
+        {
+            Console.WriteLine("[DOCX] MHTML formatı tespit edildi, HTML parser kullanılıyor.");
+            return ExtractMhtml(rawBytes);
+        }
+
+        // Gerçek .docx (ZIP/OpenXML)
+        // 1. Resimleri XWPFDocument ile çıkar
+        var imagePaths = ExtractDocxImages(stream);
+        stream.Position = 0;
+
+        // 2. Metni LlamaParse ile al
+        var text = CallLlamaParseAsync(stream, contentType, fileName).GetAwaiter().GetResult();
+        stream.Position = 0;
+
+        // 3. Resim path'lerini metne ekle
+        if (imagePaths.Any())
+            text += "\n[DOCX_IMAGES:" + JsonSerializer.Serialize(imagePaths) + "]";
+
+        return text;
+    }
+
+    private List<string> ExtractDocxImages(Stream stream)
+    {
+        var imagePaths = new List<string>();
+        stream.Position = 0;
+        using var ms = new MemoryStream();
+        stream.CopyTo(ms);
+        ms.Position = 0;
+        stream.Position = 0;
+
+        // ZIP magic byte kontrolü — gerçek DOCX (OpenXML) mi?
+        var magic = ms.ToArray();
+        if (magic.Length < 4 || magic[0] != 0x50 || magic[1] != 0x4B)
+        {
+            Console.WriteLine("[DOCX] ZIP formatı değil, resim çıkartma atlanıyor.");
+            return imagePaths;
+        }
+
+        ms.Position = 0;
+        var doc = new XWPFDocument(ms);
+        foreach (var pic in doc.AllPictures)
+        {
+            var ext = pic.SuggestFileExtension().ToLower();
+            if (!new[] { "jpg", "jpeg", "png", "gif", "bmp" }.Contains(ext)) ext = "png";
+            using var imgStream = new MemoryStream(pic.Data);
+            var savedPath = _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}").GetAwaiter().GetResult();
+            imagePaths.Add(savedPath);
+            Console.WriteLine($"[DOCX] Resim çıkartıldı: {savedPath}");
+        }
+        Console.WriteLine($"[DOCX] {imagePaths.Count} resim çıkartıldı.");
+        return imagePaths;
+    }
+
+    // ── DOC — MHTML tespiti → HTML parse, yoksa LlamaParse ─────────────────
+    private string ExtractDocViaLlamaParse(Stream stream)
+    {
+        stream.Position = 0;
+        using var ms = new MemoryStream();
+        stream.CopyTo(ms);
+        stream.Position = 0;
+        var rawBytes = ms.ToArray();
+
+        // MHTML mi? (Confluence export formatı)
+        var header = System.Text.Encoding.ASCII.GetString(rawBytes, 0, Math.Min(20, rawBytes.Length));
+        if (header.StartsWith("Message-ID:") || header.StartsWith("MIME-Version:"))
+        {
+            Console.WriteLine("[DOC] MHTML formatı tespit edildi, HTML parser kullanılıyor.");
+            return ExtractMhtml(rawBytes);
+        }
+
+        // Gerçek binary .doc — LlamaParse
+        var imagePaths = ExtractDocImages(stream);
+        stream.Position = 0;
+        var text = CallLlamaParseAsync(stream, "application/msword", "document.doc").GetAwaiter().GetResult();
+        stream.Position = 0;
+        if (imagePaths.Any())
+            text += "\n[DOCX_IMAGES:" + JsonSerializer.Serialize(imagePaths) + "]";
+        return text;
+    }
+
+    private string ExtractMhtml(byte[] rawBytes)
+    {
+        var sb = new StringBuilder();
+        var imagePaths = new List<string>();
+
+        var msg = MimeMessage.Load(new MemoryStream(rawBytes));
+
+        foreach (var part in msg.BodyParts)
+        {
+            if (part is MimeKit.MimePart mimePart)
+            {
+                var ct = mimePart.ContentType.MimeType.ToLower();
+
+                if (ct == "text/html")
+                {
+                    using var bodyStream = new MemoryStream();
+                    mimePart.Content.DecodeTo(bodyStream);
+                    var html = System.Text.Encoding.UTF8.GetString(bodyStream.ToArray());
+                    sb.Append(ExtractTextFromHtml(html));
+                }
+                else if (ct.StartsWith("image/") || ct == "application/octet-stream")
+                {
+                    try
+                    {
+                        using var imgStream = new MemoryStream();
+                        mimePart.Content.DecodeTo(imgStream);
+                        var imgBytes = imgStream.ToArray();
+                        if (imgBytes.Length < 512) continue;
+
+                        // Format tespit
+                        string ext;
+                        if (imgBytes[0] == 0xFF && imgBytes[1] == 0xD8) ext = "jpg";
+                        else if (imgBytes[0] == 0x89 && imgBytes[1] == 0x50) ext = "png";
+                        else if (imgBytes[0] == 0x47 && imgBytes[1] == 0x49) ext = "gif";
+                        else ext = "png"; // varsayılan
+
+                        imgStream.Position = 0;
+                        var savedPath = _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}").GetAwaiter().GetResult();
+                        imagePaths.Add(savedPath);
+                        Console.WriteLine($"[MHTML] Resim kaydedildi: {savedPath}");
+                    }
+                    catch (Exception ex) { Console.WriteLine($"[MHTML] Resim hatası: {ex.Message}"); }
+                }
+            }
+        }
+
+        if (imagePaths.Any())
+            sb.Append("\n[DOCX_IMAGES:" + JsonSerializer.Serialize(imagePaths) + "]");
+
+        Console.WriteLine($"[MHTML] {sb.Length} karakter, {imagePaths.Count} resim çıkarıldı.");
+        return sb.ToString();
+    }
+
+    private static string ExtractTextFromHtml(string html)
+    {
+        var opts = System.Text.RegularExpressions.RegexOptions.IgnoreCase
+                 | System.Text.RegularExpressions.RegexOptions.Singleline;
+
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"<head[^>]*>.*?</head>", "", opts);
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"<xml[^>]*>.*?</xml>", "", opts);
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"<style[^>]*>.*?</style>", "", opts);
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"<script[^>]*>.*?</script>", "", opts);
+
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"<h1[^>]*>(.*?)</h1>",
+            m => "\n# " + StripTags(m.Groups[1].Value).Trim() + "\n", opts);
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"<h2[^>]*>(.*?)</h2>",
+            m => "\n## " + StripTags(m.Groups[1].Value).Trim() + "\n", opts);
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"<h3[^>]*>(.*?)</h3>",
+            m => "\n### " + StripTags(m.Groups[1].Value).Trim() + "\n", opts);
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"<h[456][^>]*>(.*?)</h[456]>",
+            m => "\n#### " + StripTags(m.Groups[1].Value).Trim() + "\n", opts);
+
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"<li[^>]*>(.*?)</li>",
+            m => "\n- " + StripTags(m.Groups[1].Value).Trim(), opts);
+
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"<tr[^>]*>(.*?)</tr>", m =>
+        {
+            var cells = System.Text.RegularExpressions.Regex.Matches(
+                m.Groups[1].Value, @"<t[dh][^>]*>(.*?)</t[dh]>", opts);
+            var cellTexts = cells.Cast<System.Text.RegularExpressions.Match>()
+                .Select(c => StripTags(c.Groups[1].Value).Trim())
+                .Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+            if (cellTexts.Count == 0) return "";
+            if (cellTexts.Count == 1) return "\n" + cellTexts[0];
+            return "\n| " + string.Join(" | ", cellTexts) + " |";
+        }, opts);
+
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"<br\s*/?>", "\n",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"</p>|</div>", "\n",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        html = StripTags(html);
+        html = System.Net.WebUtility.HtmlDecode(html);
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"[ \t]+", " ");
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"\n{3,}", "\n\n");
+
+        // Yarıda kesilmiş satırları birleştir
+        var rawLines = html.Split('\n');
+        var merged = new List<string>();
+        for (int i = 0; i < rawLines.Length; i++)
+        {
+            var line = rawLines[i].Trim();
+            if (string.IsNullOrWhiteSpace(line)) { merged.Add(""); continue; }
+            while (i + 1 < rawLines.Length)
+            {
+                var next = rawLines[i + 1].Trim();
+                if (string.IsNullOrWhiteSpace(next)) break;
+                if (next.StartsWith("#") || next.StartsWith("|") || next.StartsWith("- ") || next.StartsWith("  ")) break;
+                if (line.EndsWith(".") || line.EndsWith("!") || line.EndsWith("?") || line.EndsWith(":")) break;
+                if (next.Length > 0 && char.IsUpper(next[0])) break;
+                line = line + " " + next;
+                i++;
+            }
+            merged.Add(line);
+        }
+        return string.Join("\n", merged).Trim();
+    }
+    private static string StripTags(string html)
+        => System.Text.RegularExpressions.Regex.Replace(html, @"<[^>]+>", " ");
+
+    private List<string> ExtractDocImages(Stream stream)
+    {
+        var imagePaths = new List<string>();
+        stream.Position = 0;
+        using var ms = new MemoryStream();
+        stream.CopyTo(ms);
+        stream.Position = 0;
+
+        var data = ms.ToArray();
+        var i = 0;
+        while (i < data.Length - 4)
+        {
+            // JPEG: FFD8FF
+            if (data[i] == 0xFF && data[i + 1] == 0xD8 && data[i + 2] == 0xFF)
+            {
+                var end = FindJpegEnd(data, i);
+                if (end > i + 512)
+                {
+                    var path = SaveImageBytes(data[i..end], "jpg");
+                    if (path != null) imagePaths.Add(path);
+                    i = end; continue;
+                }
+            }
+            // PNG: 89504E47
+            if (data[i] == 0x89 && data[i + 1] == 0x50 && data[i + 2] == 0x4E && data[i + 3] == 0x47)
+            {
+                var end = FindPngEnd(data, i);
+                if (end > i + 512)
+                {
+                    var path = SaveImageBytes(data[i..end], "png");
+                    if (path != null) imagePaths.Add(path);
+                    i = end; continue;
+                }
+            }
+            i++;
+        }
+        Console.WriteLine($"[DOC] Binary scan: {imagePaths.Count} resim bulundu.");
+        return imagePaths;
+    }
+
+    private static int FindJpegEnd(byte[] data, int start)
+    {
+        for (var i = start + 2; i < data.Length - 1; i++)
+            if (data[i] == 0xFF && data[i + 1] == 0xD9) return i + 2;
+        return data.Length;
+    }
+
+    private static int FindPngEnd(byte[] data, int start)
+    {
+        for (var i = start + 8; i < data.Length - 7; i++)
+            if (data[i] == 0x49 && data[i + 1] == 0x45 && data[i + 2] == 0x4E && data[i + 3] == 0x44)
+                return i + 8;
+        return data.Length;
+    }
+
+    private string? SaveImageBytes(byte[] imgBytes, string ext)
     {
         try
         {
-            using var image = SKImage.FromBitmap(bitmap);
-            using var data = image.Encode(SKEncodedImageFormat.Png, 100);
-            using var pix = Pix.LoadFromMemory(data.ToArray());
-            using var ocrPage = engine.Process(pix, PageSegMode.Auto);
-            return ocrPage.GetText()?.Trim() ?? string.Empty;
+            using var imgStream = new MemoryStream(imgBytes);
+            var path = _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}").GetAwaiter().GetResult();
+            Console.WriteLine($"[DOC] Resim kaydedildi: {path}");
+            return path;
         }
-        catch { return string.Empty; }
+        catch (Exception ex) { Console.WriteLine($"[DOC] Resim kaydetme hatası: {ex.Message}"); return null; }
     }
 
-    // ── DOCX ─────────────────────────────────────────────────────────────
-    private string ExtractDocx(Stream stream, string contentType, string fileName)
+    // ── LlamaParse ortak metot ────────────────────────────────────────────
+    private async Task<string> CallLlamaParseAsync(Stream stream, string contentType, string fileName)
     {
-        if (!string.IsNullOrWhiteSpace(_llamaParseApiKey))
-        {
-            try
-            {
-                var result = ExtractDocxViaLlamaParseAsync(stream, contentType, fileName).GetAwaiter().GetResult();
-                if (!string.IsNullOrWhiteSpace(result)) return result;
-            }
-            catch (Exception ex) { Console.WriteLine($"[DOCX] LlamaParse hata, NPOI fallback: {ex.Message}"); }
-        }
-        return ExtractDocxViaNpoi(stream);
-    }
-
-    private async Task<string> ExtractDocxViaLlamaParseAsync(Stream stream, string contentType, string fileName)
-    {
+        stream.Position = 0;
         using var ms = new MemoryStream();
-        stream.CopyTo(ms);
+        await stream.CopyToAsync(ms);
         ms.Position = 0;
 
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
         http.DefaultRequestHeaders.Add("Authorization", $"Bearer {_llamaParseApiKey}");
 
         var instruction =
-            "Belgedeki tüm anlamlı içeriği eksiksiz çıkar. " +
-            "Tablolar varsa markdown formatında ver. " +
-            "Madde listeleri için - işareti, numaralı listeler için 1. 2. 3. formatını kullan. " +
-            "Ana başlıklar için ##, alt başlıklar için ### kullan. " +
-            "Sayfa numarası, üstbilgi, altbilgi gibi tekrar eden öğeleri dahil etme. " +
-            "CSS kodları, JavaScript kodları, binary içerikler, stil tanımları, HTML etiketleri varsa tamamen atla. " +
-            "Confluence, SharePoint veya benzeri sistemlerin otomatik ürettiği stil sayfalarını dahil etme. " +
-            "Yalnızca belgenin asıl içeriğini — metin, tablo, liste, başlık — çıkar.";
+            "GÖREV: Bu belgedeki TÜM içeriği eksiksiz, yapısal olarak birebir aynı şekilde markdown formatında çıkar.\n\n" +
+
+            "PARAGRAFLAR — EN KRİTİK KURAL:\n" +
+            "- Her paragrafı BÜTÜN olarak yaz. Cümleyi asla yarıda kesme.\n" +
+            "- Bir paragraf nokta, soru işareti veya ünlem ile bitmiyorsa sonraki satırla birleştir.\n" +
+            "- Paragraflar arasında TAM BİR boş satır bırak.\n" +
+            "- Birden fazla cümle aynı konuyu işliyorsa aynı paragrafta tut.\n\n" +
+
+            "BAŞLIKLAR:\n" +
+            "- Ana başlık → # Başlık\n" +
+            "- Bölüm başlığı → ## Başlık\n" +
+            "- Alt bölüm → ### Başlık\n" +
+            "- Küçük başlık → #### Başlık\n" +
+            "- Başlıktan önce ve sonra boş satır bırak.\n\n" +
+
+            "LİSTELER:\n" +
+            "- Sırasız liste öğesi → - madde\n" +
+            "- Sıralı liste öğesi → 1. madde, 2. madde ...\n" +
+            "- Alt madde → iki boşluk girintisi\n" +
+            "- Her madde kendi satırında. Maddeleri birleştirme.\n\n" +
+
+            "TABLOLAR:\n" +
+            "- Markdown tablo formatı: | Sütun1 | Sütun2 |\n" +
+            "- İkinci satır MUTLAKA ayırıcı: |---|---|\n" +
+            "- Her satır aynı sayıda sütun. Boş hücre → |  |\n" +
+            "- Tablonun tüm satırlarını yaz, atlama.\n\n" +
+
+            "ATLA:\n" +
+            "- Sayfa numarası, üstbilgi, altbilgi\n" +
+            "- CSS, JavaScript, HTML tag, Base64\n" +
+            "- 'Belge içeriği mevcut değil' gibi açıklama cümleleri\n" +
+            "- Placeholder içerik (Başlık 1, Veri 1 gibi)\n\n" +
+
+            "GENEL:\n" +
+            "- Belgede gerçekten var olanı yaz. Uydurma, tahmin etme.\n" +
+            "- Giriş veya kapanış cümlesi ekleme. Direkt içeriği ver.\n" +
+            "- Orijinal dili koru, çeviri yapma.";
 
         using var uploadForm = new MultipartFormDataContent();
         var fileBytes = new ByteArrayContent(ms.ToArray());
-        fileBytes.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-        uploadForm.Add(fileBytes, "file", "document.docx");
+        fileBytes.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+        uploadForm.Add(fileBytes, "file", fileName);
         uploadForm.Add(new StringContent(instruction), "parsing_instruction");
 
         var uploadResp = await http.PostAsync("https://api.cloud.llamaindex.ai/api/v1/parsing/upload", uploadForm);
         var uploadBody = await uploadResp.Content.ReadAsStringAsync();
-        if (!uploadResp.IsSuccessStatusCode) { Console.WriteLine($"[LlamaParse] Upload HTTP {(int)uploadResp.StatusCode}: {uploadBody}"); return string.Empty; }
+        if (!uploadResp.IsSuccessStatusCode)
+            throw new HttpRequestException($"[LlamaParse] Upload HTTP {(int)uploadResp.StatusCode}: {uploadBody}");
 
         var uploadJson = JsonSerializer.Deserialize<JsonElement>(uploadBody);
         var jobId = uploadJson.GetProperty("id").GetString();
@@ -408,152 +612,123 @@ public class DocumentParserService : IDocumentParser
 
         for (var i = 0; i < 60; i++)
         {
-            await Task.Delay(2000);
+            await Task.Delay(2_000);
             var statusResp = await http.GetAsync($"https://api.cloud.llamaindex.ai/api/v1/parsing/job/{jobId}");
-            var statusBody = await statusResp.Content.ReadAsStringAsync();
-            var statusJson = JsonSerializer.Deserialize<JsonElement>(statusBody);
+            var statusJson = JsonSerializer.Deserialize<JsonElement>(await statusResp.Content.ReadAsStringAsync());
             var status = statusJson.TryGetProperty("status", out var s) ? s.GetString() : "";
             Console.WriteLine($"[LlamaParse] Status: {status}");
             if (status == "SUCCESS") break;
-            if (status == "ERROR") { Console.WriteLine("[LlamaParse] İşlem başarısız"); return string.Empty; }
+            if (status == "ERROR") throw new InvalidOperationException("[LlamaParse] İşlem başarısız.");
         }
 
         var resultResp = await http.GetAsync($"https://api.cloud.llamaindex.ai/api/v1/parsing/job/{jobId}/result/markdown");
         var resultBody = await resultResp.Content.ReadAsStringAsync();
-        if (!resultResp.IsSuccessStatusCode) { Console.WriteLine($"[LlamaParse] Result HTTP {(int)resultResp.StatusCode}: {resultBody}"); return string.Empty; }
+        if (!resultResp.IsSuccessStatusCode)
+            throw new HttpRequestException($"[LlamaParse] Result HTTP {(int)resultResp.StatusCode}: {resultBody}");
 
         var resultJson = JsonSerializer.Deserialize<JsonElement>(resultBody);
         var markdown = resultJson.TryGetProperty("markdown", out var md) ? md.GetString() ?? "" : resultBody;
         markdown = markdown.Replace("**", "");
-
-        var lines = markdown.Split('\n');
-        var cleaned = new StringBuilder();
-        foreach (var line in lines)
-        {
-            var trimmed = line.TrimStart();
-            cleaned.AppendLine(trimmed.StartsWith("#") ? trimmed.TrimStart('#').Trim() : line);
-        }
-        markdown = cleaned.ToString();
-        // LlamaParse çıktısındaki sahte "belge içeriği yok" paragraflarını temizle
-        var mdLines = markdown.Split('\n');
-        var cleanedLines = new List<string>();
-        var skipNext = false;
-        foreach (var mdLine in mdLines)
-        {
-            var mdLower = mdLine.ToLowerInvariant();
-            var isJunk = mdLower.Contains("belge içeriği mevcut değil") ||
-                         mdLower.Contains("hiçbir içerik mevcut değil") ||
-                         mdLower.Contains("anlamlı içerik sunmamaktadır") ||
-                         mdLower.Contains("anlamlı bir içerik") ||
-                         mdLower.Contains("şifreli veya kodlanmış") ||
-                         mdLower.Contains("lütfen başka bir belge") ||
-                         mdLower.Contains("okunabilir bir içerik sunmamaktadır") ||
-                         mdLower.Contains("yalnızca rastgele karakterlerden") ||
-                         mdLower.Contains("daha fazla bilgi isteyin") ||
-                         mdLower.Contains("içerik özeti") && mdLower.Length < 20;
-            if (!isJunk) cleanedLines.Add(mdLine);
-        }
-        markdown = string.Join("\n", cleanedLines);
-
         Console.WriteLine($"[LlamaParse] Başarılı, {markdown.Length} karakter");
         return markdown;
     }
 
-    private static string ExtractDocxViaNpoi(Stream stream)
+    // ── XLSX resim çıkarma ───────────────────────────────────────────────────
+    private List<string> ExtractXlsxImages(Stream stream)
     {
-        var sb = new StringBuilder();
+        var imagePaths = new List<string>();
         try
         {
             stream.Position = 0;
-            var doc = new XWPFDocument(stream);
-            foreach (var bodyElement in doc.BodyElements)
+            using var ms = new MemoryStream();
+            stream.CopyTo(ms);
+            ms.Position = 0;
+            stream.Position = 0;
+
+            using var workbook = new XLWorkbook(ms);
+            foreach (var worksheet in workbook.Worksheets)
             {
-                switch (bodyElement)
+                foreach (var picture in worksheet.Pictures)
                 {
-                    case XWPFParagraph para:
-                        var text = para.Text.Trim();
-                        if (!string.IsNullOrWhiteSpace(text)) sb.AppendLine(text);
-                        break;
-                    case XWPFTable table:
-                        sb.AppendLine("[TABLO BAŞLANGIÇ]");
-                        var rows = table.Rows;
-                        if (rows.Count == 0) break;
-                        var headers = rows[0].GetTableCells().Select(c => c.GetText().Trim()).ToList();
-                        if (headers.Any(h => !string.IsNullOrWhiteSpace(h)))
-                            sb.AppendLine("Başlıklar: " + string.Join(" | ", headers));
-                        foreach (var row in rows.Skip(1))
-                        {
-                            var cells = row.GetTableCells().Select(c => c.GetText().Trim()).ToList();
-                            var parts = new List<string>();
-                            for (var i = 0; i < cells.Count; i++)
-                            {
-                                if (string.IsNullOrWhiteSpace(cells[i])) continue;
-                                var h = i < headers.Count && !string.IsNullOrWhiteSpace(headers[i]) ? headers[i] : $"Sütun{i + 1}";
-                                parts.Add($"{h}: {cells[i]}");
-                            }
-                            if (parts.Any()) sb.AppendLine(string.Join(", ", parts));
-                        }
-                        sb.AppendLine("[TABLO BİTİŞ]");
-                        break;
+                    try
+                    {
+                        using var imgStream = new MemoryStream();
+                        picture.ImageStream.CopyTo(imgStream);
+                        imgStream.Position = 0;
+                        var imgBytes = imgStream.ToArray();
+                        if (imgBytes.Length < 512) continue;
+
+                        // Magic byte ile format tespit — namespace bağımsız
+                        string ext;
+                        if (imgBytes[0] == 0xFF && imgBytes[1] == 0xD8) ext = "jpg";
+                        else if (imgBytes[0] == 0x89 && imgBytes[1] == 0x50) ext = "png";
+                        else if (imgBytes[0] == 0x47 && imgBytes[1] == 0x49) ext = "gif";
+                        else if (imgBytes[0] == 0x42 && imgBytes[1] == 0x4D) ext = "bmp";
+                        else ext = "png";
+
+                        imgStream.Position = 0;
+                        var savedPath = _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}").GetAwaiter().GetResult();
+                        imagePaths.Add(savedPath);
+                        Console.WriteLine($"[XLSX] Resim çıkartıldı: {savedPath}");
+                    }
+                    catch (Exception ex) { Console.WriteLine($"[XLSX] Resim hatası: {ex.Message}"); }
                 }
             }
+            Console.WriteLine($"[XLSX] {imagePaths.Count} resim çıkartıldı.");
         }
-        catch (Exception ex) { Console.WriteLine($"[DOCX] NPOI hata: {ex.Message}"); }
-        return sb.ToString();
+        catch (Exception ex) { Console.WriteLine($"[XLSX] Resim çıkarma genel hata: {ex.Message}"); }
+        return imagePaths;
     }
 
     // ── XLSX ──────────────────────────────────────────────────────────────
     private static string ExtractXlsx(Stream stream)
     {
         var sb = new StringBuilder();
-        try
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        using var ms = new MemoryStream();
+        stream.CopyTo(ms);
+        ms.Position = 0;
+        using var reader = ExcelReaderFactory.CreateReader(ms,
+            new ExcelReaderConfiguration { FallbackEncoding = Encoding.UTF8 });
+        var dataSet = reader.AsDataSet(new ExcelDataSetConfiguration
         {
-            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-            using var ms = new MemoryStream();
-            stream.CopyTo(ms);
-            ms.Position = 0;
-            using var reader = ExcelReaderFactory.CreateReader(ms, new ExcelReaderConfiguration { FallbackEncoding = Encoding.UTF8 });
-            var dataSet = reader.AsDataSet(new ExcelDataSetConfiguration
+            ConfigureDataTable = _ => new ExcelDataTableConfiguration { UseHeaderRow = false }
+        });
+        foreach (DataTable table in dataSet.Tables)
+        {
+            if (table.Rows.Count == 0) continue;
+            var headerRowIdx = 0; var maxFilled = 0;
+            for (var ri = 0; ri < Math.Min(5, table.Rows.Count); ri++)
             {
-                ConfigureDataTable = _ => new ExcelDataTableConfiguration { UseHeaderRow = false }
-            });
-            foreach (DataTable table in dataSet.Tables)
-            {
-                if (table.Rows.Count == 0) continue;
-                var headerRowIdx = 0; var maxFilled = 0;
-                for (var ri = 0; ri < Math.Min(5, table.Rows.Count); ri++)
-                {
-                    var filled = table.Rows[ri].ItemArray.Count(c => c != null && !string.IsNullOrWhiteSpace(c.ToString()));
-                    if (filled > maxFilled) { maxFilled = filled; headerRowIdx = ri; }
-                }
-                var headers = new List<string>(); var lastHeader = string.Empty;
-                for (var col = 0; col < table.Columns.Count; col++)
-                {
-                    var val = table.Rows[headerRowIdx][col]?.ToString()?.Trim() ?? string.Empty;
-                    if (string.IsNullOrWhiteSpace(val)) val = lastHeader; else lastHeader = val;
-                    headers.Add(val);
-                }
-                var headerLine = "Başlıklar: " + string.Join(" | ", headers.Where(h => !string.IsNullOrWhiteSpace(h)));
-                const int chunkRows = 50;
-                var batch = new List<string>();
-                for (var ri = headerRowIdx + 1; ri < table.Rows.Count; ri++)
-                {
-                    var row = table.Rows[ri]; var parts = new List<string>(); var lastVal = string.Empty;
-                    for (var ci = 0; ci < table.Columns.Count; ci++)
-                    {
-                        var val = row[ci]?.ToString()?.Trim() ?? string.Empty;
-                        if (string.IsNullOrWhiteSpace(val)) val = lastVal; else lastVal = val;
-                        if (string.IsNullOrWhiteSpace(val)) continue;
-                        var header = ci < headers.Count && !string.IsNullOrWhiteSpace(headers[ci]) ? headers[ci] : $"Sütun{ci + 1}";
-                        parts.Add($"{header}: {val}");
-                    }
-                    if (parts.Any()) batch.Add(string.Join(", ", parts));
-                    if (batch.Count >= chunkRows) { FlushBatch(sb, table.TableName, headerLine, batch); batch.Clear(); }
-                }
-                if (batch.Any()) FlushBatch(sb, table.TableName, headerLine, batch);
+                var filled = table.Rows[ri].ItemArray.Count(c => c != null && !string.IsNullOrWhiteSpace(c.ToString()));
+                if (filled > maxFilled) { maxFilled = filled; headerRowIdx = ri; }
             }
+            var headers = new List<string>(); var lastHeader = string.Empty;
+            for (var col = 0; col < table.Columns.Count; col++)
+            {
+                var val = table.Rows[headerRowIdx][col]?.ToString()?.Trim() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(val)) val = lastHeader; else lastHeader = val;
+                headers.Add(val);
+            }
+            var headerLine = "Başlıklar: " + string.Join(" | ", headers.Where(h => !string.IsNullOrWhiteSpace(h)));
+            const int chunkRows = 50;
+            var batch = new List<string>();
+            for (var ri = headerRowIdx + 1; ri < table.Rows.Count; ri++)
+            {
+                var row = table.Rows[ri]; var parts = new List<string>(); var lastVal = string.Empty;
+                for (var ci = 0; ci < table.Columns.Count; ci++)
+                {
+                    var val = row[ci]?.ToString()?.Trim() ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(val)) val = lastVal; else lastVal = val;
+                    if (string.IsNullOrWhiteSpace(val)) continue;
+                    var header = ci < headers.Count && !string.IsNullOrWhiteSpace(headers[ci]) ? headers[ci] : $"Sütun{ci + 1}";
+                    parts.Add($"{header}: {val}");
+                }
+                if (parts.Any()) batch.Add(string.Join(", ", parts));
+                if (batch.Count >= chunkRows) { FlushBatch(sb, table.TableName, headerLine, batch); batch.Clear(); }
+            }
+            if (batch.Any()) FlushBatch(sb, table.TableName, headerLine, batch);
         }
-        catch (Exception ex) { Console.WriteLine($"[XLSX] Hata: {ex.Message}"); }
         return sb.ToString();
     }
 
@@ -566,61 +741,59 @@ public class DocumentParserService : IDocumentParser
         sb.AppendLine("[TABLO BİTİŞ]");
     }
 
-    // ── CSV ──────────────────────────────────────────────────────────────
+    // ── CSV ───────────────────────────────────────────────────────────────
     private static string ExtractCsv(Stream stream)
     {
         var sb = new StringBuilder();
-        try
+        var enc = DetectEncoding(stream);
+        stream.Position = 0;
+        using var peekMs = new MemoryStream(ReadAllBytes(stream));
+        using var peek = new StreamReader(peekMs, enc);
+        var firstLine = peek.ReadLine() ?? string.Empty;
+        var delimiter = firstLine.Count(c => c == ';') > firstLine.Count(c => c == ',') ? ';' : ',';
+        stream.Position = 0;
+        var cfg = new CsvHelper.Configuration.CsvConfiguration(CultureInfo.InvariantCulture)
         {
-            var enc = DetectEncoding(stream);
-            stream.Position = 0;
-            using var peekMs = new MemoryStream(ReadAllBytes(stream));
-            using var peek = new StreamReader(peekMs, enc);
-            var firstLine = peek.ReadLine() ?? string.Empty;
-            var delimiter = firstLine.Count(c => c == ';') > firstLine.Count(c => c == ',') ? ';' : ',';
-            stream.Position = 0;
-            var cfg = new CsvHelper.Configuration.CsvConfiguration(CultureInfo.InvariantCulture)
+            Delimiter = delimiter.ToString(),
+            BadDataFound = null,
+            MissingFieldFound = null
+        };
+        using var reader = new StreamReader(stream, enc);
+        using var csv = new CsvReader(reader, cfg);
+        var headers = new List<string>(); var headerLine = string.Empty;
+        var batch = new List<string>(); const int chunkRows = 50; var isFirst = true;
+        while (csv.Read())
+        {
+            if (isFirst)
             {
-                Delimiter = delimiter.ToString(),
-                BadDataFound = null,
-                MissingFieldFound = null
-            };
-            using var reader = new StreamReader(stream, enc);
-            using var csv = new CsvReader(reader, cfg);
-            var headers = new List<string>(); var headerLine = string.Empty;
-            var batch = new List<string>(); const int chunkRows = 50; var isFirst = true;
-            while (csv.Read())
-            {
-                if (isFirst)
-                {
-                    headers = Enumerable.Range(0, csv.Parser.Count).Select(i => csv.GetField(i) ?? string.Empty).ToList();
-                    headerLine = "Başlıklar: " + string.Join(" | ", headers);
-                    isFirst = false; continue;
-                }
-                var parts = new List<string>();
-                for (var i = 0; i < csv.Parser.Count; i++)
-                {
-                    var val = csv.GetField(i) ?? string.Empty;
-                    if (string.IsNullOrWhiteSpace(val)) continue;
-                    parts.Add($"{(i < headers.Count ? headers[i] : $"Sütun{i + 1}")}: {val}");
-                }
-                if (parts.Any()) batch.Add(string.Join(", ", parts));
-                if (batch.Count >= chunkRows) { FlushBatch(sb, "CSV", headerLine, batch); batch.Clear(); }
+                headers = Enumerable.Range(0, csv.Parser.Count).Select(i => csv.GetField(i) ?? string.Empty).ToList();
+                headerLine = "Başlıklar: " + string.Join(" | ", headers);
+                isFirst = false; continue;
             }
-            if (batch.Any()) FlushBatch(sb, "CSV", headerLine, batch);
+            var parts = new List<string>();
+            for (var i = 0; i < csv.Parser.Count; i++)
+            {
+                var val = csv.GetField(i) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(val)) continue;
+                parts.Add($"{(i < headers.Count ? headers[i] : $"Sütun{i + 1}")}: {val}");
+            }
+            if (parts.Any()) batch.Add(string.Join(", ", parts));
+            if (batch.Count >= chunkRows) { FlushBatch(sb, "CSV", headerLine, batch); batch.Clear(); }
         }
-        catch (Exception ex) { Console.WriteLine($"[CSV] Hata: {ex.Message}"); }
+        if (batch.Any()) FlushBatch(sb, "CSV", headerLine, batch);
         return sb.ToString();
     }
 
-    // ── TXT ──────────────────────────────────────────────────────────────
+    // ── TXT ───────────────────────────────────────────────────────────────
     private static string ExtractTxt(Stream stream)
     {
-        try { var enc = DetectEncoding(stream); stream.Position = 0; using var r = new StreamReader(stream, enc); return r.ReadToEnd(); }
-        catch { return string.Empty; }
+        var enc = DetectEncoding(stream);
+        stream.Position = 0;
+        using var r = new StreamReader(stream, enc);
+        return r.ReadToEnd();
     }
 
-    // ── Encoding ─────────────────────────────────────────────────────────
+    // ── Encoding detect ───────────────────────────────────────────────────
     private static Encoding DetectEncoding(Stream stream)
     {
         stream.Position = 0;
@@ -646,126 +819,179 @@ public class DocumentParserService : IDocumentParser
     }
 
     // ── SemanticChunk ─────────────────────────────────────────────────────
+    // Strateji: Başlık gelince buffer'a ekle ama yield etme.
+    // İlk içerik satırı (paragraf/madde/liste) gelince "başlık + içerik" birlikte birikir.
+    // Yeni # veya ## başlığı geldiğinde önce mevcut chunk'ı yield et, sonra yeni başlığı buffer'a al.
+    // Böylece başlıklar asla tek başına chunk olmaz.
     private IEnumerable<ParsedChunk> SemanticChunk(string text, string? imagePath = null)
     {
         if (string.IsNullOrWhiteSpace(text)) yield break;
 
+        var docxImagesMatch = System.Text.RegularExpressions.Regex.Match(
+            text, @"\[DOCX_IMAGES:(\[.*?\])\]");
+        if (docxImagesMatch.Success)
+        {
+            imagePath = docxImagesMatch.Groups[1].Value;
+            text = text.Replace(docxImagesMatch.Value, "").Trim();
+        }
+
         text = WrapMarkdownTables(text);
         var segments = SplitPreservingTables(text).ToList();
+        var buffer = new StringBuilder();
+        var pendingHeadings = new StringBuilder(); // henüz içerik gelmeyen başlıklar
+
+        foreach (var segment in segments)
+        {
+            if (segment.StartsWith("[TABLO BAŞLANGIÇ]"))
+            {
+                // Tablo öncesinde birikmiş içerik varsa yield et
+                if (buffer.Length > 0)
+                {
+                    var p = buffer.ToString().Trim();
+                    if (!string.IsNullOrWhiteSpace(p) && !IsBinaryContent(p))
+                        yield return new ParsedChunk(p, imagePath);
+                    buffer.Clear();
+                }
+                // Pending başlıklar varsa tabloyla birleştir
+                var tableContent = pendingHeadings.Length > 0
+                    ? pendingHeadings.ToString().Trim() + "\n" + segment.Trim()
+                    : segment.Trim();
+                pendingHeadings.Clear();
+                if (!string.IsNullOrWhiteSpace(tableContent))
+                    yield return new ParsedChunk(tableContent, imagePath);
+                continue;
+            }
+
+            foreach (var line in segment.Split('\n'))
+            {
+                var trimmed = line.Trim();
+                if (trimmed == "---") { trimmed = ""; }
+
+                var isHeading = trimmed.StartsWith("# ") || trimmed == "#"
+                             || trimmed.StartsWith("## ") || trimmed == "##"
+                             || trimmed.StartsWith("### ") || trimmed.StartsWith("#### ");
+
+                if (isHeading)
+                {
+                    var isTopHeading = trimmed.StartsWith("# ") || trimmed == "#"
+                                    || trimmed.StartsWith("## ") || trimmed == "##";
+
+                    if (isTopHeading)
+                    {
+                        // Üst başlık geldi — mevcut birikmiş içeriği yield et
+                        if (buffer.Length > 0)
+                        {
+                            var chunk = buffer.ToString().Trim();
+                            if (!string.IsNullOrWhiteSpace(chunk) && !IsBinaryContent(chunk))
+                                yield return new ParsedChunk(chunk, imagePath);
+                            buffer.Clear();
+                        }
+                        // Pending başlıklar varsa buffer'a taşı (içerik olmadan kalmış)
+                        // Ama önce yeni üst başlığı pending'e al
+                        if (pendingHeadings.Length > 0)
+                            pendingHeadings.AppendLine();
+                        pendingHeadings.AppendLine(trimmed);
+                    }
+                    else
+                    {
+                        // Alt başlık (###, ####) — pending'e ekle
+                        pendingHeadings.AppendLine(trimmed);
+                    }
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(trimmed))
+                {
+                    if (buffer.Length > 0) buffer.AppendLine();
+                    continue;
+                }
+
+                // İçerik satırı — pending başlıkları buffer'a taşı
+                if (pendingHeadings.Length > 0)
+                {
+                    buffer.Append(pendingHeadings);
+                    pendingHeadings.Clear();
+                }
+
+                // Chunk boyutu kontrolü
+                if (buffer.Length + trimmed.Length + 2 > _chunkSize * 1.5)
+                {
+                    var bufferText = buffer.ToString().Trim();
+                    var splitPoint = FindLastSentenceEnd(bufferText);
+                    if (splitPoint > _chunkSize / 2)
+                    {
+                        var chunkText = bufferText[..splitPoint].Trim();
+                        if (!string.IsNullOrWhiteSpace(chunkText) && !IsBinaryContent(chunkText))
+                            yield return new ParsedChunk(chunkText, imagePath);
+                        var remainder = bufferText[splitPoint..].Trim();
+                        buffer.Clear();
+                        if (!string.IsNullOrWhiteSpace(remainder))
+                            buffer.AppendLine(remainder);
+                    }
+                    else if (bufferText.Length > _chunkSize)
+                    {
+                        if (!string.IsNullOrWhiteSpace(bufferText) && !IsBinaryContent(bufferText))
+                            yield return new ParsedChunk(bufferText, imagePath);
+                        buffer.Clear();
+                    }
+                }
+
+                buffer.AppendLine(trimmed);
+            }
+        }
+
+        // Kalan içeriği yield et
+        if (pendingHeadings.Length > 0 && buffer.Length == 0)
+        {
+            // Sadece başlık kalmış, içerik yok — yine de yield et
+            var headingOnly = pendingHeadings.ToString().Trim();
+            if (!string.IsNullOrWhiteSpace(headingOnly))
+                yield return new ParsedChunk(headingOnly, imagePath);
+        }
+        else
+        {
+            if (pendingHeadings.Length > 0)
+                buffer.Insert(0, pendingHeadings.ToString());
+            var last = buffer.ToString().Trim();
+            if (!string.IsNullOrWhiteSpace(last) && !IsBinaryContent(last))
+                yield return new ParsedChunk(last, imagePath);
+        }
+    }
+
+    // ── ChunkWithImages (XLSX) ───────────────────────────────────────────────
+    private IEnumerable<ParsedChunk> ChunkWithImages(string text, List<string> imagePaths)
+    {
+        var imagePath = imagePaths.Any() ? JsonSerializer.Serialize(imagePaths) : null;
+        if (string.IsNullOrWhiteSpace(text)) yield break;
+        text = WrapMarkdownTables(text);
+        var segments = SplitPreservingTables(text);
         var buffer = new StringBuilder();
 
         foreach (var segment in segments)
         {
             if (segment.StartsWith("[TABLO BAŞLANGIÇ]"))
             {
-                if (buffer.Length > 0)
-                {
-                    var p = buffer.ToString().Trim();
-                    if (!string.IsNullOrWhiteSpace(p) && !IsBinaryContent(p))
-                        yield return new ParsedChunk(p, imagePath);
-                    else if (!string.IsNullOrWhiteSpace(p))
-                    {
-                        yield return new ParsedChunk(p + "\n" + segment.Trim(), imagePath);
-                        buffer.Clear();
-                        continue;
-                    }
-                    buffer.Clear();
-                }
+                if (buffer.Length > 0) { var p = buffer.ToString().Trim(); if (!string.IsNullOrWhiteSpace(p)) yield return new ParsedChunk(p, imagePath); buffer.Clear(); }
                 yield return new ParsedChunk(segment.Trim(), imagePath);
                 continue;
             }
-
-            // Paragraf bazli kesme — paragraf bitmeden bolme
-            var segLines2 = segment.Split('\n');
-            var paraBuffer = new System.Text.StringBuilder();
-
-            Action flushPara = () =>
+            foreach (var line in segment.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
-                var para = paraBuffer.ToString().Trim();
-                paraBuffer.Clear();
-                if (string.IsNullOrWhiteSpace(para)) return;
-
-                if (buffer.Length > 0 && buffer.Length + para.Length + 2 > _chunkSize)
+                var s = line.Trim();
+                if (string.IsNullOrWhiteSpace(s)) continue;
+                if (buffer.Length > 0 && buffer.Length + s.Length + 1 > _chunkSize)
                 {
-                    var chunk2 = buffer.ToString().Trim();
-                    if (!string.IsNullOrWhiteSpace(chunk2) && !IsBinaryContent(chunk2))
-                        ; // yield edilecek — ama Action içinde yield yok, buffer'a ekle
-                }
-                buffer.AppendLine(para);
-            };
-
-            foreach (var line2 in segLines2)
-            {
-                var trimmed = line2.Trim();
-
-                var isSectionBreak = trimmed == "---"
-                    || trimmed.StartsWith("# ") || trimmed.StartsWith("## ") || trimmed.StartsWith("### ");
-
-                if (isSectionBreak)
-                {
-                    // Mevcut paragrafı bitir
-                    var para = paraBuffer.ToString().Trim();
-                    paraBuffer.Clear();
-                    if (!string.IsNullOrWhiteSpace(para)) buffer.AppendLine(para);
-
-                    // Buffer'ı ver
-                    if (buffer.Length > 0)
-                    {
-                        var chunk2 = buffer.ToString().Trim();
-                        if (!string.IsNullOrWhiteSpace(chunk2) && !IsBinaryContent(chunk2))
-                            yield return new ParsedChunk(chunk2, imagePath);
-                        buffer.Clear();
-                    }
-                    if (trimmed != "---") buffer.AppendLine(trimmed);
-                    continue;
-                }
-
-                // Boş satır = paragraf sonu
-                if (string.IsNullOrWhiteSpace(trimmed))
-                {
-                    var para = paraBuffer.ToString().Trim();
-                    paraBuffer.Clear();
-                    if (string.IsNullOrWhiteSpace(para)) continue;
-
-                    // Paragraf buffer'a sığmıyor mu?
-                    if (buffer.Length > 0 && buffer.Length + para.Length + 2 > _chunkSize)
-                    {
-                        var chunk2 = buffer.ToString().Trim();
-                        if (!string.IsNullOrWhiteSpace(chunk2) && !IsBinaryContent(chunk2))
-                            yield return new ParsedChunk(chunk2, imagePath);
-                        var tail2 = chunk2.Length > _overlap ? chunk2[^_overlap..] : chunk2;
-                        buffer.Clear();
-                        if (!string.IsNullOrWhiteSpace(tail2)) buffer.AppendLine(tail2);
-                    }
-                    buffer.AppendLine(para);
-                    continue;
-                }
-
-                paraBuffer.AppendLine(trimmed);
-            }
-
-            // Son paragraf
-            var lastPara = paraBuffer.ToString().Trim();
-            if (!string.IsNullOrWhiteSpace(lastPara))
-            {
-                if (buffer.Length > 0 && buffer.Length + lastPara.Length + 2 > _chunkSize)
-                {
-                    var chunk2 = buffer.ToString().Trim();
-                    if (!string.IsNullOrWhiteSpace(chunk2) && !IsBinaryContent(chunk2))
-                        yield return new ParsedChunk(chunk2, imagePath);
-                    var tail2 = chunk2.Length > _overlap ? chunk2[^_overlap..] : chunk2;
+                    var chunk = buffer.ToString().Trim();
+                    if (!string.IsNullOrWhiteSpace(chunk) && !IsBinaryContent(chunk)) yield return new ParsedChunk(chunk, imagePath);
+                    var tail = chunk.Length > _overlap ? chunk[^_overlap..] : chunk;
                     buffer.Clear();
-                    if (!string.IsNullOrWhiteSpace(tail2)) buffer.AppendLine(tail2);
+                    if (!string.IsNullOrWhiteSpace(tail)) buffer.Append(tail).Append(' ');
                 }
-                buffer.AppendLine(lastPara);
+                buffer.Append(s).Append(' ');
             }
-
-
-        } // foreach segment end
-
+        }
         var last = buffer.ToString().Trim();
-        if (!string.IsNullOrWhiteSpace(last) && !IsBinaryContent(last))
-            yield return new ParsedChunk(last, imagePath);
+        if (!string.IsNullOrWhiteSpace(last)) yield return new ParsedChunk(last, imagePath);
     }
 
     // ── Chunk (XLSX/CSV/TXT) ──────────────────────────────────────────────
@@ -806,29 +1032,38 @@ public class DocumentParserService : IDocumentParser
     private static bool IsBinaryContent(string text)
     {
         if (string.IsNullOrWhiteSpace(text) || text.Length < 50) return false;
-
         var lower = text.ToLowerInvariant();
         if (lower.Contains("[boş_sayfa]")) return true;
-
-        // Groq'un uydurduğu "belge içeriği yok" chunk'larını filtrele
-        // Bu chunk'lar kısa ve belirli kalıplar içeriyor
-        var junkIndicators = new[] { "belge içeriği", "lütfen başka bir belge", "içerik mevcut değil", "hiçbir içerik", "anlamlı içerik", "şifreli veya kodlanmış", "okunabilir içerik" };
-        var hasJunk = junkIndicators.Any(p => lower.Contains(p));
-        if (hasJunk && text.Length < 600) return true;
-
+        if (lower.Contains("belge içeriği mevcut değil")) return true;
+        if (lower.Contains("display: none") || lower.Contains("position: relative") || lower.Contains("page-break")) return true;
         var words = text.Split(new char[] { ' ', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries);
         if (words.Length == 0) return true;
         if (words.Average(w => w.Length) > 20) return true;
-
         var allowed = new HashSet<char> { ' ', '\n', '\r', '\t', '.', ',', ';', ':', '!', '?', '(', ')', '-', '/', '_' };
         var nonAlpha = text.Count(c => !char.IsLetterOrDigit(c) && !allowed.Contains(c));
         return (double)nonAlpha / text.Length > 0.5;
     }
 
+    // Son cümle sınırını bul (., !, ?) — chunk'ı cümle ortasında kesme
+    private static int FindLastSentenceEnd(string text)
+    {
+        var sentenceEnders = new[] { ". ", "! ", "? " };
+        var lastPos = -1;
+        foreach (var ender in sentenceEnders)
+        {
+            var pos = text.LastIndexOf(ender, StringComparison.Ordinal);
+            if (pos > lastPos) lastPos = pos + 1;
+        }
+        return lastPos > 0 ? lastPos : -1;
+    }
+
 
     private static string WrapMarkdownTables(string text)
     {
-        var lines = text.Split('\n'); var result = new List<string>(); var tableBuffer = new List<string>(); var inMarked = false;
+        var lines = text.Split('\n');
+        var result = new List<string>();
+        var tableBuffer = new List<string>();
+        var inMarked = false;
         foreach (var line in lines)
         {
             var t = line.Trim();
