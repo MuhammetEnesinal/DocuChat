@@ -100,29 +100,15 @@ export default function Chat() {
                 setSessions((prev) => [newSession, ...prev]);
             }
 
-            // sourceChunks'tan resimleri topla, tekrarları kaldır
-            const seen = new Set();
-            const chunkImages = (sourceChunks || [])
-                .flatMap(c => {
-                    if (!c.imagePath) return [];
-                    const raw = c.imagePath;
-                    if (raw.startsWith('[')) {
-                        try {
-                            const parsed = JSON.parse(raw);
-                            return Array.isArray(parsed) ? parsed : [raw];
-                        } catch { return [raw]; }
-                    }
-                    return [raw];
-                })
-                .filter(p => p && !p.startsWith('[') && !p.startsWith('{'))
-                .filter(p => { if (seen.has(p)) return false; seen.add(p); return true; });
+            // API'den dönen images listesini kullan (sadece LLM'in cevabında kullandıkları)
+            const images = res.data.data.images || [];
 
             setMessages((prev) => [...prev, {
                 role: 'Assistant',
                 content: answer,
                 id: nextMsgId(),
                 createdAt: new Date().toISOString(),
-                images: chunkImages.length > 0 ? chunkImages : undefined
+                images: images.length > 0 ? images : undefined
             }]);
             setChunks(sourceChunks || []);
         } catch (err) {

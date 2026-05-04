@@ -1,7 +1,6 @@
 ﻿using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 using DocuChat.Application.Interfaces.Services;
-using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Application.DTOs.Auth;
 using DocuChat.API.Extensions;
 

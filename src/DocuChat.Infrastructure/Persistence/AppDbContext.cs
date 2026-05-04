@@ -9,10 +9,11 @@ public class AppDbContext : IdentityDbContext<AppUser, AppRole, string>
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
-    public DbSet<Document>      Documents      { get; set; }
+    public DbSet<Document> Documents { get; set; }
     public DbSet<DocumentChunk> DocumentChunks { get; set; }
-    public DbSet<ChatSession>   ChatSessions   { get; set; }
-    public DbSet<ChatMessage>   ChatMessages   { get; set; }
+    public DbSet<ChatSession> ChatSessions { get; set; }
+    public DbSet<ChatMessage> ChatMessages { get; set; }
+    public DbSet<QuestionCache> QuestionCaches { get; set; }  
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

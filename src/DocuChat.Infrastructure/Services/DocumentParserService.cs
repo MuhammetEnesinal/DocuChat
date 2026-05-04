@@ -31,13 +31,12 @@ public class DocumentParserService : IDocumentParser
         Microsoft.Extensions.Configuration.IConfiguration cfg,
         IFileStorage fileStorage)
     {
-        _chunkSize = int.Parse(cfg["Chunking:ChunkSize"] ?? "800");
-        _overlap = int.Parse(cfg["Chunking:Overlap"] ?? "150");
+        _chunkSize = int.Parse(cfg["Chunking:ChunkSize"] ?? "1200");
+        _overlap = int.Parse(cfg["Chunking:Overlap"] ?? "100");
         _groqApiKey = cfg["GroqVision:ApiKey"] ?? cfg["Llm:ApiKey"]
             ?? throw new InvalidOperationException("GroqVision:ApiKey yapılandırılmamış.");
         _groqVisionModel = cfg["GroqVision:Model"] ?? "meta-llama/llama-4-scout-17b-16e-instruct";
-        _llamaParseApiKey = cfg["LlamaParse:ApiKey"]
-            ?? throw new InvalidOperationException("LlamaParse:ApiKey yapılandırılmamış.");
+        _llamaParseApiKey = cfg["LlamaParse:ApiKey"] ?? "";
         _fileStorage = fileStorage;
     }
 
@@ -46,21 +45,19 @@ public class DocumentParserService : IDocumentParser
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
-        return fileType switch
+        var raw = fileType switch
         {
-            FileType.Docx => SemanticChunk(ExtractDocxViaLlamaParse(stream,
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "document.docx")),
-
+            FileType.Docx => SemanticChunk(ExtractDocx(stream)),
             FileType.Doc => SemanticChunk(ExtractDocViaLlamaParse(stream)),
-
-            FileType.Pdf => ExtractPdfPages(stream)
-                                .SelectMany(r => SemanticChunk(r.Text, r.ImagePath)),
-
-            FileType.Xlsx => ChunkWithImages(ExtractXlsx(stream), ExtractXlsxImages(stream)),
+            FileType.Pdf => PdfToSemanticChunks(stream),
+            FileType.Xlsx => ChunkXlsxWithImages(stream),
             FileType.Csv => Chunk(ExtractCsv(stream)),
             _ => Chunk(ExtractTxt(stream)),
         };
+
+        return fileType is FileType.Docx or FileType.Doc or FileType.Pdf
+            ? PostProcess(raw)
+            : raw;
     }
 
     // ── PDF — Groq Vision + PdfPig resimleri ─────────────────────────────
@@ -251,9 +248,9 @@ public class DocumentParserService : IDocumentParser
 
                 var ext = imgBytes.Length >= 2 && imgBytes[0] == 0xFF && imgBytes[1] == 0xD8 ? "jpg" : "png";
                 using var imgStream = new MemoryStream(imgBytes);
-                var savedPath = await _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}");
+                var savedPath = await _fileStorage.SaveRawAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}");
                 imagePaths.Add(savedPath);
-                Console.WriteLine($"[PdfPig] Sayfa {pageNum}: resim -> {savedPath}");
+                Console.WriteLine($"[PdfPig] Sayfa {pageNum}: resim kaydedildi");
             }
 
             if (imagePaths.Count > 0)
@@ -265,8 +262,9 @@ public class DocumentParserService : IDocumentParser
         return pages;
     }
 
-    // ── DOCX — MHTML tespiti → HTML parse, yoksa LlamaParse + XWPFDocument ──
-    private string ExtractDocxViaLlamaParse(Stream stream, string contentType, string fileName)
+    // ── DOCX parse ───────────────────────────────────────────────────────────
+    // ── DOCX — MHTML tespiti → HTML parse, yoksa OpenXml ile doğrudan oku ──
+    private string ExtractDocx(Stream stream)
     {
         stream.Position = 0;
         using var ms = new MemoryStream();
@@ -274,7 +272,7 @@ public class DocumentParserService : IDocumentParser
         stream.Position = 0;
         var rawBytes = ms.ToArray();
 
-        // MHTML mi? (.docx uzantılı ama Confluence/Word HTML export olabilir)
+        // MHTML mi?
         var header = System.Text.Encoding.ASCII.GetString(rawBytes, 0, Math.Min(20, rawBytes.Length));
         if (header.StartsWith("Message-ID:") || header.StartsWith("MIME-Version:"))
         {
@@ -282,53 +280,38 @@ public class DocumentParserService : IDocumentParser
             return ExtractMhtml(rawBytes);
         }
 
-        // Gerçek .docx (ZIP/OpenXML)
-        // 1. Resimleri XWPFDocument ile çıkar
-        var imagePaths = ExtractDocxImages(stream);
+        // OpenXml ile çıkar
         stream.Position = 0;
-
-        // 2. Metni LlamaParse ile al
-        var text = CallLlamaParseAsync(stream, contentType, fileName).GetAwaiter().GetResult();
+        var ridToPath = ExtractDocxImages(stream);
         stream.Position = 0;
+        var text = ExtractDocxViaOpenXml(stream);
 
-        // 3. Resim path'lerini metne ekle
-        if (imagePaths.Any())
-            text += "\n[DOCX_IMAGES:" + JsonSerializer.Serialize(imagePaths) + "]";
+        // [GÖRSEL:rId:label] → [IMG_REF:N] dönüşümü (N = imagePath'teki index)
+        // Resimler metindeki sıraya göre imagePath JSON array'ine eklenir
+        var docxImagePaths = new List<string>();
+        text = System.Text.RegularExpressions.Regex.Replace(
+            text,
+            @"\[GÖRSEL:([^:]+):([^\]]*)\]",
+            m =>
+            {
+                var rId = m.Groups[1].Value;
+                if (!ridToPath.TryGetValue(rId, out var path) || string.IsNullOrWhiteSpace(path))
+                    return ""; // resim bulunamadı, sil
+                if (!docxImagePaths.Contains(path))
+                    docxImagePaths.Add(path);
+                var idx = docxImagePaths.IndexOf(path);
+                return $"[IMG_REF:{idx}]";
+            }
+        );
 
+        // imagePath'i metne göm — SemanticChunk bunu okuyacak
+        if (docxImagePaths.Any())
+            text = $"[DOCX_IMAGES:{JsonSerializer.Serialize(docxImagePaths)}]\n" + text;
+
+        Console.WriteLine($"[DOCX] OpenXml, {text.Length} karakter, {ridToPath.Count} resim");
         return text;
     }
 
-    private List<string> ExtractDocxImages(Stream stream)
-    {
-        var imagePaths = new List<string>();
-        stream.Position = 0;
-        using var ms = new MemoryStream();
-        stream.CopyTo(ms);
-        ms.Position = 0;
-        stream.Position = 0;
-
-        // ZIP magic byte kontrolü — gerçek DOCX (OpenXML) mi?
-        var magic = ms.ToArray();
-        if (magic.Length < 4 || magic[0] != 0x50 || magic[1] != 0x4B)
-        {
-            Console.WriteLine("[DOCX] ZIP formatı değil, resim çıkartma atlanıyor.");
-            return imagePaths;
-        }
-
-        ms.Position = 0;
-        var doc = new XWPFDocument(ms);
-        foreach (var pic in doc.AllPictures)
-        {
-            var ext = pic.SuggestFileExtension().ToLower();
-            if (!new[] { "jpg", "jpeg", "png", "gif", "bmp" }.Contains(ext)) ext = "png";
-            using var imgStream = new MemoryStream(pic.Data);
-            var savedPath = _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}").GetAwaiter().GetResult();
-            imagePaths.Add(savedPath);
-            Console.WriteLine($"[DOCX] Resim çıkartıldı: {savedPath}");
-        }
-        Console.WriteLine($"[DOCX] {imagePaths.Count} resim çıkartıldı.");
-        return imagePaths;
-    }
 
     // ── DOC — MHTML tespiti → HTML parse, yoksa LlamaParse ─────────────────
     private string ExtractDocViaLlamaParse(Stream stream)
@@ -347,66 +330,115 @@ public class DocumentParserService : IDocumentParser
             return ExtractMhtml(rawBytes);
         }
 
-        // Gerçek binary .doc — LlamaParse
+        // Gerçek binary .doc — LlamaParse metin, binary scan resimler
         var imagePaths = ExtractDocImages(stream);
         stream.Position = 0;
-        var text = CallLlamaParseAsync(stream, "application/msword", "document.doc").GetAwaiter().GetResult();
+
+        string text;
         stream.Position = 0;
+        text = CallLlamaParseAsync(stream, "application/msword", "document.doc").GetAwaiter().GetResult();
+
+        // Resimler ayrı chunk olarak eklenecek — metin sonuna işaret koy
         if (imagePaths.Any())
-            text += "\n[DOCX_IMAGES:" + JsonSerializer.Serialize(imagePaths) + "]";
+        {
+            var imgMarkers = string.Join("\n",
+                imagePaths.Select((p, i) => $"[GÖRSEL:{p}:DOC Görseli {i + 1}]"));
+            text += "\n\n" + imgMarkers;
+        }
+
         return text;
     }
 
     private string ExtractMhtml(byte[] rawBytes)
     {
-        var sb = new StringBuilder();
-        var imagePaths = new List<string>();
-
         var msg = MimeMessage.Load(new MemoryStream(rawBytes));
+
+        // 1. Resimleri çıkar, CID ve dosya adı ile eşleştir
+        var cidToPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var fileToPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var allPaths = new List<string>();
 
         foreach (var part in msg.BodyParts)
         {
-            if (part is MimeKit.MimePart mimePart)
+            if (part is not MimeKit.MimePart mime) continue;
+            var ct = mime.ContentType.MimeType.ToLower();
+            if (!ct.StartsWith("image/") && ct != "application/octet-stream") continue;
+
+            try
             {
-                var ct = mimePart.ContentType.MimeType.ToLower();
+                using var imgStream = new MemoryStream();
+                mime.Content.DecodeTo(imgStream);
+                var imgBytes = imgStream.ToArray();
+                if (imgBytes.Length < 512) continue;
 
-                if (ct == "text/html")
-                {
-                    using var bodyStream = new MemoryStream();
-                    mimePart.Content.DecodeTo(bodyStream);
-                    var html = System.Text.Encoding.UTF8.GetString(bodyStream.ToArray());
-                    sb.Append(ExtractTextFromHtml(html));
-                }
-                else if (ct.StartsWith("image/") || ct == "application/octet-stream")
-                {
-                    try
-                    {
-                        using var imgStream = new MemoryStream();
-                        mimePart.Content.DecodeTo(imgStream);
-                        var imgBytes = imgStream.ToArray();
-                        if (imgBytes.Length < 512) continue;
+                string ext;
+                if (imgBytes[0] == 0xFF && imgBytes[1] == 0xD8) ext = "jpg";
+                else if (imgBytes[0] == 0x89 && imgBytes[1] == 0x50) ext = "png";
+                else if (imgBytes[0] == 0x47 && imgBytes[1] == 0x49) ext = "gif";
+                else ext = "png";
 
-                        // Format tespit
-                        string ext;
-                        if (imgBytes[0] == 0xFF && imgBytes[1] == 0xD8) ext = "jpg";
-                        else if (imgBytes[0] == 0x89 && imgBytes[1] == 0x50) ext = "png";
-                        else if (imgBytes[0] == 0x47 && imgBytes[1] == 0x49) ext = "gif";
-                        else ext = "png"; // varsayılan
+                imgStream.Position = 0;
+                var savedPath = _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}").GetAwaiter().GetResult();
+                allPaths.Add(savedPath);
 
-                        imgStream.Position = 0;
-                        var savedPath = _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}").GetAwaiter().GetResult();
-                        imagePaths.Add(savedPath);
-                        Console.WriteLine($"[MHTML] Resim kaydedildi: {savedPath}");
-                    }
-                    catch (Exception ex) { Console.WriteLine($"[MHTML] Resim hatası: {ex.Message}"); }
-                }
+                if (!string.IsNullOrWhiteSpace(mime.ContentId))
+                    cidToPath[mime.ContentId.Trim('<', '>')] = savedPath;
+                var loc = mime.ContentLocation?.ToString() ?? mime.FileName ?? "";
+                if (!string.IsNullOrWhiteSpace(loc))
+                    fileToPath[System.IO.Path.GetFileName(loc)] = savedPath;
+
+                Console.WriteLine($"[MHTML] Resim kaydedildi: {savedPath}");
             }
+            catch (Exception ex) { Console.WriteLine($"[MHTML] Resim hatasi: {ex.Message}"); }
         }
 
-        if (imagePaths.Any())
-            sb.Append("\n[DOCX_IMAGES:" + JsonSerializer.Serialize(imagePaths) + "]");
+        // 2. HTML'i oku, <img> → [IMG_REF:N] ile değiştir
+        var orderedPaths = new List<string>(); // metindeki sıraya göre
+        var sb = new StringBuilder();
 
-        Console.WriteLine($"[MHTML] {sb.Length} karakter, {imagePaths.Count} resim çıkarıldı.");
+        foreach (var part in msg.BodyParts)
+        {
+            if (part is not MimeKit.MimePart htmlPart) continue;
+            if (htmlPart.ContentType.MimeType.ToLower() != "text/html") continue;
+
+            using var bodyStream = new MemoryStream();
+            htmlPart.Content.DecodeTo(bodyStream);
+            var html = System.Text.Encoding.UTF8.GetString(bodyStream.ToArray());
+
+            var processed = System.Text.RegularExpressions.Regex.Replace(
+                html,
+                @"<img\b[^>]*>",
+                m =>
+                {
+                    var tag = m.Value;
+                    var srcM = System.Text.RegularExpressions.Regex.Match(tag, "src=\"([^\"]*)\"", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    var src = srcM.Success ? srcM.Groups[1].Value : "";
+
+                    string? path = null;
+                    if (src.StartsWith("cid:", StringComparison.OrdinalIgnoreCase))
+                        cidToPath.TryGetValue(src.Substring(4), out path);
+                    else
+                        fileToPath.TryGetValue(System.IO.Path.GetFileName(src), out path);
+
+                    if (string.IsNullOrWhiteSpace(path)) return "";
+                    if (!orderedPaths.Contains(path)) orderedPaths.Add(path);
+                    return $"[IMG_REF:{orderedPaths.IndexOf(path)}]";
+                },
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+                System.Text.RegularExpressions.RegexOptions.Singleline);
+
+            sb.Append(ExtractTextFromHtml(processed));
+        }
+
+        // 3. Konumlandırılamayan resimler sona
+        var resolvedSet = new HashSet<string>(orderedPaths);
+        var unresolvedPaths = allPaths.Where(p => !resolvedSet.Contains(p)).ToList();
+        var finalPaths = orderedPaths.Concat(unresolvedPaths).ToList();
+
+        if (finalPaths.Any())
+            sb.Insert(0, $"[DOCX_IMAGES:{JsonSerializer.Serialize(finalPaths)}]\n");
+
+        Console.WriteLine($"[MHTML] {sb.Length} kar, {allPaths.Count} resim ({orderedPaths.Count} konumlandirildi).");
         return sb.ToString();
     }
 
@@ -478,6 +510,140 @@ public class DocumentParserService : IDocumentParser
     private static string StripTags(string html)
         => System.Text.RegularExpressions.Regex.Replace(html, @"<[^>]+>", " ");
 
+    // ── DOCX — OpenXml ile metin çıkar, resim yerlerine [GÖRSEL:id] işareti koy ──
+    private string ExtractDocxViaOpenXml(Stream stream)
+    {
+        stream.Position = 0;
+        using var ms = new MemoryStream();
+        stream.CopyTo(ms);
+        ms.Position = 0;
+
+        using var wordDoc = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(ms, false);
+        var body = wordDoc.MainDocumentPart?.Document?.Body;
+        if (body == null) return string.Empty;
+
+        var sb = new StringBuilder();
+
+        foreach (var element in body.ChildElements)
+        {
+            if (element is DocumentFormat.OpenXml.Wordprocessing.Paragraph para)
+            {
+                // Paragrafta resim var mı? (Drawing veya Pict elementi)
+                var hasImage = para.Descendants<DocumentFormat.OpenXml.Wordprocessing.Drawing>().Any()
+                            || para.Descendants<DocumentFormat.OpenXml.Wordprocessing.Picture>().Any()
+                            || para.Descendants<DocumentFormat.OpenXml.Drawing.Spreadsheet.Picture>().Any();
+
+                if (hasImage)
+                {
+                    // rId'yi Blip embed'den al — bu MainDocumentPart relationship ID'si
+                    var blipFill = para.Descendants<DocumentFormat.OpenXml.Drawing.Blip>().FirstOrDefault();
+                    var rId = blipFill?.Embed?.Value ?? "";
+
+                    // Resim açıklaması: DocProperties → title/descr
+                    var inline = para.Descendants<DocumentFormat.OpenXml.Drawing.Wordprocessing.Inline>().FirstOrDefault();
+                    var docPr = inline?.DocProperties;
+                    var caption = docPr?.Title?.Value ?? docPr?.Description?.Value ?? "";
+
+                    // Etiket: caption > paragraf metni > varsayılan
+                    var paraText = para.Descendants<DocumentFormat.OpenXml.Wordprocessing.Run>()
+                                       .Where(r => !r.Descendants<DocumentFormat.OpenXml.Wordprocessing.Drawing>().Any())
+                                       .Select(r => r.InnerText).FirstOrDefault()?.Trim() ?? "";
+                    var label = !string.IsNullOrWhiteSpace(caption) ? caption
+                              : !string.IsNullOrWhiteSpace(paraText) ? paraText
+                              : "Görsel";
+
+                    sb.AppendLine($"[GÖRSEL:{rId}:{label}]");
+                    continue;
+                }
+
+                var style = para.ParagraphProperties?.ParagraphStyleId?.Val?.Value ?? "";
+                var text = para.InnerText.Trim();
+                if (string.IsNullOrWhiteSpace(text)) { sb.AppendLine(); continue; }
+
+                if (style.StartsWith("Heading1") || style == "Title")
+                    sb.AppendLine("# " + text);
+                else if (style.StartsWith("Heading2"))
+                    sb.AppendLine("## " + text);
+                else if (style.StartsWith("Heading3"))
+                    sb.AppendLine("### " + text);
+                else if (style.StartsWith("Heading4") || style.StartsWith("Heading5") || style.StartsWith("Heading6"))
+                    sb.AppendLine("#### " + text);
+                else
+                    sb.AppendLine(text);
+            }
+            else if (element is DocumentFormat.OpenXml.Wordprocessing.Table table)
+            {
+                sb.AppendLine();
+                var rows = table.Elements<DocumentFormat.OpenXml.Wordprocessing.TableRow>().ToList();
+                var isFirst = true;
+                foreach (var row in rows)
+                {
+                    var cells = row.Elements<DocumentFormat.OpenXml.Wordprocessing.TableCell>()
+                                   .Select(c => c.InnerText.Trim()).ToList();
+                    sb.AppendLine("| " + string.Join(" | ", cells) + " |");
+                    if (isFirst)
+                    {
+                        sb.AppendLine("|" + string.Join("|", cells.Select(_ => "---")) + "|");
+                        isFirst = false;
+                    }
+                }
+                sb.AppendLine();
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    // ── DOCX — OpenXml ile resimleri çıkar (rId → path mapping) ────────────
+    private Dictionary<string, string> ExtractDocxImages(Stream stream)
+    {
+        var ridToPath = new Dictionary<string, string>();
+        try
+        {
+            stream.Position = 0;
+            using var ms = new MemoryStream();
+            stream.CopyTo(ms);
+            ms.Position = 0;
+
+            using var wordDoc = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(ms, false);
+            var mainPart = wordDoc.MainDocumentPart;
+            if (mainPart == null) return ridToPath;
+
+            // rId → ImagePart eşleştirmesi
+            foreach (var rel in mainPart.Parts)
+            {
+                if (rel.OpenXmlPart is DocumentFormat.OpenXml.Packaging.ImagePart imgPart)
+                {
+                    try
+                    {
+                        using var imgStream = new MemoryStream();
+                        imgPart.GetStream().CopyTo(imgStream);
+                        var imgBytes = imgStream.ToArray();
+                        if (imgBytes.Length < 512) continue;
+
+                        var ext = imgPart.ContentType switch
+                        {
+                            "image/jpeg" => "jpg",
+                            "image/png" => "png",
+                            "image/gif" => "gif",
+                            "image/bmp" => "bmp",
+                            _ => "png"
+                        };
+
+                        imgStream.Position = 0;
+                        var savedPath = _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}").GetAwaiter().GetResult();
+                        ridToPath[rel.RelationshipId] = savedPath;
+                        Console.WriteLine($"[DOCX] Resim kaydedildi: rId={rel.RelationshipId} → {savedPath}");
+                    }
+                    catch (Exception ex) { Console.WriteLine($"[DOCX] Resim hatası: {ex.Message}"); }
+                }
+            }
+            Console.WriteLine($"[DOCX] {ridToPath.Count} resim çıkarıldı.");
+        }
+        catch (Exception ex) { Console.WriteLine($"[DOCX] Resim çıkarma genel hata: {ex.Message}"); }
+        return ridToPath;
+    }
+
     private List<string> ExtractDocImages(Stream stream)
     {
         var imagePaths = new List<string>();
@@ -538,7 +704,7 @@ public class DocumentParserService : IDocumentParser
         try
         {
             using var imgStream = new MemoryStream(imgBytes);
-            var path = _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}").GetAwaiter().GetResult();
+            var path = _fileStorage.SaveRawAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}").GetAwaiter().GetResult();
             Console.WriteLine($"[DOC] Resim kaydedildi: {path}");
             return path;
         }
@@ -570,7 +736,11 @@ public class DocumentParserService : IDocumentParser
             "- Bölüm başlığı → ## Başlık\n" +
             "- Alt bölüm → ### Başlık\n" +
             "- Küçük başlık → #### Başlık\n" +
-            "- Başlıktan önce ve sonra boş satır bırak.\n\n" +
+            "- Başlıktan önce ve sonra boş satır bırak.\n" +
+            "- YASAK: Liste ögelerini, madde numaralarini veya paragraf baslarini baslik olarak isaretleme.\n" +
+            "- YASAK: Madde 1, a), 1., - ile baslayan satirlari # ile isaretleme.\n" +
+            "- YASAK: Tek cumleli kisa aciklama metinlerini baslik yapma.\n" +
+            "- Sadece belgede gorselde buyuk/bold/ayri satirda olan gercek bolum basliklarini # ile isaretleme.\n\n" +
 
             "LİSTELER:\n" +
             "- Sırasız liste öğesi → - madde\n" +
@@ -633,10 +803,11 @@ public class DocumentParserService : IDocumentParser
         return markdown;
     }
 
-    // ── XLSX resim çıkarma ───────────────────────────────────────────────────
-    private List<string> ExtractXlsxImages(Stream stream)
+    // ── XLSX resim çıkarma — satır numarasıyla eşleştir ────────────────────
+    // Dönüş: Dictionary<rowIndex, List<imagePath>>
+    private Dictionary<int, List<string>> ExtractXlsxImagesWithRows(Stream stream)
     {
-        var imagePaths = new List<string>();
+        var rowToImages = new Dictionary<int, List<string>>();
         try
         {
             stream.Position = 0;
@@ -658,7 +829,6 @@ public class DocumentParserService : IDocumentParser
                         var imgBytes = imgStream.ToArray();
                         if (imgBytes.Length < 512) continue;
 
-                        // Magic byte ile format tespit — namespace bağımsız
                         string ext;
                         if (imgBytes[0] == 0xFF && imgBytes[1] == 0xD8) ext = "jpg";
                         else if (imgBytes[0] == 0x89 && imgBytes[1] == 0x50) ext = "png";
@@ -668,16 +838,28 @@ public class DocumentParserService : IDocumentParser
 
                         imgStream.Position = 0;
                         var savedPath = _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}").GetAwaiter().GetResult();
-                        imagePaths.Add(savedPath);
-                        Console.WriteLine($"[XLSX] Resim çıkartıldı: {savedPath}");
+
+                        // Resmin bulunduğu satır numarasını al (1-indexed)
+                        var rowIdx = picture.TopLeftCell?.Address.RowNumber ?? 0;
+                        if (!rowToImages.ContainsKey(rowIdx))
+                            rowToImages[rowIdx] = new List<string>();
+                        rowToImages[rowIdx].Add(savedPath);
+
+                        Console.WriteLine($"[XLSX] Resim çıkartıldı: satır={rowIdx}, {savedPath}");
                     }
                     catch (Exception ex) { Console.WriteLine($"[XLSX] Resim hatası: {ex.Message}"); }
                 }
             }
-            Console.WriteLine($"[XLSX] {imagePaths.Count} resim çıkartıldı.");
+            Console.WriteLine($"[XLSX] {rowToImages.Values.Sum(v => v.Count)} resim çıkartıldı.");
         }
         catch (Exception ex) { Console.WriteLine($"[XLSX] Resim çıkarma genel hata: {ex.Message}"); }
-        return imagePaths;
+        return rowToImages;
+    }
+
+    // Geriye uyumluluk için eski imza
+    private List<string> ExtractXlsxImages(Stream stream)
+    {
+        return ExtractXlsxImagesWithRows(stream).Values.SelectMany(v => v).ToList();
     }
 
     // ── XLSX ──────────────────────────────────────────────────────────────
@@ -730,6 +912,118 @@ public class DocumentParserService : IDocumentParser
             if (batch.Any()) FlushBatch(sb, table.TableName, headerLine, batch);
         }
         return sb.ToString();
+    }
+
+    // ── XLSX: metin + resim eşleştirmeli chunk ───────────────────────────────
+    private IEnumerable<ParsedChunk> ChunkXlsxWithImages(Stream stream)
+    {
+        // Resim → satır mapping
+        stream.Position = 0;
+        var rowToImages = ExtractXlsxImagesWithRows(stream);
+
+        // Metin çıkar
+        stream.Position = 0;
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        using var ms = new MemoryStream();
+        stream.CopyTo(ms);
+        ms.Position = 0;
+        using var reader = ExcelReaderFactory.CreateReader(ms,
+            new ExcelReaderConfiguration { FallbackEncoding = Encoding.UTF8 });
+        var dataSet = reader.AsDataSet(new ExcelDataSetConfiguration
+        {
+            ConfigureDataTable = _ => new ExcelDataTableConfiguration { UseHeaderRow = false }
+        });
+
+        foreach (DataTable table in dataSet.Tables)
+        {
+            if (table.Rows.Count == 0) continue;
+
+            // Header satırını bul
+            var headerRowIdx = 0; var maxFilled = 0;
+            for (var ri = 0; ri < Math.Min(5, table.Rows.Count); ri++)
+            {
+                var filled = table.Rows[ri].ItemArray.Count(c => c != null && !string.IsNullOrWhiteSpace(c.ToString()));
+                if (filled > maxFilled) { maxFilled = filled; headerRowIdx = ri; }
+            }
+
+            var headers = new List<string>(); var lastHeader = string.Empty;
+            for (var col = 0; col < table.Columns.Count; col++)
+            {
+                var val = table.Rows[headerRowIdx][col]?.ToString()?.Trim() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(val)) val = lastHeader; else lastHeader = val;
+                headers.Add(val);
+            }
+            var headerLine = "Başlıklar: " + string.Join(" | ", headers.Where(h => !string.IsNullOrWhiteSpace(h)));
+
+            const int chunkRows = 50;
+            var batch = new List<string>();
+            var batchImages = new List<string>(); // bu batch'teki resimler (IMG_REF sırası)
+            var batchStart = headerRowIdx + 1;
+
+            for (var ri = headerRowIdx + 1; ri < table.Rows.Count; ri++)
+            {
+                var row = table.Rows[ri]; var parts = new List<string>(); var lastVal = string.Empty;
+                var excelRowNum = ri + 1; // ExcelDataReader 0-indexed, Excel 1-indexed
+                // Resim sütununa [IMG_REF:N] yaz, imagePath'e sırayla ekle
+                var rowImgsForBatch = rowToImages.TryGetValue(excelRowNum, out var ri2) ? ri2 : null;
+
+                for (var ci = 0; ci < table.Columns.Count; ci++)
+                {
+                    var val = row[ci]?.ToString()?.Trim() ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(val)) val = lastVal; else lastVal = val;
+                    var header = ci < headers.Count && !string.IsNullOrWhiteSpace(headers[ci]) ? headers[ci] : $"Sütun{ci + 1}";
+
+                    var isImageCol = header.Contains("Resim", StringComparison.OrdinalIgnoreCase)
+                                  || header.Contains("Görsel", StringComparison.OrdinalIgnoreCase)
+                                  || header.Contains("Image", StringComparison.OrdinalIgnoreCase)
+                                  || header.Contains("Foto", StringComparison.OrdinalIgnoreCase)
+                                  || header.Contains("Photo", StringComparison.OrdinalIgnoreCase);
+
+                    if (isImageCol && rowImgsForBatch != null && rowImgsForBatch.Any())
+                    {
+                        var refs = new List<string>();
+                        foreach (var imgPath in rowImgsForBatch)
+                        {
+                            if (!batchImages.Contains(imgPath)) batchImages.Add(imgPath);
+                            refs.Add($"[IMG_REF:{batchImages.IndexOf(imgPath)}]");
+                        }
+                        parts.Add($"{header}: {string.Join(" ", refs)}");
+                    }
+                    else if (!string.IsNullOrWhiteSpace(val))
+                    {
+                        parts.Add($"{header}: {val}");
+                    }
+                }
+                if (parts.Any()) batch.Add(string.Join(", ", parts));
+
+                if (batch.Count >= chunkRows)
+                {
+                    var imagePath = batchImages.Any() ? JsonSerializer.Serialize(batchImages) : null;
+                    var sb = new StringBuilder();
+                    sb.AppendLine("[TABLO BAŞLANGIÇ]");
+                    sb.AppendLine($"Sayfa: {table.TableName}");
+                    sb.AppendLine(headerLine);
+                    foreach (var r in batch) sb.AppendLine(r);
+                    sb.AppendLine("[TABLO BİTİŞ]");
+                    yield return new ParsedChunk(sb.ToString().Trim(), imagePath);
+                    batch.Clear();
+                    batchImages.Clear();
+                    batchStart = ri + 2;
+                }
+            }
+
+            if (batch.Any())
+            {
+                var imagePath = batchImages.Any() ? JsonSerializer.Serialize(batchImages) : null;
+                var sb = new StringBuilder();
+                sb.AppendLine("[TABLO BAŞLANGIÇ]");
+                sb.AppendLine($"Sayfa: {table.TableName}");
+                sb.AppendLine(headerLine);
+                foreach (var r in batch) sb.AppendLine(r);
+                sb.AppendLine("[TABLO BİTİŞ]");
+                yield return new ParsedChunk(sb.ToString().Trim(), imagePath);
+            }
+        }
     }
 
     private static void FlushBatch(StringBuilder sb, string sheetName, string headerLine, List<string> batch)
@@ -818,6 +1112,67 @@ public class DocumentParserService : IDocumentParser
         return ms.ToArray();
     }
 
+
+
+
+    // ── PDF: her sayfa kendi resmiyle chunk'lanır ──────────────────────────
+    private IEnumerable<ParsedChunk> PdfToSemanticChunks(Stream stream)
+    {
+        var pages = ExtractPdfPages(stream).ToList();
+
+        foreach (var page in pages)
+        {
+            // OCR'dan kalan [PdfPig] log kalıntılarını temizle
+            var cleanText = System.Text.RegularExpressions.Regex.Replace(
+                page.Text,
+                @"\[PdfPig\][^\n]*(\n|$)", "",
+                System.Text.RegularExpressions.RegexOptions.Multiline).Trim();
+
+            if (string.IsNullOrWhiteSpace(cleanText)) continue;
+
+            // imagePath varsa DOCX_IMAGES formatında metne göm — SemanticChunk okur
+            var pageText = !string.IsNullOrWhiteSpace(page.ImagePath)
+                ? $"[DOCX_IMAGES:{page.ImagePath}]\n{cleanText}"
+                : cleanText;
+
+            foreach (var chunk in SemanticChunk(pageText, null))
+                yield return chunk;
+        }
+    }
+
+    // ── PostProcess: minimum boyut + overlap ─────────────────────────────
+    // SemanticChunk'tan gelen ham chunk'ları rafine eder:
+    // 1. MinChunk'tan kısa chunk'ları bir sonrakiyle birleştirir
+    // 2. Tablolar dışındaki her chunk'a overlap ekler
+    private IEnumerable<ParsedChunk> PostProcess(IEnumerable<ParsedChunk> chunks)
+    {
+        const int MinChunk = 120; // bu kadardan kısa chunk bir sonrakiyle birleşir
+
+        var list = chunks.ToList();
+        var merged = new List<ParsedChunk>();
+
+        // Adım 1: Minimum boyut — kısa chunk'ları bir sonrakiyle birleştir
+        for (int i = 0; i < list.Count; i++)
+        {
+            var current = list[i];
+            var isTable = current.Content.StartsWith("[TABLO");
+
+            if (!isTable && current.Content.Length < MinChunk && i + 1 < list.Count)
+            {
+                var next = list[i + 1];
+                var combined = current.Content.TrimEnd() + "\n" + next.Content.TrimStart();
+                list[i + 1] = new ParsedChunk(combined, next.ImagePath ?? current.ImagePath);
+                // Bu chunk'ı atla, birleştirilmiş hali i+1'de
+                continue;
+            }
+            merged.Add(current);
+        }
+
+        // Adım 2: Overlap kaldırıldı — başlık/bölüm sınırları zaten bağlamı koruyor
+        // Overlap eklemek chunk başlarında tekrar üretir, RAG kalitesini düşürür
+        return merged;
+    }
+
     // ── SemanticChunk ─────────────────────────────────────────────────────
     // Strateji: Başlık gelince buffer'a ekle ama yield etme.
     // İlk içerik satırı (paragraf/madde/liste) gelince "başlık + içerik" birlikte birikir.
@@ -835,6 +1190,16 @@ public class DocumentParserService : IDocumentParser
             text = text.Replace(docxImagesMatch.Value, "").Trim();
         }
 
+        // [GÖRSEL:path:label] işaretlerini inline resim chunk'larına dönüştür
+        // Bu işaretler SemanticChunk'a girmeden önce ayrıştırılır
+        var goruntuler = System.Text.RegularExpressions.Regex.Matches(
+            text, @"\[GÖRSEL:([^:]*):([^\]]*)\]");
+        var inlineImages = new List<(string marker, string path, string label)>();
+        foreach (System.Text.RegularExpressions.Match m in goruntuler)
+        {
+            inlineImages.Add((m.Value, m.Groups[1].Value, m.Groups[2].Value));
+        }
+
         text = WrapMarkdownTables(text);
         var segments = SplitPreservingTables(text).ToList();
         var buffer = new StringBuilder();
@@ -844,7 +1209,6 @@ public class DocumentParserService : IDocumentParser
         {
             if (segment.StartsWith("[TABLO BAŞLANGIÇ]"))
             {
-                // Tablo öncesinde birikmiş içerik varsa yield et
                 if (buffer.Length > 0)
                 {
                     var p = buffer.ToString().Trim();
@@ -852,7 +1216,6 @@ public class DocumentParserService : IDocumentParser
                         yield return new ParsedChunk(p, imagePath);
                     buffer.Clear();
                 }
-                // Pending başlıklar varsa tabloyla birleştir
                 var tableContent = pendingHeadings.Length > 0
                     ? pendingHeadings.ToString().Trim() + "\n" + segment.Trim()
                     : segment.Trim();
@@ -866,6 +1229,24 @@ public class DocumentParserService : IDocumentParser
             {
                 var trimmed = line.Trim();
                 if (trimmed == "---") { trimmed = ""; }
+
+                // [IMG_REF:N] işareti — metinde bırak, imagePath zaten set edildi
+                // [GÖRSEL:...] eski format — imagePath'e ekle, metinde [IMG_REF:N] bırak
+                if (trimmed.StartsWith("[GÖRSEL:") && trimmed.EndsWith("]"))
+                {
+                    var parts = trimmed[8..^1].Split(':', 2);
+                    var iPath = parts.Length > 0 ? parts[0] : "";
+                    if (!string.IsNullOrWhiteSpace(iPath))
+                    {
+                        var existing = new List<string>();
+                        if (!string.IsNullOrWhiteSpace(imagePath))
+                            try { existing = JsonSerializer.Deserialize<List<string>>(imagePath) ?? new(); } catch { }
+                        if (!existing.Contains(iPath)) existing.Add(iPath);
+                        imagePath = JsonSerializer.Serialize(existing);
+                        buffer.Append($"[IMG_REF:{existing.Count - 1}] ");
+                    }
+                    continue;
+                }
 
                 var isHeading = trimmed.StartsWith("# ") || trimmed == "#"
                              || trimmed.StartsWith("## ") || trimmed == "##"
@@ -1042,6 +1423,22 @@ public class DocumentParserService : IDocumentParser
         var allowed = new HashSet<char> { ' ', '\n', '\r', '\t', '.', ',', ';', ':', '!', '?', '(', ')', '-', '/', '_' };
         var nonAlpha = text.Count(c => !char.IsLetterOrDigit(c) && !allowed.Contains(c));
         return (double)nonAlpha / text.Length > 0.5;
+    }
+
+    // Chunk'tan overlap için son N karakteri al (cümle sınırında)
+    private static string ExtractOverlap(string chunk, int overlapSize)
+    {
+        if (chunk.Length <= overlapSize) return chunk;
+        var tail = chunk[^overlapSize..];
+        // Cümle başından başlamaya çalış
+        var firstSentenceStart = -1;
+        foreach (var sep in new[] { ". ", "! ", "? " })
+        {
+            var idx = tail.IndexOf(sep, StringComparison.Ordinal);
+            if (idx >= 0 && (firstSentenceStart < 0 || idx < firstSentenceStart))
+                firstSentenceStart = idx + 1;
+        }
+        return firstSentenceStart > 0 ? tail[firstSentenceStart..].Trim() : tail.Trim();
     }
 
     // Son cümle sınırını bul (., !, ?) — chunk'ı cümle ortasında kesme

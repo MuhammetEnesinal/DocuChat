@@ -1,11 +1,10 @@
-﻿using DocuChat.Infrastructure.Identity;
+﻿// DocuChat.Infrastructure/Services/AuthService.cs
+using DocuChat.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity;
 using DocuChat.Application.Interfaces.Services;
-using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Application.Common;
 using DocuChat.Application.DTOs.Auth;
 using DocuChat.Domain.Enums;
-
 
 namespace DocuChat.Infrastructure.Services;
 
@@ -70,17 +69,14 @@ public class AuthService : IAuthService
         CancellationToken ct)
     {
         var users = _userManager.Users.ToList();
-
         var dtos = new List<UserSummaryResponseDto>();
+
         foreach (var user in users)
         {
             var roles = await _userManager.GetRolesAsync(user);
             dtos.Add(new UserSummaryResponseDto(
-                user.Id,
-                user.Email!,
-                user.FullName ?? string.Empty,
-                user.CreatedAt,
-                roles));
+                user.Id, user.Email!, user.FullName ?? string.Empty,
+                user.CreatedAt, roles));
         }
 
         return Result<IReadOnlyList<UserSummaryResponseDto>>.Success(dtos);

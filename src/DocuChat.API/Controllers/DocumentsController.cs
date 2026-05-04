@@ -1,9 +1,9 @@
-﻿using FluentValidation;
+﻿// DocuChat.API/Controllers/DocumentsController.cs
+using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using DocuChat.Application.Common;
 using DocuChat.Application.Interfaces.Services;
-using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Application.DTOs.Document;
 using DocuChat.API.Extensions;
 using DocuChat.Domain.Enums;
@@ -22,17 +22,14 @@ public class DocumentsController : ControllerBase
 {
     private readonly IDocumentService _documentService;
     private readonly IValidator<UploadDocumentRequest> _uploadValidator;
-
-    private readonly IFileStorage _fileStorage;
+    // IFileStorage tamamen kaldırıldı — servis katmanı üzerinden erişiliyor
 
     public DocumentsController(
         IDocumentService documentService,
-        IValidator<UploadDocumentRequest> uploadValidator,
-        IFileStorage fileStorage)
+        IValidator<UploadDocumentRequest> uploadValidator)
     {
         _documentService = documentService;
         _uploadValidator = uploadValidator;
-        _fileStorage = fileStorage;
     }
 
     [HttpGet]
@@ -71,26 +68,16 @@ public class DocumentsController : ControllerBase
     [HttpGet("{id:guid}/preview")]
     public async Task<IActionResult> Preview(Guid id, CancellationToken ct)
     {
-        var result = await _documentService.GetFileInfoAsync(id, ct);
-        if (!result.IsSuccess) return result.ToActionResult();
+        // IFileStorage artık controller'da yok — servis stream'i açıyor
+        var result = await _documentService.GetFileStreamAsync(id, ct);
+        if (!result.IsSuccess)
+            return result.ToActionResult();
 
-        var (storagePath, contentType, fileName) = result.Value;
-        try
-        {
-            var stream = _fileStorage.Read(storagePath);
-            Response.Headers["Content-Disposition"] = $"inline; filename=\"{Uri.EscapeDataString(fileName)}\"";
-            return File(stream, contentType, enableRangeProcessing: true);
-        }
-        catch (FileNotFoundException)
-        {
-            var err = Error.NotFound("Dosya storage'da bulunamadı. Belgeyi yeniden yükleyin.");
-            return Result<string>.Failure(err).ToActionResult();
-        }
-        catch (Exception ex)
-        {
-            var err = Error.Internal(ex.Message);
-            return Result<string>.Failure(err).ToActionResult();
-        }
+        var (stream, contentType, fileName) = result.Value;
+        Response.Headers["Content-Disposition"] =
+            $"inline; filename=\"{Uri.EscapeDataString(fileName)}\"";
+
+        return File(stream, contentType, enableRangeProcessing: true);
     }
 
     [HttpPost("{id:guid}/reprocess")]

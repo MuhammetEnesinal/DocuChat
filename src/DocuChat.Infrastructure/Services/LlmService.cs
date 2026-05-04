@@ -1,4 +1,4 @@
-﻿using System.Net.Http.Headers;
+﻿// DocuChat.Infrastructure/Services/LlmService.cs
 using System.Net.Http.Json;
 using System.Text.Json;
 using DocuChat.Application.Interfaces.Services;
@@ -11,19 +11,21 @@ public class LlmService : ILlmService
 {
     private readonly HttpClient _http;
     private readonly IConfiguration _cfg;
+    // Constructor'da bir kez okunup field'a atanıyor — metodlarda tekrar cfg okumak yerine bunlar kullanılıyor
+    private readonly string _provider;
+    private readonly string _model;
+    private readonly int _maxTokens;
+    private readonly string _apiKey;
 
     public LlmService(HttpClient http, IConfiguration cfg)
     {
         _http = http;
         _cfg = cfg;
-
-        if (_http.BaseAddress is null && _cfg["Llm:BaseUrl"] is { } url)
-            _http.BaseAddress = new Uri(url);
-
-        if (_cfg["Llm:ApiKey"] is { Length: > 0 } key &&
-            _cfg["Llm:Provider"] is not "Anthropic")
-            _http.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", key);
+        // BaseAddress ve header'lar DI'da set edildi — burada tekrar yapılmıyor
+        _provider = cfg["Llm:Provider"] ?? "OpenAI";
+        _model = cfg["Llm:Model"] ?? "gpt-4o";
+        _apiKey = cfg["Llm:ApiKey"] ?? string.Empty;
+        _maxTokens = int.TryParse(cfg["Llm:MaxTokens"], out var t) ? t : 4096;
     }
 
     public async Task<string> AskAsync(
@@ -37,65 +39,68 @@ public class LlmService : ILlmService
             .ToList();
 
         if (chunkList.Count == 0)
-            return "Sisteme yuklenm is belgeler arasinda bu soruyla ilgili bilgi bulunamadi.";
+            return "Sisteme yuklenmis belgeler arasinda bu soruyla ilgili bilgi bulunamadi.";
 
         var totalImageCount = 0;
-        var chunksByDoc = chunkList
-            .Select((c, i) => new { Chunk = c, Index = i })
-            .GroupBy(x => x.Chunk.FileName);
-
-        var contextParts = new List<string>();
         var globalChunkIdx = 0;
+        var contextParts = new List<string>();
 
-        foreach (var docGroup in chunksByDoc)
+        // Global resim listesi — VectorSearch sırasıyla, LLM'e bu sırayla gönderilir
+        var imageUrls = new List<string>();
+
+        // VectorSearch sırası korunur, belge adı her chunk başlığına yazılır
+        foreach (var c in chunkList)
         {
-            var docChunks = docGroup.ToList();
-            var docParts = new List<string>();
+            var cleanContent = System.Text.RegularExpressions.Regex.Replace(
+                c.Content.Trim(), @"\[RESIM:[^\]]*\]", "").Trim();
 
-            foreach (var item in docChunks)
+            string chunkText;
+            if (!string.IsNullOrWhiteSpace(c.ImagePath))
             {
-                var c = item.Chunk;
-                var cleanContent = System.Text.RegularExpressions.Regex.Replace(
-                    c.Content.Trim(), @"\[RESIM:[^\]]*\]", "").Trim();
+                List<string> paths;
+                try { paths = JsonSerializer.Deserialize<List<string>>(c.ImagePath) ?? new(); }
+                catch { paths = new List<string> { c.ImagePath }; }
 
-                string chunkText;
-                if (!string.IsNullOrWhiteSpace(c.ImagePath))
+                var chunkStartIdx = totalImageCount;
+
+                // [IMG_REF:N] → [IMG:GlobalN] (chunk içi 0-indexed → global 1-indexed)
+                var resolvedContent = System.Text.RegularExpressions.Regex.Replace(
+                    cleanContent,
+                    @"\[IMG_REF:(\d+)\]",
+                    m =>
+                    {
+                        if (int.TryParse(m.Groups[1].Value, out var localIdx))
+                            return $"[IMG:{chunkStartIdx + localIdx + 1}]";
+                        return m.Value;
+                    });
+
+                // Metinde inline işaret yoksa genel not ekle
+                if (!resolvedContent.Contains("[IMG:"))
                 {
-                    List<string>? paths = null;
-                    try { paths = JsonSerializer.Deserialize<List<string>>(c.ImagePath); } catch { }
-                    var count = paths?.Count ?? 1;
-                    var nums = string.Join(", ", Enumerable.Range(totalImageCount + 1, count).Select(n => $"[IMG:{n}]"));
-                    Console.WriteLine($"[LLM Context] Parca {globalChunkIdx + 1} - {count} gorsel: {nums}");
-                    totalImageCount += count;
-                    chunkText = $"[PARCA {globalChunkIdx + 1}]\n[GORSELLER: {count} adet gorsel - {nums}]\n\n{cleanContent}";
+                    var nums = string.Join(", ", Enumerable.Range(chunkStartIdx + 1, paths.Count).Select(n => $"[IMG:{n}]"));
+                    resolvedContent = $"[GORSELLER: {paths.Count} adet - {nums}]\n\n{resolvedContent}";
                 }
-                else
-                {
-                    chunkText = $"[PARCA {globalChunkIdx + 1}]\n\n{cleanContent}";
-                }
-                docParts.Add(chunkText);
-                globalChunkIdx++;
+
+                totalImageCount += paths.Count;
+                imageUrls.AddRange(paths);
+
+                Console.WriteLine($"[LLM Context] Parca {globalChunkIdx + 1} | {c.FileName} - {paths.Count} gorsel (global {chunkStartIdx + 1}-{totalImageCount})");
+                chunkText = $"[PARCA {globalChunkIdx + 1} | {c.FileName}]\n\n{resolvedContent}";
+            }
+            else
+            {
+                chunkText = $"[PARCA {globalChunkIdx + 1} | {c.FileName}]\n\n{cleanContent}";
             }
 
-            contextParts.Add($"=== BELGE: {docGroup.Key} ({docChunks.Count} parca) ===\n\n" + string.Join("\n\n---\n\n", docParts));
+            contextParts.Add(chunkText);
+            globalChunkIdx++;
         }
 
-        var context = string.Join("\n\n====================\n\n", contextParts);
+        var context = string.Join("\n\n---\n\n", contextParts);
 
-        var imageUrls = chunkList
-            .Where(c => !string.IsNullOrWhiteSpace(c.ImagePath))
-            .SelectMany(c =>
-            {
-                try
-                {
-                    var parsed = JsonSerializer.Deserialize<List<string>>(c.ImagePath!);
-                    return parsed ?? new List<string> { c.ImagePath! };
-                }
-                catch { return new List<string> { c.ImagePath! }; }
-            })
-            .Distinct()
-            .Take(5)
-            .ToList();
+        // En fazla 5 resim gönder
+        imageUrls = imageUrls.Distinct().Take(5).ToList();
+
 
         var historyList = history?.ToList() ?? new List<(string Role, string Content)>();
 
@@ -142,8 +147,7 @@ public class LlmService : ILlmService
             "- PARCA etiketlerini yanita asla gosterme.\n" +
             "- Kaynak belirtirken parantez icinde dosya adi yaz: (dosyaadi.pdf)\n" +
             "- Elbette, Tabii ki, Merhaba gibi dolgu cumleleri kullanma. Dogrudan yanitla.\n" +
-            "- Yanita KESINLIKLE soruyu tekrar yazma. 'Kullanici X diye soruyor' gibi ifadeler kullanma.\n" +
-            "- Yanita giris cumlesi olarak soruyu ozetleme veya tekrarlama. Direkt cevapla.\n" +
+            "- Yanita KESINLIKLE soruyu tekrar yazma.\n" +
             "- Tablo icerigi varsa markdown tablo formatinda sun.\n" +
             "- Kod icerigi varsa kod blogunda sun.\n" +
             "- Yanit uzunsa bolum basliklari kullan. Ayni bilgiyi iki kez yazma.\n\n" +
@@ -180,7 +184,7 @@ public class LlmService : ILlmService
             "7. PARCA etiketlerini yanita kullanma.\n" +
             "8. Turkce yanit ver.";
 
-        return _cfg["Llm:Provider"] switch
+        return _provider switch
         {
             "Anthropic" => await CallAnthropicAsync(systemPrompt, userMessage, ct),
             "Gemini" => await CallGeminiAsync(systemPrompt, userMessage, ct),
@@ -215,18 +219,27 @@ public class LlmService : ILlmService
         {
             var payload = new
             {
-                model = _cfg["Llm:Model"],
+                model = _model,
                 max_tokens = 100,
                 temperature = 0.0f,
                 messages = new[] { new { role = "user", content = prompt } }
             };
             var response = await _http.PostAsJsonAsync("/openai/v1/chat/completions", payload, ct);
             if (!response.IsSuccessStatusCode) return new List<string>();
+
             var json = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
-            var answer = json.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString()?.Trim() ?? "";
+            var answer = json.GetProperty("choices")[0]
+                            .GetProperty("message")
+                            .GetProperty("content")
+                            .GetString()?.Trim() ?? "";
+
             Console.WriteLine($"[DocDetect] Tespit edilen belgeler: {answer}");
             if (string.IsNullOrWhiteSpace(answer)) return new List<string>();
-            return answer.Split(',').Select(d => d.Trim()).Where(d => !string.IsNullOrWhiteSpace(d)).ToList();
+
+            return answer.Split(',')
+                         .Select(d => d.Trim())
+                         .Where(d => !string.IsNullOrWhiteSpace(d))
+                         .ToList();
         }
         catch { return new List<string>(); }
     }
@@ -234,8 +247,6 @@ public class LlmService : ILlmService
     private async Task<string> CallOpenAiWithVisionAsync(
         string system, string user, List<string> imageUrls, CancellationToken ct)
     {
-        var maxTokens = int.TryParse(_cfg["Llm:MaxTokens"], out var t) ? t : 4096;
-
         var userContent = new List<object> { new { type = "text", text = user } };
 
         foreach (var imgPath in imageUrls)
@@ -265,7 +276,7 @@ public class LlmService : ILlmService
                 : (object)new { role = "user", content = user }
         };
 
-        var payload = new { model = _cfg["Llm:Model"], max_tokens = maxTokens, temperature = 0.1f, messages = msgList };
+        var payload = new { model = _model, max_tokens = _maxTokens, temperature = 0.1f, messages = msgList };
         var response = await _http.PostAsJsonAsync("/openai/v1/chat/completions", payload, ct);
         await EnsureSuccessAsync(response);
 
@@ -275,53 +286,64 @@ public class LlmService : ILlmService
 
     private async Task<string> CallAnthropicAsync(string system, string user, CancellationToken ct)
     {
-        var maxTokens = int.TryParse(_cfg["Llm:MaxTokens"], out var t) ? t : 4096;
+        // Anthropic header'ları DI'da set edildi — burada sadece body gönderiliyor
         using var request = new HttpRequestMessage(HttpMethod.Post, string.Empty);
-        request.Headers.Add("x-api-key", _cfg["Llm:ApiKey"]);
-        request.Headers.Add("anthropic-version", "2023-06-01");
         request.Content = JsonContent.Create(new
         {
-            model = _cfg["Llm:Model"] ?? "claude-haiku-4-5-20251001",
-            max_tokens = maxTokens,
+            model = _model,
+            max_tokens = _maxTokens,
             system,
             messages = new[] { new { role = "user", content = user } }
         });
         var response = await _http.SendAsync(request, ct);
         await EnsureSuccessAsync(response);
+
         var json = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
         return json.GetProperty("content")[0].GetProperty("text").GetString()!.Trim();
     }
 
     private async Task<string> CallGeminiAsync(string system, string user, CancellationToken ct)
     {
-        var apiKey = _cfg["Llm:ApiKey"];
-        var model = _cfg["Llm:Model"] ?? "gemini-2.0-flash-001";
-        var maxTokens = int.TryParse(_cfg["Llm:MaxTokens"], out var t) ? t : 4096;
-        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}";
+        // Gemini kendi URL'ini kullanıyor — _http yerine BaseAddress override ile gönderiyoruz
+        var model = _model;
+        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={_apiKey}";
         var payload = new
         {
             system_instruction = new { parts = new[] { new { text = system } } },
             contents = new[] { new { role = "user", parts = new[] { new { text = user } } } },
-            generationConfig = new { maxOutputTokens = maxTokens, temperature = 0.1 }
+            generationConfig = new { maxOutputTokens = _maxTokens, temperature = 0.1 }
         };
-        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+
+        // Gemini farklı base URL kullandığından _http kullanılamaz — IHttpClientFactory inject edilmeli
+        // Şimdilik HttpClient factory pattern ile çözüyoruz
+        using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         var response = await client.PostAsJsonAsync(url, payload, ct);
         await EnsureSuccessAsync(response);
+
         var json = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
-        return json.GetProperty("candidates")[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString()!.Trim();
+        return json.GetProperty("candidates")[0]
+                   .GetProperty("content")
+                   .GetProperty("parts")[0]
+                   .GetProperty("text")
+                   .GetString()!.Trim();
     }
 
     private async Task<string> CallOllamaAsync(string system, string user, CancellationToken ct)
     {
         var payload = new
         {
-            model = _cfg["Llm:Model"],
+            model = _model,
             stream = false,
-            options = new { temperature = 0.1, num_predict = 4096 },
-            messages = new[] { new { role = "system", content = system }, new { role = "user", content = user } }
+            options = new { temperature = 0.1, num_predict = _maxTokens },
+            messages = new[]
+            {
+                new { role = "system", content = system },
+                new { role = "user",   content = user   }
+            }
         };
         var response = await _http.PostAsJsonAsync("/api/chat", payload, ct);
         await EnsureSuccessAsync(response);
+
         var json = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
         return json.GetProperty("message").GetProperty("content").GetString()!.Trim();
     }
@@ -330,6 +352,8 @@ public class LlmService : ILlmService
     {
         if (response.IsSuccessStatusCode) return;
         var body = await response.Content.ReadAsStringAsync();
-        throw new HttpRequestException($"LLM API hatasi [{(int)response.StatusCode}]: {body}", inner: null, statusCode: response.StatusCode);
+        throw new HttpRequestException(
+            $"LLM API hatasi [{(int)response.StatusCode}]: {body}",
+            inner: null, statusCode: response.StatusCode);
     }
 }

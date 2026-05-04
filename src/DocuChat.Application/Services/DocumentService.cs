@@ -1,4 +1,5 @@
-﻿using Mapster;
+﻿
+using Mapster;
 using Microsoft.Extensions.Logging;
 using DocuChat.Application.Interfaces.Services;
 using DocuChat.Application.Interfaces.Repositories;
@@ -16,11 +17,16 @@ public class DocumentService : IDocumentService
     private readonly IEmbeddingService _embedder;
     private readonly IFileStorage _fileStorage;
     private readonly ICurrentUser _currentUser;
+    private readonly IQuestionCacheRepository _cache;      
     private readonly ILogger<DocumentService> _logger;
 
     public DocumentService(
-        IUnitOfWork uow, IDocumentParser parser, IEmbeddingService embedder,
-        IFileStorage fileStorage, ICurrentUser currentUser,
+        IUnitOfWork uow,
+        IDocumentParser parser,
+        IEmbeddingService embedder,
+        IFileStorage fileStorage,
+        ICurrentUser currentUser,
+        IQuestionCacheRepository cache,
         ILogger<DocumentService> logger)
     {
         _uow = uow;
@@ -28,6 +34,7 @@ public class DocumentService : IDocumentService
         _embedder = embedder;
         _fileStorage = fileStorage;
         _currentUser = currentUser;
+        _cache = cache;
         _logger = logger;
     }
 
@@ -57,8 +64,12 @@ public class DocumentService : IDocumentService
             doc.UpdatedAt = DateTime.UtcNow;
             await _uow.SaveChangesAsync(ct);
 
+            var ms = new MemoryStream();
             req.FileStream.Position = 0;
-            var chunks = _parser.Parse(req.FileStream, doc.FileType);
+            await req.FileStream.CopyToAsync(ms, ct);
+            ms.Position = 0;
+
+            var chunks = _parser.Parse(ms, doc.FileType);
             int idx = 0;
 
             foreach (var parsed in chunks)
@@ -109,21 +120,16 @@ public class DocumentService : IDocumentService
 
         _uow.Documents.Delete(doc);
         await _uow.SaveChangesAsync(ct);
+
+        // Belge silindikten sonra cache'i temizle — stale cevap üretmesin
+        await _cache.ClearAllAsync(ct);
+        _logger.LogInformation("[Cache] Belge silindi, cache temizlendi. DocId: {DocId}", docId);
+
         return Result<bool>.Success(true);
     }
 
-    public async Task<Result<(string StoragePath, string ContentType, string FileName)>> GetFileInfoAsync(Guid id, CancellationToken ct)
-    {
-        var doc = await _uow.Documents.GetByIdAsync(id, ct);
-        if (doc is null || doc.StoragePath is null)
-            return Result<(string, string, string)>.Failure(Error.NotFound("Belge bulunamadı."));
-
-        var contentType = doc.ContentType == "application/pdf" ? "application/pdf" : "application/octet-stream";
-        return Result<(string, string, string)>.Success((doc.StoragePath, contentType, doc.FileName));
-    }
-
-
-    public async Task<Result<IReadOnlyList<DocumentChunkDto>>> GetChunksAsync(Guid id, CancellationToken ct)
+    public async Task<Result<IReadOnlyList<DocumentChunkDto>>> GetChunksAsync(
+        Guid id, CancellationToken ct)
     {
         var doc = await _uow.Documents.GetByIdAsync(id, ct);
         if (doc is null)
@@ -147,12 +153,11 @@ public class DocumentService : IDocumentService
         if (doc.StoragePath is null)
             return Result<DocumentResponseDto>.Failure(Error.Validation("Orijinal dosya bulunamadı."));
 
-        // 1. Mevcut chunk'ları sil
+        // Mevcut chunk'ları sil
         var existingChunks = await _uow.Chunks.FindAsync(c => c.DocumentId == id, ct);
         foreach (var chunk in existingChunks)
             _uow.Chunks.Delete(chunk);
 
-        // 2. Belgeyi Processing durumuna al
         doc.Status = DocumentStatus.Processing;
         doc.ErrorMessage = null;
         doc.ChunkCount = 0;
@@ -163,14 +168,10 @@ public class DocumentService : IDocumentService
 
         try
         {
-            // 3. Dosyayı storage'dan oku
             using var stream = _fileStorage.Read(doc.StoragePath);
-
-            // 4. Parse et
             var chunks = _parser.Parse(stream, doc.FileType);
             int idx = 0;
 
-            // 5. Embed et ve kaydet
             foreach (var parsed in chunks)
             {
                 var vec = await _embedder.GetEmbeddingAsync(parsed.Content, ct);
@@ -198,7 +199,37 @@ public class DocumentService : IDocumentService
         }
 
         await _uow.SaveChangesAsync(ct);
+
+        // Reprocess sonrası cache'i temizle — içerik değişti
+        await _cache.ClearAllAsync(ct);
+        _logger.LogInformation("[Cache] Reprocess tamamlandı, cache temizlendi. DocId: {DocId}", id);
+
         return Result<DocumentResponseDto>.Success(doc.Adapt<DocumentResponseDto>());
+    }
+
+   
+    /// Controller IFileStorage'a dokunmadan dosyayı stream olarak alır.
+
+    public async Task<Result<(Stream FileStream, string ContentType, string FileName)>> GetFileStreamAsync(
+        Guid id, CancellationToken ct)
+    {
+        var doc = await _uow.Documents.GetByIdAsync(id, ct);
+        if (doc is null || doc.StoragePath is null)
+            return Result<(Stream, string, string)>.Failure(Error.NotFound("Belge bulunamadı."));
+
+        try
+        {
+            var stream = _fileStorage.Read(doc.StoragePath);
+            var contentType = doc.ContentType == "application/pdf"
+                ? "application/pdf"
+                : "application/octet-stream";
+            return Result<(Stream, string, string)>.Success((stream, contentType, doc.FileName));
+        }
+        catch (FileNotFoundException)
+        {
+            return Result<(Stream, string, string)>.Failure(
+                Error.NotFound("Dosya storage'da bulunamadı. Belgeyi yeniden yükleyin."));
+        }
     }
 
     private static FileType DetectFileType(string contentType) => contentType switch

@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+﻿// DocuChat.Application/Services/ChatService.cs
+using System.Text.Json;
 using Mapster;
 using DocuChat.Application.Interfaces.Services;
 using DocuChat.Application.Interfaces.Repositories;
@@ -15,32 +16,43 @@ public class ChatService : IChatService
     private readonly IVectorSearch _vectorSearch;
     private readonly ILlmService _llm;
     private readonly ICurrentUser _currentUser;
+    private readonly IEmbeddingService _embeddingService;
+    private readonly IQuestionCacheRepository _cache;
+
+    private const double CacheSimilarityThreshold = 0.92;
 
     public ChatService(
         IUnitOfWork uow,
         IVectorSearch vectorSearch,
         ILlmService llm,
-        ICurrentUser currentUser)
+        ICurrentUser currentUser,
+        IEmbeddingService embeddingService,
+        IQuestionCacheRepository cache)
     {
         _uow = uow;
         _vectorSearch = vectorSearch;
         _llm = llm;
         _currentUser = currentUser;
+        _embeddingService = embeddingService;
+        _cache = cache;
     }
 
     public async Task<Result<AskResponseDto>> AskAsync(AskRequest req, CancellationToken ct)
     {
+        // ── Session oluştur / getir ──────────────────────────────────────
         ChatSession session;
 
         if (req.SessionId.HasValue)
         {
             var foundSession = await _uow.Sessions.GetByIdAsync(req.SessionId.Value, ct);
             if (foundSession is null)
-                return Result<AskResponseDto>.Failure(Error.NotFound($"Oturum bulunamadı. Id: {req.SessionId.Value}"));
+                return Result<AskResponseDto>.Failure(
+                    Error.NotFound($"Oturum bulunamadı. Id: {req.SessionId.Value}"));
             session = foundSession;
 
             if (session.UserId != _currentUser.UserId && !_currentUser.IsInRole(Roles.Admin))
-                return Result<AskResponseDto>.Failure(Error.Forbidden("Bu oturuma erişiminiz yok."));
+                return Result<AskResponseDto>.Failure(
+                    Error.Forbidden("Bu oturuma erişiminiz yok."));
         }
         else
         {
@@ -53,6 +65,7 @@ public class ChatService : IChatService
             await _uow.SaveChangesAsync(ct);
         }
 
+        // ── Kullanıcı mesajını kaydet ────────────────────────────────────
         await _uow.Messages.AddAsync(new ChatMessage
         {
             SessionId = session.Id,
@@ -61,6 +74,7 @@ public class ChatService : IChatService
         }, ct);
         await _uow.SaveChangesAsync(ct);
 
+        // ── Konuşma geçmişini hazırla ────────────────────────────────────
         var history = new List<(string Role, string Content)>();
         var sessionWithMessages = await _uow.Sessions.GetWithMessagesAsync(session.Id, ct);
         if (sessionWithMessages?.Messages?.Any() == true)
@@ -74,32 +88,20 @@ public class ChatService : IChatService
                 .ToList();
         }
 
-        // Belirsiz soru kontrolü — history yoksa zamir içeren kısa sorular reddedilsin
-        if (!history.Any() && IsAmbiguousQuestion(req.Question))
-        {
-            const string ambiguous = "Sorunuz bağlam gerektiriyor. Lütfen neyi kastettiğinizi daha açık ifade edin. Örneğin: 'Bu belgedeki X nedir?' yerine 'Y belgesi hangi konuları içeriyor?' gibi.";
-            await _uow.Messages.AddAsync(new ChatMessage
-            {
-                SessionId = session.Id,
-                Role = MessageRole.Assistant,
-                Content = ambiguous
-            }, ct);
-            await _uow.SaveChangesAsync(ct);
-            return Result<AskResponseDto>.Success(new AskResponseDto(session.Id, ambiguous, []));
-        }
+        // ── Semantik cache kontrolü ──────────────────────────────────────
+        var questionVector = await _embeddingService.GetEmbeddingAsync(req.Question, ct);
 
-        // Aşama 1: LLM'e history + soru ver, hangi belge/konu olduğunu tespit et
-        var allDocs = await _uow.Documents.FindAsync(d => true, ct);
-        var docNames = allDocs.Select(d => d.FileName).ToList();
+        // ── Belge tespiti (cache kontrolünden önce — belge bazlı cache için gerekli) ──
+        var docNames = await _uow.GetDocumentNamesAsync(ct);
+        var docNameStrings = docNames.Select(d => d.FileName).ToList();
 
         var relevantDocNames = await _llm.DetectRelevantDocumentsAsync(
-            req.Question, history, docNames, ct);
+            req.Question, history, docNameStrings, ct);
 
-        // Tespit edilen belgelerle vector search yönlendir
         List<Guid>? relevantDocIds = null;
         if (relevantDocNames.Any())
         {
-            var matchedDocs = allDocs.Where(d =>
+            var matchedDocs = docNames.Where(d =>
                 relevantDocNames.Any(r =>
                     d.FileName.Equals(r, StringComparison.OrdinalIgnoreCase) ||
                     d.FileName.Contains(r.Split('.')[0], StringComparison.OrdinalIgnoreCase)
@@ -108,7 +110,49 @@ public class ChatService : IChatService
                 relevantDocIds = matchedDocs.Select(d => d.Id).ToList();
         }
 
-        var chunks = await _vectorSearch.SearchAsync(req.Question, ct: ct, relevantDocumentIds: relevantDocIds);
+        // Belge ID'lerini sıralı string olarak cache key'e ekle
+        var docIdKey = relevantDocIds != null
+            ? string.Join(",", relevantDocIds.OrderBy(x => x))
+            : null;
+
+        // Cache kontrolü — sadece history yoksa (follow-up sorular cache'e girmemeli)
+        if (!history.Any())
+        {
+            var cached = await _cache.FindSimilarAsync(questionVector, CacheSimilarityThreshold, docIdKey, ct);
+            if (cached != null)
+            {
+                Console.WriteLine($"[Cache] HIT — '{cached.QuestionText}' → cache'den döndürüldü.");
+
+                await _cache.IncrementHitAsync(cached.Id, ct);
+
+                await _uow.Messages.AddAsync(new ChatMessage
+                {
+                    SessionId = session.Id,
+                    Role = MessageRole.Assistant,
+                    Content = cached.Answer,
+                    ImagesJson = cached.ImagesJson
+                }, ct);
+                await _uow.SaveChangesAsync(ct);
+
+                var cachedChunks = new List<ChunkResult>();
+                if (cached.ImagesJson != null)
+                    cachedChunks.Add(new ChunkResult(
+                        FileName: string.Empty,
+                        Content: cached.Answer,
+                        ImagePath: cached.ImagesJson));
+
+                var cachedImgs = cached.ImagesJson != null
+                    ? (JsonSerializer.Deserialize<List<string>>(cached.ImagesJson) ?? new())
+                    : new List<string>();
+
+                return Result<AskResponseDto>.Success(
+                    new AskResponseDto(session.Id, cached.Answer, cachedChunks, cachedImgs));
+            }
+        }
+
+        // ── Vector search ────────────────────────────────────────────────
+        var chunks = await _vectorSearch.SearchAsync(
+            req.Question, ct: ct, relevantDocumentIds: relevantDocIds);
 
         if (chunks.Count == 0)
         {
@@ -123,13 +167,12 @@ public class ChatService : IChatService
             return Result<AskResponseDto>.Success(new AskResponseDto(session.Id, noData, []));
         }
 
+        // ── LLM çağrısı ──────────────────────────────────────────────────
         var answer = await _llm.AskAsync(req.Question, chunks, history, ct);
 
-
-
-        // Chunk'lardan image path'leri topla — LlmService ile AYNI sırada
+        // ── Image path'leri topla — LlmService ile AYNI sırada ──────────
         var seenPaths = new HashSet<string>();
-        var imagePaths = chunks
+        var allImagePaths = chunks
             .Where(c => c.ImagePath != null)
             .SelectMany(c =>
             {
@@ -140,63 +183,101 @@ public class ChatService : IChatService
                 }
                 catch { return new List<string> { c.ImagePath! }; }
             })
-            .Where(p => seenPaths.Add(p)) // Distinct ama sırayı koru
+            .Where(p => seenPaths.Add(p))
             .ToList();
 
+        // LLM cevabındaki [IMG:N] işaretlerini parse et
+        // Sadece cevabında kullanılan resimleri döndür
+        var usedNums = System.Text.RegularExpressions.Regex
+            .Matches(answer, @"\[IMG:(\d+)\]")
+            .Select(m => int.Parse(m.Groups[1].Value) - 1) // 0-indexed
+            .Distinct()
+            .OrderBy(n => n)
+            .ToList();
+
+        var imagePaths = usedNums.Any()
+            ? usedNums.Where(i => i >= 0 && i < allImagePaths.Count).Select(i => allImagePaths[i]).ToList()
+            : allImagePaths; // [IMG:N] yoksa tümünü döndür (PDF gibi)
+
+        var imagesJson = imagePaths.Count > 0 ? JsonSerializer.Serialize(imagePaths) : null;
+
+
+        // ── Asistan mesajını kaydet ──────────────────────────────────────
         await _uow.Messages.AddAsync(new ChatMessage
         {
             SessionId = session.Id,
             Role = MessageRole.Assistant,
             Content = answer,
-            ImagesJson = imagePaths.Count > 0 ? JsonSerializer.Serialize(imagePaths) : null,
+            ImagesJson = imagesJson,
         }, ct);
         await _uow.SaveChangesAsync(ct);
 
-        return Result<AskResponseDto>.Success(new AskResponseDto(session.Id, answer, chunks));
+        // ── Cache'e yaz ──────────────────────────────────────────────────
+        // Koşullar: 1) Yeni sohbet (history yok)
+        //           2) LLM sorunun bağımsız olduğunu onayladı
+        if (!history.Any())
+        {
+            try
+            {
+                // LLM'e sor: bu soru bağımsız mı cache'lenebilir mi?
+                var cacheCheckPrompt =
+                    $"Bu soru önceki bir konuşma bağlamı olmadan tek başına anlamlı ve cevaplanabilir mi?\n" +
+                    $"Soru: \"{req.Question}\"\n" +
+                    $"Sadece EVET veya HAYIR yaz.";
+
+                var cacheDecision = await _llm.DetectRelevantDocumentsAsync(
+                    cacheCheckPrompt, Enumerable.Empty<(string, string)>(),
+                    new[] { "EVET", "HAYIR" }, ct);
+
+                var isCacheable = cacheDecision.Any(d =>
+                    d.Equals("EVET", StringComparison.OrdinalIgnoreCase));
+
+                if (isCacheable)
+                {
+                    await _cache.AddAsync(new QuestionCache
+                    {
+                        QuestionText = req.Question,
+                        QuestionVector = questionVector,
+                        Answer = answer,
+                        ImagesJson = imagesJson,
+                        DocumentIds = docIdKey
+                    }, ct);
+                    Console.WriteLine($"[Cache] WRITE — '{req.Question}' (belgeler: {docIdKey ?? "tümü"}) cache'e yazıldı.");
+                }
+                else
+                {
+                    Console.WriteLine($"[Cache] SKIP — '{req.Question}' bağıma özgü, cache'e yazılmadı.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Cache] Yazma hatası: {ex.Message}");
+                if (ex.InnerException != null)
+                    Console.WriteLine($"[Cache] Inner: {ex.InnerException.Message}");
+            }
+        }
+
+        return Result<AskResponseDto>.Success(new AskResponseDto(session.Id, answer, chunks, imagePaths));
     }
 
     public async Task<Result<IReadOnlyList<ChatSessionResponseDto>>> GetMySessionsAsync(CancellationToken ct)
     {
         var sessions = await _uow.Sessions.GetByUserIdAsync(_currentUser.UserId, ct);
-        var dtos = sessions.Select(s => s.Adapt<ChatSessionResponseDto>()).ToList();
-        return Result<IReadOnlyList<ChatSessionResponseDto>>.Success(dtos);
+        return Result<IReadOnlyList<ChatSessionResponseDto>>.Success(
+            sessions.Select(s => s.Adapt<ChatSessionResponseDto>()).ToList());
     }
 
-    private static bool IsAmbiguousQuestion(string question)
-    {
-        var q = question.Trim().ToLowerInvariant();
-
-        // Çok kısa sorular (3 kelimeden az)
-        var words = q.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length < 3) return true;
-
-        // Sadece zamir + fiil içeren sorular (history gerektiren)
-        var ambiguousStarters = new[]
-        {
-            "bunlar", "bunların", "bunlarda", "bunu", "bunun",
-            "şunlar", "şunu", "şunun", "şunların",
-            "onlar", "onların", "onu", "onun",
-            "bu ne", "bu nedir", "bunlar ne", "bunlar nedir",
-            "peki bunlar", "peki bu", "peki şu",
-            "ya bunlar", "ya bu", "o ne", "o nedir"
-        };
-
-        // Belirsiz zamirle başlayan kısa sorular
-        foreach (var starter in ambiguousStarters)
-            if (q.StartsWith(starter) && words.Length <= 5)
-                return true;
-
-        return false;
-    }
-
-    public async Task<Result<IReadOnlyList<ChatMessageResponseDto>>> GetMessagesAsync(Guid sessionId, CancellationToken ct)
+    public async Task<Result<IReadOnlyList<ChatMessageResponseDto>>> GetMessagesAsync(
+        Guid sessionId, CancellationToken ct)
     {
         var session = await _uow.Sessions.GetWithMessagesAsync(sessionId, ct);
         if (session is null)
-            return Result<IReadOnlyList<ChatMessageResponseDto>>.Failure(Error.NotFound("Oturum bulunamadı."));
+            return Result<IReadOnlyList<ChatMessageResponseDto>>.Failure(
+                Error.NotFound("Oturum bulunamadı."));
 
         if (session.UserId != _currentUser.UserId && !_currentUser.IsInRole(Roles.Admin))
-            return Result<IReadOnlyList<ChatMessageResponseDto>>.Failure(Error.Forbidden("Bu oturuma erişiminiz yok."));
+            return Result<IReadOnlyList<ChatMessageResponseDto>>.Failure(
+                Error.Forbidden("Bu oturuma erişiminiz yok."));
 
         var dtos = session.Messages
             .OrderBy(m => m.CreatedAt)
@@ -206,10 +287,12 @@ public class ChatService : IChatService
         return Result<IReadOnlyList<ChatMessageResponseDto>>.Success(dtos);
     }
 
-    public async Task<Result<bool>> RenameSessionAsync(Guid sessionId, string title, CancellationToken ct)
+    public async Task<Result<bool>> RenameSessionAsync(
+        Guid sessionId, string title, CancellationToken ct)
     {
         var session = await _uow.Sessions.GetByIdAsync(sessionId, ct);
-        if (session is null) return Result<bool>.Failure(Error.NotFound("Oturum bulunamadı."));
+        if (session is null)
+            return Result<bool>.Failure(Error.NotFound("Oturum bulunamadı."));
         if (session.UserId != _currentUser.UserId && !_currentUser.IsInRole(Roles.Admin))
             return Result<bool>.Failure(Error.Forbidden("Bu oturuma erişiminiz yok."));
         session.Title = title[..Math.Min(60, title.Length)];
@@ -217,7 +300,8 @@ public class ChatService : IChatService
         return Result<bool>.Success(true);
     }
 
-    public async Task<Result<IReadOnlyList<string>>> GetPopularQuestionsAsync(int limit, CancellationToken ct)
+    public async Task<Result<IReadOnlyList<string>>> GetPopularQuestionsAsync(
+        int limit, CancellationToken ct)
     {
         var allMessages = await _uow.Messages.FindAsync(m => m.Role == MessageRole.User, ct);
         var popular = allMessages
@@ -232,17 +316,20 @@ public class ChatService : IChatService
         return Result<IReadOnlyList<string>>.Success(popular);
     }
 
-    private static string NormalizeQuestion(string question) =>
-        new string(question.ToLowerInvariant().Where(c => char.IsLetterOrDigit(c) || char.IsWhiteSpace(c)).ToArray()).Trim();
-
     public async Task<Result<bool>> DeleteSessionAsync(Guid sessionId, CancellationToken ct)
     {
         var session = await _uow.Sessions.GetByIdAsync(sessionId, ct);
-        if (session is null) return Result<bool>.Failure(Error.NotFound("Oturum bulunamadı."));
+        if (session is null)
+            return Result<bool>.Failure(Error.NotFound("Oturum bulunamadı."));
         if (session.UserId != _currentUser.UserId && !_currentUser.IsInRole(Roles.Admin))
             return Result<bool>.Failure(Error.Forbidden("Bu oturuma erişiminiz yok."));
         _uow.Sessions.Delete(session);
         await _uow.SaveChangesAsync(ct);
         return Result<bool>.Success(true);
     }
+
+    private static string NormalizeQuestion(string question) =>
+        new string(question.ToLowerInvariant()
+            .Where(c => char.IsLetterOrDigit(c) || char.IsWhiteSpace(c))
+            .ToArray()).Trim();
 }

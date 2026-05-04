@@ -1,4 +1,5 @@
-﻿using Mapster;
+﻿// DocuChat.Application/Mappings/MappingConfig.cs
+using Mapster;
 using DocuChat.Domain.Entities;
 using DocuChat.Application.DTOs.Document;
 using DocuChat.Application.DTOs.Chat;
@@ -9,23 +10,20 @@ public static class MappingConfig
 {
     public static void Register()
     {
+        // Enum → string dönüşümleri özel mapping gerektirir
         TypeAdapterConfig<Document, DocumentResponseDto>
             .NewConfig()
             .Map(dest => dest.Status, src => src.Status.ToString())
             .Map(dest => dest.FileType, src => src.FileType.ToString());
 
+        // Role enum → string
         TypeAdapterConfig<ChatMessage, ChatMessageResponseDto>
             .NewConfig()
-            .Map(dest => dest.Role, src => src.Role.ToString())
-            .Map(dest => dest.ImagesJson, src => src.ImagesJson);
+            .Map(dest => dest.Role, src => src.Role.ToString());
 
-        TypeAdapterConfig<ChatSession, ChatSessionResponseDto>
-            .NewConfig();
-
-        TypeAdapterConfig<DocumentChunk, DocumentChunkDto>
-            .NewConfig()
-            .Map(dest => dest.Id, src => src.Id)
-            .Map(dest => dest.ChunkIndex, src => src.ChunkIndex)
-            .Map(dest => dest.Content, src => src.Content);
+        // ChatSession ve DocumentChunk 
+       
+        TypeAdapterConfig<ChatSession, ChatSessionResponseDto>.NewConfig();
+        TypeAdapterConfig<DocumentChunk, DocumentChunkDto>.NewConfig();
     }
 }

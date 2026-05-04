@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿// DocuChat.Infrastructure/DependencyInjection.cs
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,7 +11,6 @@ using DocuChat.Infrastructure.Identity;
 using DocuChat.Infrastructure.Persistence;
 using DocuChat.Infrastructure.Persistence.Repositories;
 using DocuChat.Infrastructure.Services;
-using DocuChat.Domain.Entities;
 
 namespace DocuChat.Infrastructure;
 
@@ -34,9 +34,9 @@ public static class DependencyInjection
         .AddDefaultTokenProviders();
 
         // Repositories
-        services.AddScoped(typeof(IRepository<>), typeof(GenericRepository<>));
         services.AddScoped<IChatSessionRepository, ChatSessionRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+        services.AddScoped<IQuestionCacheRepository, QuestionCacheRepository>();
 
         // Application Services
         services.AddScoped<IDocumentService, DocumentService>();
@@ -47,41 +47,49 @@ public static class DependencyInjection
         services.AddScoped<IDocumentParser, DocumentParserService>();
         services.AddScoped<IVectorSearch, VectorSearchService>();
         services.AddScoped<IFileStorage, LocalFileStorage>();
+        services.AddScoped<JwtTokenService>();
 
         // HttpClient — Embedding
+        // BaseAddress ve ApiKey burada set edilir — EmbeddingService constructor'da tekrar yapılmaz
         services.AddHttpClient<IEmbeddingService, EmbeddingService>(client =>
         {
-            client.BaseAddress = new Uri(cfg["Embedding:BaseUrl"]!);
+            client.BaseAddress = new Uri(cfg["Embedding:BaseUrl"]
+                ?? throw new InvalidOperationException("Embedding:BaseUrl config eksik."));
             client.Timeout = TimeSpan.FromMinutes(5);
 
-            if (!string.IsNullOrEmpty(cfg["Embedding:ApiKey"]))
+            var embeddingApiKey = cfg["Embedding:ApiKey"];
+            if (!string.IsNullOrEmpty(embeddingApiKey))
                 client.DefaultRequestHeaders.Add(
-                    "Authorization", $"Bearer {cfg["Embedding:ApiKey"]}");
+                    "Authorization", $"Bearer {embeddingApiKey}");
         });
 
         // HttpClient — LLM
+        // Provider'a göre header set edilir — LlmService constructor'da tekrar yapılmaz
         services.AddHttpClient<ILlmService, LlmService>(client =>
         {
-            client.BaseAddress = new Uri(cfg["Llm:BaseUrl"]!);
+            client.BaseAddress = new Uri(cfg["Llm:BaseUrl"]
+                ?? throw new InvalidOperationException("Llm:BaseUrl config eksik."));
             client.Timeout = TimeSpan.FromMinutes(5);
 
-            var provider = cfg["Llm:Provider"];
+            var provider = cfg["Llm:Provider"] ?? "OpenAI";
 
             if (provider == "Anthropic")
             {
                 client.DefaultRequestHeaders.Add("x-api-key", cfg["Llm:ApiKey"]);
                 client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
             }
-            else if (provider == "OpenAI")
+            else if (provider is "OpenAI" or "Ollama")
             {
-                client.DefaultRequestHeaders.Add(
-                    "Authorization", $"Bearer {cfg["Llm:ApiKey"]}");
+                var llmApiKey = cfg["Llm:ApiKey"];
+                if (!string.IsNullOrEmpty(llmApiKey))
+                    client.DefaultRequestHeaders.Add(
+                        "Authorization", $"Bearer {llmApiKey}");
             }
+            // Gemini kendi URL'ini kullanıyor — header burada set edilmez
         });
 
         // Identity helpers
         services.AddHttpContextAccessor();
-        services.AddScoped<JwtTokenService>();
         services.AddScoped<ICurrentUser, CurrentUserService>();
 
         // Mapster

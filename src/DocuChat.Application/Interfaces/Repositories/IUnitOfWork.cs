@@ -1,4 +1,5 @@
-﻿using DocuChat.Domain.Entities;
+﻿
+using DocuChat.Domain.Entities;
 
 namespace DocuChat.Application.Interfaces.Repositories;
 
@@ -9,5 +10,6 @@ public interface IUnitOfWork
     IChatSessionRepository Sessions { get; }
     IRepository<ChatMessage> Messages { get; }
 
+    Task<IReadOnlyList<(Guid Id, string FileName)>> GetDocumentNamesAsync(CancellationToken ct = default);
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

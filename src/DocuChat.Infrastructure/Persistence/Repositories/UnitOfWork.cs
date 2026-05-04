@@ -1,9 +1,11 @@
-﻿using DocuChat.Application.Interfaces.Repositories;
+﻿
+using Microsoft.EntityFrameworkCore;
+using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Domain.Entities;
 
 namespace DocuChat.Infrastructure.Persistence.Repositories;
 
-public class UnitOfWork : IUnitOfWork, IDisposable
+public class UnitOfWork : IUnitOfWork
 {
     private readonly AppDbContext _db;
 
@@ -21,8 +23,14 @@ public class UnitOfWork : IUnitOfWork, IDisposable
         Messages = new GenericRepository<ChatMessage>(db);
     }
 
+    public async Task<IReadOnlyList<(Guid Id, string FileName)>> GetDocumentNamesAsync(
+        CancellationToken ct = default)
+        => await _db.Documents
+            .Select(d => new { d.Id, d.FileName })
+            .ToListAsync(ct)
+            .ContinueWith(t => (IReadOnlyList<(Guid, string)>)
+                t.Result.Select(x => (x.Id, x.FileName)).ToList(), ct);
+
     public Task<int> SaveChangesAsync(CancellationToken ct = default)
         => _db.SaveChangesAsync(ct);
-
-    public void Dispose() => _db.Dispose();
 }

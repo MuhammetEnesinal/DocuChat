@@ -1,8 +1,8 @@
-﻿using System.Net.Http.Json;
+﻿
+using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using DocuChat.Application.Interfaces.Services;
-using DocuChat.Application.Interfaces.Repositories;
 
 namespace DocuChat.Infrastructure.Services;
 
@@ -14,16 +14,13 @@ public class EmbeddingService : IEmbeddingService
     public EmbeddingService(HttpClient http, IConfiguration cfg)
     {
         _http = http;
-        _model = cfg["Embedding:Model"]!;
-
-        if (_http.BaseAddress is null)
-            _http.BaseAddress = new Uri(cfg["Embedding:BaseUrl"]!);
+        _model = cfg["Embedding:Model"]
+            ?? throw new InvalidOperationException("Embedding:Model config eksik.");
     }
 
     public async Task<float[]> GetEmbeddingAsync(string text, CancellationToken ct = default)
     {
         var payload = new { model = _model, prompt = text };
-
         var response = await _http.PostAsJsonAsync("/api/embeddings", payload, ct);
 
         if (!response.IsSuccessStatusCode)

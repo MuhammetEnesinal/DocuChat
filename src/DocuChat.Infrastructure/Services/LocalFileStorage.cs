@@ -1,6 +1,6 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿// DocuChat.Infrastructure/Services/LocalFileStorage.cs
+using Microsoft.Extensions.Configuration;
 using DocuChat.Application.Interfaces.Services;
-using DocuChat.Application.Interfaces.Repositories;
 
 namespace DocuChat.Infrastructure.Services;
 
@@ -14,17 +14,23 @@ public class LocalFileStorage : IFileStorage
         Directory.CreateDirectory(_basePath);
     }
 
+    /// <summary>
+    /// Belge yüklemede kullanılır. Guid prefix eklenerek isim çakışması önlenir.
+    /// </summary>
     public async Task<string> SaveAsync(
         Stream stream, string fileName, CancellationToken ct = default)
     {
         var uniqueName = $"{Guid.NewGuid()}_{fileName}";
-        var fullPath = Path.Combine(_basePath, uniqueName);
+        return await WriteAsync(stream, uniqueName, ct);
+    }
 
-        await using var fs = File.Create(fullPath);
-        stream.Position = 0;
-        await stream.CopyToAsync(fs, ct);
-
-        return uniqueName;
+    /// <summary>
+    /// Parser'ın ürettiği resimler için — isim olduğu gibi kaydedilir, çift Guid olmaz.
+    /// </summary>
+    public async Task<string> SaveRawAsync(
+        Stream stream, string exactFileName, CancellationToken ct = default)
+    {
+        return await WriteAsync(stream, exactFileName, ct);
     }
 
     public Task DeleteAsync(string storagePath, CancellationToken ct = default)
@@ -42,5 +48,16 @@ public class LocalFileStorage : IFileStorage
         if (!File.Exists(fullPath))
             throw new FileNotFoundException($"Dosya bulunamadı: {fullPath}");
         return File.OpenRead(fullPath);
+    }
+
+    // ── ortak yazma mantığı ───────────────────────────────────────────────
+    private async Task<string> WriteAsync(
+        Stream stream, string fileName, CancellationToken ct)
+    {
+        var fullPath = Path.Combine(_basePath, fileName);
+        await using var fs = File.Create(fullPath);
+        stream.Position = 0;
+        await stream.CopyToAsync(fs, ct);
+        return fileName;
     }
 }
