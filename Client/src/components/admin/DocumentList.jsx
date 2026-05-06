@@ -178,7 +178,7 @@ export default function DocumentList({ documents, loading, search, onSearchChang
         } finally {
             setReprocessingId(null);
         }
-    }, [reprocessingId, onReprocess]);
+    }, [onReprocess]);
     const filtered = documents.filter(d => d.fileName.toLowerCase().includes(search.toLowerCase()));
 
     const handlePreview = useCallback((doc) => setPreviewDoc(doc), []);
@@ -272,7 +272,6 @@ export default function DocumentList({ documents, loading, search, onSearchChang
                 })}
             </div>
             {previewDoc && <PreviewModal doc={previewDoc} onClose={handleClosePreview} />}
-            <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
             <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
         </>
     );

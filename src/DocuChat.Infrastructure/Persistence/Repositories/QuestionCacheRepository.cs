@@ -27,16 +27,18 @@ public class QuestionCacheRepository : IQuestionCacheRepository
 
         if (!string.IsNullOrWhiteSpace(documentIds))
             query = query.Where(q => q.DocumentIds == documentIds);
+        else
+            query = query.Where(q => q.DocumentIds == null);
 
         return await query
             .OrderByDescending(q => 1 - q.QuestionVector.CosineDistance(vector))
             .FirstOrDefaultAsync(ct);
     }
 
-    public async Task AddAsync(QuestionCache entry, CancellationToken ct = default)
+    public Task AddAsync(QuestionCache entry, CancellationToken ct = default)
     {
         _db.QuestionCaches.Add(entry);
-        await _db.SaveChangesAsync(ct);
+        return Task.CompletedTask;
     }
 
     public async Task IncrementHitAsync(Guid id, CancellationToken ct = default)

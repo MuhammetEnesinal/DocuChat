@@ -69,7 +69,7 @@ public class DocumentService : IDocumentService
             await req.FileStream.CopyToAsync(ms, ct);
             ms.Position = 0;
 
-            var chunks = _parser.Parse(ms, doc.FileType);
+            var chunks = await _parser.ParseAsync(ms, doc.FileType);
             int idx = 0;
 
             foreach (var parsed in chunks)
@@ -82,6 +82,7 @@ public class DocumentService : IDocumentService
                     ChunkIndex = idx++,
                     Embedding = vec,
                     ImagePath = parsed.ImagePath,
+                    Header = parsed.Header,
                 }, ct);
             }
 
@@ -169,7 +170,7 @@ public class DocumentService : IDocumentService
         try
         {
             using var stream = _fileStorage.Read(doc.StoragePath);
-            var chunks = _parser.Parse(stream, doc.FileType);
+            var chunks = await _parser.ParseAsync(stream, doc.FileType);
             int idx = 0;
 
             foreach (var parsed in chunks)
@@ -182,6 +183,7 @@ public class DocumentService : IDocumentService
                     ChunkIndex = idx++,
                     Embedding = vec,
                     ImagePath = parsed.ImagePath,
+                    Header = parsed.Header,
                 }, ct);
             }
 

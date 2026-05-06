@@ -7,5 +7,6 @@ public class DocumentChunk : BaseEntity
     public int ChunkIndex { get; set; }
     public float[] Embedding { get; set; } = Array.Empty<float>();
     public string? ImagePath { get; set; }
+    public string? Header { get; set; }
     public Document? Document { get; set; }
 }

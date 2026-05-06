@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getDocuments, uploadDocument, deleteDocument, reprocessDocument, getDocumentChunks, adminGetUsers, adminCreateUser, adminDeleteUser } from '../services/api';
+import { getDocuments, uploadDocument, deleteDocument, reprocessDocument, getDocumentChunks, adminGetUsers, adminCreateUser, adminDeleteUser, API_BASE } from '../services/api';
 import { useToast } from '../components/shared/Toast';
 import Modal from '../components/shared/Modal';
 import DocumentUpload from '../components/admin/DocumentUpload';
@@ -53,7 +53,7 @@ export default function Admin() {
         try {
             const res = await adminGetUsers();
             setUsers(res.data.data || []);
-        } catch { }
+        } catch { toast.error('Kullanıcılar yüklenemedi.'); }
         finally { setUsersLoading(false); }
     }, []);
 
@@ -213,15 +213,38 @@ export default function Admin() {
                             <div style={{ textAlign: 'center', padding: '32px' }}>
                                 <div style={{ width: '24px', height: '24px', borderRadius: '50%', border: '2px solid var(--accent)', borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite', margin: '0 auto' }} />
                             </div>
-                        ) : chunks.map((chunk) => (
-                            <div key={chunk.id} style={{ borderRadius: '12px', padding: '16px', background: 'var(--surface2)', border: '1px solid var(--border)' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', fontWeight: 500, background: 'rgba(59,130,246,0.15)', color: '#93c5fd', border: '1px solid rgba(59,130,246,0.2)' }}>Chunk #{chunk.chunkIndex + 1}</span>
-                                    <span style={{ fontSize: '12px', color: '#475569' }}>{chunk.content.length} karakter</span>
+                        ) : chunks.map((chunk) => {
+                            let chunkImages = [];
+                            if (chunk.imagePath) {
+                                try { chunkImages = JSON.parse(chunk.imagePath); } catch { }
+                            }
+                            return (
+                                <div key={chunk.id} style={{ borderRadius: '12px', padding: '16px', background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                        <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', fontWeight: 500, background: 'rgba(59,130,246,0.15)', color: '#93c5fd', border: '1px solid rgba(59,130,246,0.2)' }}>Chunk #{chunk.chunkIndex + 1}</span>
+                                        <span style={{ fontSize: '12px', color: '#475569' }}>{chunk.content.length} karakter</span>
+                                        {chunkImages.length > 0 && (
+                                            <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', fontWeight: 500, background: 'rgba(34,197,94,0.15)', color: '#86efac', border: '1px solid rgba(34,197,94,0.2)' }}>{chunkImages.length} görsel</span>
+                                        )}
+                                    </div>
+                                    <p style={{ fontSize: '12px', lineHeight: 1.6, whiteSpace: 'pre-wrap', color: 'var(--text-muted)', margin: 0 }}>{chunk.content}</p>
+                                    {chunkImages.length > 0 && (
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '12px' }}>
+                                            {chunkImages.map((imgPath, i) => (
+                                                <img
+                                                    key={i}
+                                                    src={`${API_BASE}/uploads/${imgPath}`}
+                                                    alt={`Görsel ${i + 1}`}
+                                                    style={{ maxWidth: '120px', maxHeight: '90px', objectFit: 'contain', borderRadius: '6px', border: '1px solid var(--border)', cursor: 'pointer' }}
+                                                    onClick={() => window.open(`${API_BASE}/uploads/${imgPath}`, '_blank')}
+                                                    onError={e => { e.currentTarget.style.display = 'none'; }}
+                                                />
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
-                                <p style={{ fontSize: '12px', lineHeight: 1.6, whiteSpace: 'pre-wrap', color: 'var(--text-muted)', margin: 0 }}>{chunk.content}</p>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </Modal>
             )}

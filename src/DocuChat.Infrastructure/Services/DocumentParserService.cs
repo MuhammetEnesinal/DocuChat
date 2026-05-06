@@ -13,6 +13,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using ClosedXML.Excel;
 using UglyToad.PdfPig;
+using Microsoft.Extensions.Logging;
 
 namespace DocuChat.Infrastructure.Services;
 
@@ -24,12 +25,14 @@ public class DocumentParserService : IDocumentParser
     private readonly string _groqVisionModel;
     private readonly string _llamaParseApiKey;
     private readonly IFileStorage _fileStorage;
+    private readonly ILogger<DocumentParserService> _logger;
 
     private const int RenderDpi = 400;
 
     public DocumentParserService(
         Microsoft.Extensions.Configuration.IConfiguration cfg,
-        IFileStorage fileStorage)
+        IFileStorage fileStorage,
+        ILogger<DocumentParserService> logger)
     {
         _chunkSize = int.Parse(cfg["Chunking:ChunkSize"] ?? "1200");
         _overlap = int.Parse(cfg["Chunking:Overlap"] ?? "100");
@@ -38,22 +41,28 @@ public class DocumentParserService : IDocumentParser
         _groqVisionModel = cfg["GroqVision:Model"] ?? "meta-llama/llama-4-scout-17b-16e-instruct";
         _llamaParseApiKey = cfg["LlamaParse:ApiKey"] ?? "";
         _fileStorage = fileStorage;
+        _logger = logger;
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    public IEnumerable<ParsedChunk> Parse(Stream stream, FileType fileType)
+    public async Task<IEnumerable<ParsedChunk>> ParseAsync(Stream stream, FileType fileType)
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
-        var raw = fileType switch
+        IEnumerable<ParsedChunk> raw = fileType switch
         {
-            FileType.Docx => SemanticChunk(ExtractDocx(stream)),
-            FileType.Doc => SemanticChunk(ExtractDocViaLlamaParse(stream)),
-            FileType.Pdf => PdfToSemanticChunks(stream),
-            FileType.Xlsx => ChunkXlsxWithImages(stream),
+            FileType.Xlsx => await ChunkXlsxWithImagesAsync(stream),
             FileType.Csv => Chunk(ExtractCsv(stream)),
-            _ => Chunk(ExtractTxt(stream)),
+            FileType.Txt => Chunk(ExtractTxt(stream)),
+            _ => null!,
         };
+
+        if (fileType == FileType.Docx)
+            raw = SemanticChunk(await ExtractDocxAsync(stream));
+        else if (fileType == FileType.Doc)
+            raw = SemanticChunk(await ExtractDocViaLlamaParseAsync(stream));
+        else if (fileType == FileType.Pdf)
+            raw = await PdfToSemanticChunksAsync(stream);
 
         return fileType is FileType.Docx or FileType.Doc or FileType.Pdf
             ? PostProcess(raw)
@@ -63,7 +72,7 @@ public class DocumentParserService : IDocumentParser
     // ── PDF — Groq Vision + PdfPig resimleri ─────────────────────────────
     private record PageResult(string Text, string? ImagePath);
 
-    private IEnumerable<PageResult> ExtractPdfPages(Stream stream)
+    private async Task<List<PageResult>> ExtractPdfPagesAsync(Stream stream)
     {
         var pdfBytes = ReadAllBytes(stream);
         var pages = new List<PageResult>();
@@ -80,16 +89,15 @@ public class DocumentParserService : IDocumentParser
                 {
                     try
                     {
-                        pageText = OcrPageWithGroqAsync(bitmap, _groqApiKey, _groqVisionModel)
-                                       .GetAwaiter().GetResult();
+                        pageText = await OcrPageWithGroqAsync(bitmap, _groqApiKey, _groqVisionModel);
                         if (!string.IsNullOrWhiteSpace(pageText)) break;
                     }
                     catch (Exception ex)
                     {
                         if (attempt == 0)
                         {
-                            Console.WriteLine($"[OCR] Retry: {ex.Message}");
-                            Thread.Sleep(10_000);
+                            _logger.LogWarning("[OCR] Retry: {Message}", ex.Message);
+                            await Task.Delay(10_000);
                         }
                         else throw;
                     }
@@ -98,13 +106,34 @@ public class DocumentParserService : IDocumentParser
                 if (!string.IsNullOrWhiteSpace(pageText) && !pageText.Contains("[BOŞ_SAYFA]"))
                     pages.Add(new PageResult(pageText, null));
 
-                Thread.Sleep(2_000);
+                await Task.Delay(2_000);
             }
             finally { bitmap.Dispose(); }
         }
 
         // PdfPig ile resimleri çıkar ve sayfalarla eşleştir
-        pages = AttachPdfPigImages(pdfBytes, pages).GetAwaiter().GetResult();
+        pages = await AttachPdfPigImages(pdfBytes, pages);
+
+        // [IMAGE_HERE] marker'larını PdfPig resim sırasına göre [IMG_REF:N]'e çevir
+        for (var i = 0; i < pages.Count; i++)
+        {
+            var page = pages[i];
+            if (string.IsNullOrWhiteSpace(page.ImagePath)) continue;
+
+            List<string> imgPaths;
+            try { imgPaths = JsonSerializer.Deserialize<List<string>>(page.ImagePath) ?? new(); }
+            catch { continue; }
+            if (imgPaths.Count == 0) continue;
+
+            var imgIdx = 0;
+            var newText = System.Text.RegularExpressions.Regex.Replace(
+                page.Text,
+                @"\[IMAGE_HERE\]",
+                _ => imgIdx < imgPaths.Count ? $"[IMG_REF:{imgIdx++}]" : "");
+
+            pages[i] = new PageResult(newText, page.ImagePath);
+        }
+
         return pages;
     }
 
@@ -184,11 +213,15 @@ public class DocumentParserService : IDocumentParser
             • Tarihler, yüzdeler, para birimleri — değiştirme.
 
             ════════════════════════════════════════════════════════════
-            7. RESİMLER
+            7. RESİMLER / GÖRSELLER / GRAFİKLER
             ════════════════════════════════════════════════════════════
-            • Sayfada resim, fotoğraf, grafik varsa YOKSAY — sadece metni çıkar.
-            • Resim altındaki/yanındaki metin açıklamalarını yaz.
-            • Resimler ayrıca işlenecektir.
+            • Sayfada resim, fotoğraf, grafik, şema, diyagram, tablo görseli varsa:
+              Tam o konuma (metnin içinde görsel neredeyse orada) sadece şunu yaz: [IMAGE_HERE]
+            • Her görsel için bir tane [IMAGE_HERE] yaz. Birden fazla görsel varsa her birine ayrı [IMAGE_HERE].
+            • Görselin altında veya yanında açıklama metni, şekil numarası, başlık varsa onu da aynen yaz.
+              Örnek: [IMAGE_HERE] Şekil 1. Üretim Akış Diyagramı
+            • Sadece [IMAGE_HERE] yaz, başka hiçbir şey ekleme (resim yok, görsel mevcut gibi açıklamalar yazma).
+            • Logo, imza, arka plan deseni gibi içerik taşımayan görseller için [IMAGE_HERE] yazma.
 
             ════════════════════════════════════════════════════════════
             8. ÇIKTI KALİTESİ
@@ -250,7 +283,7 @@ public class DocumentParserService : IDocumentParser
                 using var imgStream = new MemoryStream(imgBytes);
                 var savedPath = await _fileStorage.SaveRawAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}");
                 imagePaths.Add(savedPath);
-                Console.WriteLine($"[PdfPig] Sayfa {pageNum}: resim kaydedildi");
+                _logger.LogInformation("[PdfPig] Sayfa {PageNum}: resim kaydedildi", pageNum);
             }
 
             if (imagePaths.Count > 0)
@@ -264,7 +297,7 @@ public class DocumentParserService : IDocumentParser
 
     // ── DOCX parse ───────────────────────────────────────────────────────────
     // ── DOCX — MHTML tespiti → HTML parse, yoksa OpenXml ile doğrudan oku ──
-    private string ExtractDocx(Stream stream)
+    private async Task<string> ExtractDocxAsync(Stream stream)
     {
         stream.Position = 0;
         using var ms = new MemoryStream();
@@ -276,13 +309,13 @@ public class DocumentParserService : IDocumentParser
         var header = System.Text.Encoding.ASCII.GetString(rawBytes, 0, Math.Min(20, rawBytes.Length));
         if (header.StartsWith("Message-ID:") || header.StartsWith("MIME-Version:"))
         {
-            Console.WriteLine("[DOCX] MHTML formatı tespit edildi, HTML parser kullanılıyor.");
-            return ExtractMhtml(rawBytes);
+            _logger.LogInformation("[DOCX] MHTML formatı tespit edildi, HTML parser kullanılıyor.");
+            return await ExtractMhtmlAsync(rawBytes);
         }
 
         // OpenXml ile çıkar
         stream.Position = 0;
-        var ridToPath = ExtractDocxImages(stream);
+        var ridToPath = await ExtractDocxImagesAsync(stream);
         stream.Position = 0;
         var text = ExtractDocxViaOpenXml(stream);
 
@@ -308,13 +341,13 @@ public class DocumentParserService : IDocumentParser
         if (docxImagePaths.Any())
             text = $"[DOCX_IMAGES:{JsonSerializer.Serialize(docxImagePaths)}]\n" + text;
 
-        Console.WriteLine($"[DOCX] OpenXml, {text.Length} karakter, {ridToPath.Count} resim");
+        _logger.LogInformation("[DOCX] OpenXml, {Chars} karakter, {Images} resim", text.Length, ridToPath.Count);
         return text;
     }
 
 
     // ── DOC — MHTML tespiti → HTML parse, yoksa LlamaParse ─────────────────
-    private string ExtractDocViaLlamaParse(Stream stream)
+    private async Task<string> ExtractDocViaLlamaParseAsync(Stream stream)
     {
         stream.Position = 0;
         using var ms = new MemoryStream();
@@ -326,17 +359,17 @@ public class DocumentParserService : IDocumentParser
         var header = System.Text.Encoding.ASCII.GetString(rawBytes, 0, Math.Min(20, rawBytes.Length));
         if (header.StartsWith("Message-ID:") || header.StartsWith("MIME-Version:"))
         {
-            Console.WriteLine("[DOC] MHTML formatı tespit edildi, HTML parser kullanılıyor.");
-            return ExtractMhtml(rawBytes);
+            _logger.LogInformation("[DOC] MHTML formatı tespit edildi, HTML parser kullanılıyor.");
+            return await ExtractMhtmlAsync(rawBytes);
         }
 
         // Gerçek binary .doc — LlamaParse metin, binary scan resimler
-        var imagePaths = ExtractDocImages(stream);
+        var imagePaths = await ExtractDocImagesAsync(stream);
         stream.Position = 0;
 
         string text;
         stream.Position = 0;
-        text = CallLlamaParseAsync(stream, "application/msword", "document.doc").GetAwaiter().GetResult();
+        text = await CallLlamaParseAsync(stream, "application/msword", "document.doc");
 
         // Resimler ayrı chunk olarak eklenecek — metin sonuna işaret koy
         if (imagePaths.Any())
@@ -349,7 +382,7 @@ public class DocumentParserService : IDocumentParser
         return text;
     }
 
-    private string ExtractMhtml(byte[] rawBytes)
+    private async Task<string> ExtractMhtmlAsync(byte[] rawBytes)
     {
         var msg = MimeMessage.Load(new MemoryStream(rawBytes));
 
@@ -378,7 +411,7 @@ public class DocumentParserService : IDocumentParser
                 else ext = "png";
 
                 imgStream.Position = 0;
-                var savedPath = _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}").GetAwaiter().GetResult();
+                var savedPath = await _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}");
                 allPaths.Add(savedPath);
 
                 if (!string.IsNullOrWhiteSpace(mime.ContentId))
@@ -387,9 +420,9 @@ public class DocumentParserService : IDocumentParser
                 if (!string.IsNullOrWhiteSpace(loc))
                     fileToPath[System.IO.Path.GetFileName(loc)] = savedPath;
 
-                Console.WriteLine($"[MHTML] Resim kaydedildi: {savedPath}");
+                _logger.LogDebug("[MHTML] Resim kaydedildi: {Path}", savedPath);
             }
-            catch (Exception ex) { Console.WriteLine($"[MHTML] Resim hatasi: {ex.Message}"); }
+            catch (Exception ex) { _logger.LogWarning("[MHTML] Resim hatası: {Message}", ex.Message); }
         }
 
         // 2. HTML'i oku, <img> → [IMG_REF:N] ile değiştir
@@ -438,7 +471,7 @@ public class DocumentParserService : IDocumentParser
         if (finalPaths.Any())
             sb.Insert(0, $"[DOCX_IMAGES:{JsonSerializer.Serialize(finalPaths)}]\n");
 
-        Console.WriteLine($"[MHTML] {sb.Length} kar, {allPaths.Count} resim ({orderedPaths.Count} konumlandirildi).");
+        _logger.LogInformation("[MHTML] {Chars} karakter, {Total} resim ({Located} konumlandırıldı)", sb.Length, allPaths.Count, orderedPaths.Count);
         return sb.ToString();
     }
 
@@ -557,19 +590,32 @@ public class DocumentParserService : IDocumentParser
                 }
 
                 var style = para.ParagraphProperties?.ParagraphStyleId?.Val?.Value ?? "";
-                var text = para.InnerText.Trim();
-                if (string.IsNullOrWhiteSpace(text)) { sb.AppendLine(); continue; }
+                var plainText = para.InnerText.Trim();
+                if (string.IsNullOrWhiteSpace(plainText)) { sb.AppendLine(); continue; }
 
                 if (style.StartsWith("Heading1") || style == "Title")
-                    sb.AppendLine("# " + text);
+                    sb.AppendLine("# " + plainText);
                 else if (style.StartsWith("Heading2"))
-                    sb.AppendLine("## " + text);
+                    sb.AppendLine("## " + plainText);
                 else if (style.StartsWith("Heading3"))
-                    sb.AppendLine("### " + text);
+                    sb.AppendLine("### " + plainText);
                 else if (style.StartsWith("Heading4") || style.StartsWith("Heading5") || style.StartsWith("Heading6"))
-                    sb.AppendLine("#### " + text);
+                    sb.AppendLine("#### " + plainText);
                 else
-                    sb.AppendLine(text);
+                {
+                    var richText = ExtractRunText(para);
+                    var numProps = para.ParagraphProperties?.NumberingProperties;
+                    if (numProps != null)
+                    {
+                        var ilvl = numProps.NumberingLevelReference?.Val?.Value ?? 0;
+                        var indent = new string(' ', ilvl * 2);
+                        sb.AppendLine($"{indent}- {richText}");
+                    }
+                    else
+                    {
+                        sb.AppendLine(richText);
+                    }
+                }
             }
             else if (element is DocumentFormat.OpenXml.Wordprocessing.Table table)
             {
@@ -594,8 +640,21 @@ public class DocumentParserService : IDocumentParser
         return sb.ToString();
     }
 
+    private static string ExtractRunText(DocumentFormat.OpenXml.Wordprocessing.Paragraph para)
+    {
+        var sb = new StringBuilder();
+        foreach (var run in para.Descendants<DocumentFormat.OpenXml.Wordprocessing.Run>())
+        {
+            var t = run.InnerText;
+            if (string.IsNullOrEmpty(t)) continue;
+            var isBold = run.RunProperties?.Bold != null;
+            sb.Append(isBold && t.Trim().Length > 0 ? $"**{t.Trim()}**" : t);
+        }
+        return sb.ToString().Trim();
+    }
+
     // ── DOCX — OpenXml ile resimleri çıkar (rId → path mapping) ────────────
-    private Dictionary<string, string> ExtractDocxImages(Stream stream)
+    private async Task<Dictionary<string, string>> ExtractDocxImagesAsync(Stream stream)
     {
         var ridToPath = new Dictionary<string, string>();
         try
@@ -631,20 +690,20 @@ public class DocumentParserService : IDocumentParser
                         };
 
                         imgStream.Position = 0;
-                        var savedPath = _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}").GetAwaiter().GetResult();
+                        var savedPath = await _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}");
                         ridToPath[rel.RelationshipId] = savedPath;
-                        Console.WriteLine($"[DOCX] Resim kaydedildi: rId={rel.RelationshipId} → {savedPath}");
+                        _logger.LogDebug("[DOCX] Resim kaydedildi: rId={RId} → {Path}", rel.RelationshipId, savedPath);
                     }
-                    catch (Exception ex) { Console.WriteLine($"[DOCX] Resim hatası: {ex.Message}"); }
+                    catch (Exception ex) { _logger.LogWarning("[DOCX] Resim hatası: {Message}", ex.Message); }
                 }
             }
-            Console.WriteLine($"[DOCX] {ridToPath.Count} resim çıkarıldı.");
+            _logger.LogInformation("[DOCX] {Count} resim çıkarıldı", ridToPath.Count);
         }
-        catch (Exception ex) { Console.WriteLine($"[DOCX] Resim çıkarma genel hata: {ex.Message}"); }
+        catch (Exception ex) { _logger.LogError(ex, "[DOCX] Resim çıkarma genel hata"); }
         return ridToPath;
     }
 
-    private List<string> ExtractDocImages(Stream stream)
+    private async Task<List<string>> ExtractDocImagesAsync(Stream stream)
     {
         var imagePaths = new List<string>();
         stream.Position = 0;
@@ -662,7 +721,7 @@ public class DocumentParserService : IDocumentParser
                 var end = FindJpegEnd(data, i);
                 if (end > i + 512)
                 {
-                    var path = SaveImageBytes(data[i..end], "jpg");
+                    var path = await SaveImageBytesAsync(data[i..end], "jpg");
                     if (path != null) imagePaths.Add(path);
                     i = end; continue;
                 }
@@ -673,14 +732,14 @@ public class DocumentParserService : IDocumentParser
                 var end = FindPngEnd(data, i);
                 if (end > i + 512)
                 {
-                    var path = SaveImageBytes(data[i..end], "png");
+                    var path = await SaveImageBytesAsync(data[i..end], "png");
                     if (path != null) imagePaths.Add(path);
                     i = end; continue;
                 }
             }
             i++;
         }
-        Console.WriteLine($"[DOC] Binary scan: {imagePaths.Count} resim bulundu.");
+        _logger.LogInformation("[DOC] Binary scan: {Count} resim bulundu", imagePaths.Count);
         return imagePaths;
     }
 
@@ -699,16 +758,16 @@ public class DocumentParserService : IDocumentParser
         return data.Length;
     }
 
-    private string? SaveImageBytes(byte[] imgBytes, string ext)
+    private async Task<string?> SaveImageBytesAsync(byte[] imgBytes, string ext)
     {
         try
         {
             using var imgStream = new MemoryStream(imgBytes);
-            var path = _fileStorage.SaveRawAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}").GetAwaiter().GetResult();
-            Console.WriteLine($"[DOC] Resim kaydedildi: {path}");
+            var path = await _fileStorage.SaveRawAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}");
+            _logger.LogDebug("[DOC] Resim kaydedildi: {Path}", path);
             return path;
         }
-        catch (Exception ex) { Console.WriteLine($"[DOC] Resim kaydetme hatası: {ex.Message}"); return null; }
+        catch (Exception ex) { _logger.LogWarning("[DOC] Resim kaydetme hatası: {Message}", ex.Message); return null; }
     }
 
     // ── LlamaParse ortak metot ────────────────────────────────────────────
@@ -778,7 +837,7 @@ public class DocumentParserService : IDocumentParser
 
         var uploadJson = JsonSerializer.Deserialize<JsonElement>(uploadBody);
         var jobId = uploadJson.GetProperty("id").GetString();
-        Console.WriteLine($"[LlamaParse] Job ID: {jobId}");
+        _logger.LogInformation("[LlamaParse] Job ID: {JobId}", jobId);
 
         for (var i = 0; i < 60; i++)
         {
@@ -786,7 +845,7 @@ public class DocumentParserService : IDocumentParser
             var statusResp = await http.GetAsync($"https://api.cloud.llamaindex.ai/api/v1/parsing/job/{jobId}");
             var statusJson = JsonSerializer.Deserialize<JsonElement>(await statusResp.Content.ReadAsStringAsync());
             var status = statusJson.TryGetProperty("status", out var s) ? s.GetString() : "";
-            Console.WriteLine($"[LlamaParse] Status: {status}");
+            _logger.LogInformation("[LlamaParse] Status: {Status}", status);
             if (status == "SUCCESS") break;
             if (status == "ERROR") throw new InvalidOperationException("[LlamaParse] İşlem başarısız.");
         }
@@ -798,14 +857,13 @@ public class DocumentParserService : IDocumentParser
 
         var resultJson = JsonSerializer.Deserialize<JsonElement>(resultBody);
         var markdown = resultJson.TryGetProperty("markdown", out var md) ? md.GetString() ?? "" : resultBody;
-        markdown = markdown.Replace("**", "");
-        Console.WriteLine($"[LlamaParse] Başarılı, {markdown.Length} karakter");
+        _logger.LogInformation("[LlamaParse] Başarılı, {Chars} karakter", markdown.Length);
         return markdown;
     }
 
     // ── XLSX resim çıkarma — satır numarasıyla eşleştir ────────────────────
     // Dönüş: Dictionary<rowIndex, List<imagePath>>
-    private Dictionary<int, List<string>> ExtractXlsxImagesWithRows(Stream stream)
+    private async Task<Dictionary<int, List<string>>> ExtractXlsxImagesWithRowsAsync(Stream stream)
     {
         var rowToImages = new Dictionary<int, List<string>>();
         try
@@ -837,7 +895,7 @@ public class DocumentParserService : IDocumentParser
                         else ext = "png";
 
                         imgStream.Position = 0;
-                        var savedPath = _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}").GetAwaiter().GetResult();
+                        var savedPath = await _fileStorage.SaveAsync(imgStream, $"img_{Guid.NewGuid()}.{ext}");
 
                         // Resmin bulunduğu satır numarasını al (1-indexed)
                         var rowIdx = picture.TopLeftCell?.Address.RowNumber ?? 0;
@@ -845,21 +903,21 @@ public class DocumentParserService : IDocumentParser
                             rowToImages[rowIdx] = new List<string>();
                         rowToImages[rowIdx].Add(savedPath);
 
-                        Console.WriteLine($"[XLSX] Resim çıkartıldı: satır={rowIdx}, {savedPath}");
+                        _logger.LogDebug("[XLSX] Resim çıkartıldı: satır={Row}, {Path}", rowIdx, savedPath);
                     }
-                    catch (Exception ex) { Console.WriteLine($"[XLSX] Resim hatası: {ex.Message}"); }
+                    catch (Exception ex) { _logger.LogWarning("[XLSX] Resim hatası: {Message}", ex.Message); }
                 }
             }
-            Console.WriteLine($"[XLSX] {rowToImages.Values.Sum(v => v.Count)} resim çıkartıldı.");
+            _logger.LogInformation("[XLSX] {Count} resim çıkartıldı", rowToImages.Values.Sum(v => v.Count));
         }
-        catch (Exception ex) { Console.WriteLine($"[XLSX] Resim çıkarma genel hata: {ex.Message}"); }
+        catch (Exception ex) { _logger.LogError(ex, "[XLSX] Resim çıkarma genel hata"); }
         return rowToImages;
     }
 
     // Geriye uyumluluk için eski imza
-    private List<string> ExtractXlsxImages(Stream stream)
+    private async Task<List<string>> ExtractXlsxImagesAsync(Stream stream)
     {
-        return ExtractXlsxImagesWithRows(stream).Values.SelectMany(v => v).ToList();
+        return (await ExtractXlsxImagesWithRowsAsync(stream)).Values.SelectMany(v => v).ToList();
     }
 
     // ── XLSX ──────────────────────────────────────────────────────────────
@@ -915,11 +973,13 @@ public class DocumentParserService : IDocumentParser
     }
 
     // ── XLSX: metin + resim eşleştirmeli chunk ───────────────────────────────
-    private IEnumerable<ParsedChunk> ChunkXlsxWithImages(Stream stream)
+    private async Task<List<ParsedChunk>> ChunkXlsxWithImagesAsync(Stream stream)
     {
+        var result = new List<ParsedChunk>();
+
         // Resim → satır mapping
         stream.Position = 0;
-        var rowToImages = ExtractXlsxImagesWithRows(stream);
+        var rowToImages = await ExtractXlsxImagesWithRowsAsync(stream);
 
         // Metin çıkar
         stream.Position = 0;
@@ -1005,7 +1065,7 @@ public class DocumentParserService : IDocumentParser
                     sb.AppendLine(headerLine);
                     foreach (var r in batch) sb.AppendLine(r);
                     sb.AppendLine("[TABLO BİTİŞ]");
-                    yield return new ParsedChunk(sb.ToString().Trim(), imagePath);
+                    result.Add(new ParsedChunk(sb.ToString().Trim(), imagePath));
                     batch.Clear();
                     batchImages.Clear();
                     batchStart = ri + 2;
@@ -1021,9 +1081,11 @@ public class DocumentParserService : IDocumentParser
                 sb.AppendLine(headerLine);
                 foreach (var r in batch) sb.AppendLine(r);
                 sb.AppendLine("[TABLO BİTİŞ]");
-                yield return new ParsedChunk(sb.ToString().Trim(), imagePath);
+                result.Add(new ParsedChunk(sb.ToString().Trim(), imagePath));
             }
         }
+
+        return result;
     }
 
     private static void FlushBatch(StringBuilder sb, string sheetName, string headerLine, List<string> batch)
@@ -1116,9 +1178,10 @@ public class DocumentParserService : IDocumentParser
 
 
     // ── PDF: her sayfa kendi resmiyle chunk'lanır ──────────────────────────
-    private IEnumerable<ParsedChunk> PdfToSemanticChunks(Stream stream)
+    private async Task<List<ParsedChunk>> PdfToSemanticChunksAsync(Stream stream)
     {
-        var pages = ExtractPdfPages(stream).ToList();
+        var pages = await ExtractPdfPagesAsync(stream);
+        var result = new List<ParsedChunk>();
 
         foreach (var page in pages)
         {
@@ -1135,9 +1198,10 @@ public class DocumentParserService : IDocumentParser
                 ? $"[DOCX_IMAGES:{page.ImagePath}]\n{cleanText}"
                 : cleanText;
 
-            foreach (var chunk in SemanticChunk(pageText, null))
-                yield return chunk;
+            result.AddRange(SemanticChunk(pageText, null));
         }
+
+        return result;
     }
 
     // ── PostProcess: minimum boyut + overlap ─────────────────────────────
@@ -1204,6 +1268,8 @@ public class DocumentParserService : IDocumentParser
         var segments = SplitPreservingTables(text).ToList();
         var buffer = new StringBuilder();
         var pendingHeadings = new StringBuilder(); // henüz içerik gelmeyen başlıklar
+        var currentH1 = string.Empty;
+        var currentH2 = string.Empty;
 
         foreach (var segment in segments)
         {
@@ -1213,7 +1279,10 @@ public class DocumentParserService : IDocumentParser
                 {
                     var p = buffer.ToString().Trim();
                     if (!string.IsNullOrWhiteSpace(p) && !IsBinaryContent(p))
-                        yield return new ParsedChunk(p, imagePath);
+                    {
+                        var hp = currentH2.Length > 0 ? $"{currentH1} > {currentH2}" : currentH1.Length > 0 ? currentH1 : (string?)null;
+                        yield return new ParsedChunk(p, p.Contains("[IMG_REF:") ? imagePath : null, hp);
+                    }
                     buffer.Clear();
                 }
                 var tableContent = pendingHeadings.Length > 0
@@ -1221,7 +1290,10 @@ public class DocumentParserService : IDocumentParser
                     : segment.Trim();
                 pendingHeadings.Clear();
                 if (!string.IsNullOrWhiteSpace(tableContent))
-                    yield return new ParsedChunk(tableContent, imagePath);
+                {
+                    var hpT = currentH2.Length > 0 ? $"{currentH1} > {currentH2}" : currentH1.Length > 0 ? currentH1 : (string?)null;
+                    yield return new ParsedChunk(tableContent, tableContent.Contains("[IMG_REF:") ? imagePath : null, hpT);
+                }
                 continue;
             }
 
@@ -1259,14 +1331,21 @@ public class DocumentParserService : IDocumentParser
 
                     if (isTopHeading)
                     {
-                        // Üst başlık geldi — mevcut birikmiş içeriği yield et
+                        // Üst başlık geldi — mevcut birikmiş içeriği yield et (ESKİ header ile)
                         if (buffer.Length > 0)
                         {
                             var chunk = buffer.ToString().Trim();
                             if (!string.IsNullOrWhiteSpace(chunk) && !IsBinaryContent(chunk))
-                                yield return new ParsedChunk(chunk, imagePath);
+                            {
+                                var hp = currentH2.Length > 0 ? $"{currentH1} > {currentH2}" : currentH1.Length > 0 ? currentH1 : (string?)null;
+                                yield return new ParsedChunk(chunk, chunk.Contains("[IMG_REF:") ? imagePath : null, hp);
+                            }
                             buffer.Clear();
                         }
+                        // Heading değişkenlerini flush'tan SONRA güncelle
+                        if (trimmed.StartsWith("# "))        { currentH1 = trimmed[2..].Trim(); currentH2 = string.Empty; }
+                        else if (trimmed.StartsWith("## "))  { currentH2 = trimmed[3..].Trim(); }
+
                         // Pending başlıklar varsa buffer'a taşı (içerik olmadan kalmış)
                         // Ama önce yeni üst başlığı pending'e al
                         if (pendingHeadings.Length > 0)
@@ -1299,11 +1378,12 @@ public class DocumentParserService : IDocumentParser
                 {
                     var bufferText = buffer.ToString().Trim();
                     var splitPoint = FindLastSentenceEnd(bufferText);
+                    var hpSplit = currentH2.Length > 0 ? $"{currentH1} > {currentH2}" : currentH1.Length > 0 ? currentH1 : (string?)null;
                     if (splitPoint > _chunkSize / 2)
                     {
                         var chunkText = bufferText[..splitPoint].Trim();
                         if (!string.IsNullOrWhiteSpace(chunkText) && !IsBinaryContent(chunkText))
-                            yield return new ParsedChunk(chunkText, imagePath);
+                            yield return new ParsedChunk(chunkText, chunkText.Contains("[IMG_REF:") ? imagePath : null, hpSplit);
                         var remainder = bufferText[splitPoint..].Trim();
                         buffer.Clear();
                         if (!string.IsNullOrWhiteSpace(remainder))
@@ -1312,7 +1392,7 @@ public class DocumentParserService : IDocumentParser
                     else if (bufferText.Length > _chunkSize)
                     {
                         if (!string.IsNullOrWhiteSpace(bufferText) && !IsBinaryContent(bufferText))
-                            yield return new ParsedChunk(bufferText, imagePath);
+                            yield return new ParsedChunk(bufferText, bufferText.Contains("[IMG_REF:") ? imagePath : null, hpSplit);
                         buffer.Clear();
                     }
                 }
@@ -1322,12 +1402,12 @@ public class DocumentParserService : IDocumentParser
         }
 
         // Kalan içeriği yield et
+        var hpEnd = currentH2.Length > 0 ? $"{currentH1} > {currentH2}" : currentH1.Length > 0 ? currentH1 : (string?)null;
         if (pendingHeadings.Length > 0 && buffer.Length == 0)
         {
-            // Sadece başlık kalmış, içerik yok — yine de yield et
             var headingOnly = pendingHeadings.ToString().Trim();
             if (!string.IsNullOrWhiteSpace(headingOnly))
-                yield return new ParsedChunk(headingOnly, imagePath);
+                yield return new ParsedChunk(headingOnly, headingOnly.Contains("[IMG_REF:") ? imagePath : null, hpEnd);
         }
         else
         {
@@ -1335,7 +1415,7 @@ public class DocumentParserService : IDocumentParser
                 buffer.Insert(0, pendingHeadings.ToString());
             var last = buffer.ToString().Trim();
             if (!string.IsNullOrWhiteSpace(last) && !IsBinaryContent(last))
-                yield return new ParsedChunk(last, imagePath);
+                yield return new ParsedChunk(last, last.Contains("[IMG_REF:") ? imagePath : null, hpEnd);
         }
     }
 

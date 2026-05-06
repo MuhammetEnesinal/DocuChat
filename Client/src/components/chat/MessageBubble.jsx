@@ -1,5 +1,7 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { atomOneDark } from 'react-syntax-highlighter/dist/esm/styles/hljs';
 import { useState } from 'react';
 import { API_BASE } from '../../services/api';
 
@@ -54,7 +56,7 @@ function ImageModal({ src, onClose }) {
     );
 }
 
-export default function MessageBubble({ msg, copiedId, onCopy }) {
+export default function MessageBubble({ msg, copiedId, onCopy, onRetry }) {
     const isUser = msg.role === 'User';
     const images = msg.images || [];
     const [modalSrc, setModalSrc] = useState(null);
@@ -96,6 +98,19 @@ export default function MessageBubble({ msg, copiedId, onCopy }) {
     );
 
     const components = {
+        code({ className, children }) {
+            const match = /language-(\w+)/.exec(className || '');
+            return match ? (
+                <SyntaxHighlighter language={match[1]} style={atomOneDark}
+                    customStyle={{ borderRadius: '8px', fontSize: '0.8rem', margin: '8px 0' }}>
+                    {String(children).replace(/\n$/, '')}
+                </SyntaxHighlighter>
+            ) : (
+                <code style={{ background: 'var(--surface3, #1e293b)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.85em' }}>
+                    {children}
+                </code>
+            );
+        },
         table: ({ node, ...props }) => (
             <div className="table-wrapper"><table {...props} /></div>
         ),
@@ -121,8 +136,10 @@ export default function MessageBubble({ msg, copiedId, onCopy }) {
             return <p {...props}>{processed}</p>;
         },
         td: ({ node, children, ...props }) => {
-            const text = typeof children === 'string' ? children
-                : Array.isArray(children) ? children.map(c => typeof c === 'string' ? c : '').join('') : '';
+            const extractText = (nodes) => (nodes || [])
+                .map(n => n.type === 'text' ? n.value : extractText(n.children))
+                .flat().join('');
+            const text = extractText(node.children);
             const imgPath = resolveImgMarker(text.trim());
             if (imgPath) {
                 return (
@@ -164,7 +181,7 @@ export default function MessageBubble({ msg, copiedId, onCopy }) {
                         ) : msg.content}
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', justifyContent: isUser ? 'flex-end' : 'flex-start' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', justifyContent: isUser ? 'flex-end' : 'flex-start', flexWrap: 'wrap' }}>
                         <span style={{ fontSize: '12px', color: '#475569' }}>{formatTime(msg.createdAt)}</span>
                         {!isUser && (
                             <button onClick={() => onCopy(msg.content, msg.id)}
@@ -177,6 +194,12 @@ export default function MessageBubble({ msg, copiedId, onCopy }) {
                                     </svg>
                                 )}
                                 {copiedId === msg.id ? 'Kopyalandı' : 'Kopyala'}
+                            </button>
+                        )}
+                        {msg.isError && onRetry && msg.retryQuestion && (
+                            <button onClick={() => onRetry(msg.retryQuestion)}
+                                style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--accent)', background: 'none', border: '1px solid var(--accent)', borderRadius: '6px', padding: '2px 8px', cursor: 'pointer' }}>
+                                ↺ Tekrar dene
                             </button>
                         )}
                     </div>

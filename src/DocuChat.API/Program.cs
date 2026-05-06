@@ -100,7 +100,9 @@ try
         app.UseSwaggerUI();
     }
 
-    // Static files ÖNCE — authentication gerekmez
+    app.UseCors("AllowAll");
+
+    // Static files CORS'tan sonra — resimlere de CORS header'ı uygulanır
     var storagePath = builder.Configuration["Storage:LocalPath"] ?? "uploads";
     Directory.CreateDirectory(Path.GetFullPath(storagePath));
     app.UseStaticFiles(new StaticFileOptions
@@ -110,8 +112,6 @@ try
         ServeUnknownFileTypes = true,
         DefaultContentType = "application/octet-stream"
     });
-
-    app.UseCors("AllowAll");
     app.UseMiddleware<ExceptionHandlingMiddleware>();
     app.UseSerilogRequestLogging();
     app.UseAuthentication();

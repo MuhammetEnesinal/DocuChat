@@ -33,12 +33,10 @@ export default api;
 export const login = (email, password) =>
     api.post('/auth/login', { email, password });
 
-export const register = (fullName, email, password) =>
-    api.post('/auth/register', { fullName, email, password });
 
 // ── Chat ──────────────────────────────────────────────────────────────────
-export const askQuestion = (question, sessionId = null) =>
-    api.post('/chat/ask', { question, sessionId });
+export const askQuestion = (question, sessionId = null, signal = null) =>
+    api.post('/chat/ask', { question, sessionId }, signal ? { signal } : {});
 
 export const getSessions = () => api.get('/chat/sessions');
 export const getMessages = (sessionId) => api.get(`/chat/sessions/${sessionId}/messages`);

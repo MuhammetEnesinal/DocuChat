@@ -4,5 +4,5 @@ namespace DocuChat.Application.Interfaces.Services;
 
 public interface IDocumentParser
 {
-    IEnumerable<ParsedChunk> Parse(Stream stream, FileType fileType);
+    Task<IEnumerable<ParsedChunk>> ParseAsync(Stream stream, FileType fileType);
 }

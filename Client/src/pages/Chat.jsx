@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import { askQuestion, getSessions, getMessages, deleteSession, renameSession, getPopularQuestions } from '../services/api';
 import { formatDateShort, getRateLimitMessage } from '../utils/format';
 import { useToast } from '../components/shared/Toast';
@@ -31,6 +32,7 @@ export default function Chat() {
     const [sidebarCollapsed, setSidebarCollapsed] = useState(window.innerWidth < 768);
 
     const messagesEndRef = useRef(null);
+    const abortRef = useRef(null);
     const { user, logout } = useAuth();
     const navigate = useNavigate();
     const toast = useToast();
@@ -42,7 +44,7 @@ export default function Chat() {
         try {
             const res = await getPopularQuestions(6);
             setPopularQuestions(res.data.data || []);
-        } catch { }
+        } catch { toast.error('Popüler sorular yüklenemedi.'); }
     };
 
     const fetchSessions = async () => {
@@ -77,10 +79,10 @@ export default function Chat() {
         if (window.innerWidth < 768) setSidebarCollapsed(true);
     };
 
-    const handleSend = async () => {
-        if (!question.trim() || loading) return;
-        const q = question.trim();
-        setQuestion('');
+    const handleSend = async (forcedQuestion) => {
+        const q = (forcedQuestion ?? question).trim();
+        if (!q || loading) return;
+        if (!forcedQuestion) setQuestion('');
         setLoading(true);
 
         setMessages((prev) => [...prev, {
@@ -90,8 +92,10 @@ export default function Chat() {
             createdAt: new Date().toISOString()
         }]);
 
+        abortRef.current = new AbortController();
+
         try {
-            const res = await askQuestion(q, activeSession?.id || null);
+            const res = await askQuestion(q, activeSession?.id || null, abortRef.current.signal);
             const { sessionId, answer, sourceChunks } = res.data.data;
 
             if (!activeSession) {
@@ -112,6 +116,10 @@ export default function Chat() {
             }]);
             setChunks(sourceChunks || []);
         } catch (err) {
+            if (axios.isCancel(err) || err?.code === 'ERR_CANCELED') {
+                setLoading(false);
+                return;
+            }
             toast.error(getRateLimitMessage(err));
             setMessages((prev) => [...prev, {
                 role: 'Assistant',
@@ -120,9 +128,13 @@ export default function Chat() {
                     : 'Bir hata oluştu. Lütfen tekrar deneyin.',
                 id: nextMsgId(),
                 createdAt: new Date().toISOString(),
+                isError: true,
+                retryQuestion: q,
             }]);
         } finally { setLoading(false); }
     };
+
+    const handleAbort = () => { abortRef.current?.abort(); };
 
     const handleCopy = (content, id) => {
         navigator.clipboard.writeText(content);
@@ -221,7 +233,7 @@ export default function Chat() {
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                                         {msgs.map((msg) => (
-                                            <MessageBubble key={msg.id} msg={msg} copiedId={copiedId} onCopy={handleCopy} />
+                                            <MessageBubble key={msg.id} msg={msg} copiedId={copiedId} onCopy={handleCopy} onRetry={handleSend} />
                                         ))}
                                     </div>
                                 </div>
@@ -236,6 +248,7 @@ export default function Chat() {
                             onChange={setQuestion}
                             onSend={handleSend}
                             loading={loading}
+                            onAbort={handleAbort}
                         />
                     </div>
 

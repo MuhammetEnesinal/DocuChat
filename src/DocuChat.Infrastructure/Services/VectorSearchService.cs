@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Pgvector.EntityFrameworkCore;
 using DocuChat.Application.Interfaces.Services;
 using DocuChat.Application.Interfaces.Repositories;
@@ -10,54 +12,65 @@ public class VectorSearchService : IVectorSearch
 {
     private readonly AppDbContext _db;
     private readonly IEmbeddingService _embedder;
+    private readonly ILogger<VectorSearchService> _logger;
 
-    // Vektör arama eşikleri
-    private const double SimilarityThreshold = 0.50;
-    private const double FallbackThreshold = 0.65;
-    private const int TopChunksPerDoc = 5;
-    private const int TopChunksPerDocMulti = 3;
-    private const double MultiDocAbsoluteThreshold = 0.35;
-    private const double MultiDocRelativeMargin = 0.05;
+    // Vektör arama eşikleri (appsettings.json VectorSearch bölümünden okunur)
+    private readonly double _similarityThreshold;
+    private readonly double _fallbackThreshold;
+    private readonly int _topChunksPerDoc;
+    private readonly int _topChunksPerDocMulti;
+    private readonly double _multiDocAbsoluteThreshold;
+    private readonly double _multiDocRelativeMargin;
+    private readonly double _vectorWeight;
+    private readonly double _keywordWeight;
+    private readonly int _rerankCandidates;
 
-    // Hibrit arama ağırlıkları (toplam 1.0)
-    private const double VectorWeight = 0.70;  // Anlamsal benzerlik
-    private const double KeywordWeight = 0.30;  // Keyword eşleşmesi
-
-    // Reranking: ilk N chunk'ı getir, en iyi K'yı döndür
-    private const int RerankCandidates = 15;
-
-    public VectorSearchService(AppDbContext db, IEmbeddingService embedder)
+    public VectorSearchService(AppDbContext db, IEmbeddingService embedder, IConfiguration cfg, ILogger<VectorSearchService> logger)
     {
         _db = db;
         _embedder = embedder;
+        _logger = logger;
+
+        _similarityThreshold      = cfg.GetValue<double>("VectorSearch:SimilarityThreshold", 0.50);
+        _fallbackThreshold        = cfg.GetValue<double>("VectorSearch:FallbackThreshold", 0.65);
+        _multiDocAbsoluteThreshold = cfg.GetValue<double>("VectorSearch:MultiDocAbsoluteThreshold", 0.35);
+        _multiDocRelativeMargin   = cfg.GetValue<double>("VectorSearch:MultiDocRelativeMargin", 0.05);
+        _vectorWeight             = cfg.GetValue<double>("VectorSearch:VectorWeight", 0.70);
+        _keywordWeight            = cfg.GetValue<double>("VectorSearch:KeywordWeight", 0.30);
+        _rerankCandidates         = cfg.GetValue<int>("VectorSearch:RerankCandidates", 15);
+        _topChunksPerDoc          = cfg.GetValue<int>("VectorSearch:TopChunksPerDoc", 5);
+        _topChunksPerDocMulti     = cfg.GetValue<int>("VectorSearch:TopChunksPerDocMulti", 3);
     }
 
     public async Task<IReadOnlyList<ChunkResult>> SearchAsync(
         string question,
         CancellationToken ct = default,
         Guid? preferredDocumentId = null,
-        List<Guid>? relevantDocumentIds = null)
+        List<Guid>? relevantDocumentIds = null,
+        string? hydeText = null)
     {
-        var queryVec = await _embedder.GetEmbeddingAsync(question, ct);
+        // HyDE: varsayımsal metin varsa onu embed et, yoksa soruyu
+        var textToEmbed = !string.IsNullOrWhiteSpace(hydeText) ? hydeText : question;
+        var queryVec = await _embedder.GetEmbeddingAsync(textToEmbed, ct);
         var vector = new Pgvector.Vector(queryVec);
 
         // LLM belge tespiti yaptıysa sadece o belgelerden ara
         if (relevantDocumentIds != null && relevantDocumentIds.Any())
         {
-            Console.WriteLine($"[VectorSearch] Kısıtlı arama: {string.Join(", ", relevantDocumentIds)}");
+            _logger.LogInformation("[VectorSearch] Kısıtlı arama: {DocIds}", string.Join(", ", relevantDocumentIds));
+            var isMultiDoc = relevantDocumentIds.Count > 1;
             var results = new List<ChunkResult>();
             foreach (var docId in relevantDocumentIds)
             {
-                var topK = relevantDocumentIds.Count == 1 ? TopChunksPerDoc : TopChunksPerDocMulti;
-                var docChunks = await GetHybridChunks(docId, vector, question, topK, ct);
+                var docChunks = await GetHybridChunks(docId, vector, question, isMultiDoc, ct);
                 results.AddRange(docChunks);
             }
             return results;
         }
 
         // Normal arama — tüm belgelerden
-        var bestMatch = await FindBestDocument(vector, SimilarityThreshold, ct)
-                     ?? await FindBestDocument(vector, FallbackThreshold, ct);
+        var bestMatch = await FindBestDocument(vector, _similarityThreshold, ct)
+                     ?? await FindBestDocument(vector, _fallbackThreshold, ct);
 
         if (bestMatch == null) return Array.Empty<ChunkResult>();
 
@@ -74,10 +87,10 @@ public class VectorSearchService : IVectorSearch
                 primaryDocId = preferredDocumentId.Value;
         }
 
-        var maxExtraDistance = bestMatch.Distance + MultiDocRelativeMargin;
+        var maxExtraDistance = bestMatch.Distance + _multiDocRelativeMargin;
         var nearbyDocs = await _db.DocumentChunks
             .Where(c => c.DocumentId != primaryDocId
-                     && c.Embedding!.CosineDistance(vector) < MultiDocAbsoluteThreshold
+                     && c.Embedding!.CosineDistance(vector) < _multiDocAbsoluteThreshold
                      && c.Embedding!.CosineDistance(vector) <= maxExtraDistance)
             .GroupBy(c => c.DocumentId)
             .Select(g => new { DocId = g.Key, BestDistance = g.Min(c => c.Embedding!.CosineDistance(vector)) })
@@ -87,13 +100,12 @@ public class VectorSearchService : IVectorSearch
             .ToListAsync(ct);
 
         var results2 = new List<ChunkResult>();
-        var primaryTopK = nearbyDocs.Count > 0 ? TopChunksPerDocMulti : TopChunksPerDoc;
-        var primaryChunks = await GetHybridChunks(primaryDocId, vector, question, primaryTopK, ct);
+        var primaryChunks = await GetHybridChunks(primaryDocId, vector, question, isMultiDoc: nearbyDocs.Count > 0, ct);
         results2.AddRange(primaryChunks);
 
         foreach (var docId in nearbyDocs)
         {
-            var extraChunks = await GetHybridChunks(docId, vector, question, TopChunksPerDocMulti, ct);
+            var extraChunks = await GetHybridChunks(docId, vector, question, isMultiDoc: true, ct);
             results2.AddRange(extraChunks);
         }
 
@@ -102,14 +114,26 @@ public class VectorSearchService : IVectorSearch
 
     // ── Hibrit arama: vektör + keyword skoru birleştir, rerank et ─────────
     private async Task<List<ChunkResult>> GetHybridChunks(
-        Guid docId, Pgvector.Vector vector, string question, int topK, CancellationToken ct)
+        Guid docId, Pgvector.Vector vector, string question, bool isMultiDoc, CancellationToken ct)
     {
         var totalChunks = await _db.DocumentChunks
             .Where(c => c.DocumentId == docId)
             .CountAsync(ct);
 
-        // Az chunk'lı belgede tüm chunk'ları al
-        var candidateK = totalChunks <= 10 ? totalChunks : Math.Min(RerankCandidates, totalChunks);
+        // Dynamic TopK — belge büyüklüğüne göre
+        var topK = (totalChunks, isMultiDoc) switch
+        {
+            (<= 10, _)     => isMultiDoc ? Math.Min(totalChunks, 3) : totalChunks,
+            (<= 30, false) => 5,
+            (<= 80, false) => 7,
+            (_,     false) => 10,
+            (<= 30, true)  => 3,
+            (_,     true)  => 4,
+        };
+
+        _logger.LogInformation("[VectorSearch] DocId={DocId}, totalChunks={Total}, topK={TopK}, isMultiDoc={IsMultiDoc}", docId, totalChunks, topK, isMultiDoc);
+
+        var candidateK = Math.Min(_rerankCandidates, totalChunks);
 
         // Vektör skoruna göre aday chunk'ları çek
         var candidates = await _db.DocumentChunks
@@ -125,6 +149,7 @@ public class VectorSearchService : IVectorSearch
                       chunk.Content,
                       chunk.ChunkIndex,
                       chunk.ImagePath,
+                      chunk.Header,
                       VectorDistance = chunk.Embedding!.CosineDistance(vector)
                   })
             .ToListAsync(ct);
@@ -147,14 +172,14 @@ public class VectorSearchService : IVectorSearch
                 : 0.0;
 
             // Hibrit skor
-            var hybridScore = VectorWeight * vectorScore + KeywordWeight * keywordScore;
+            var hybridScore = _vectorWeight * vectorScore + _keywordWeight * keywordScore;
 
-            return new { c.FileName, c.Content, c.ChunkIndex, c.ImagePath, HybridScore = hybridScore };
+            return new { c.FileName, c.Content, c.ChunkIndex, c.ImagePath, c.Header, HybridScore = hybridScore };
         })
         .OrderByDescending(x => x.HybridScore)
         .Take(topK)
         .OrderBy(x => x.ChunkIndex)  // Orijinal sıraya göre döndür
-        .Select(x => new ChunkResult(x.FileName, x.Content, x.ImagePath))
+        .Select(x => new ChunkResult(x.FileName, x.Content, x.ImagePath, x.Header))
         .ToList();
 
         return scored;

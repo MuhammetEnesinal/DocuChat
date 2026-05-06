@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { login } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/shared/Toast';
@@ -75,14 +75,7 @@ export default function Login() {
                         </button>
                     </form>
 
-                    <p className="text-center text-sm mt-5" style={{ color: '#64748b' }}>
-                        Hesabın yok mu?{' '}
-                        <Link to="/register" style={{ color: 'var(--accent-light)', textDecoration: 'none' }}
-                            onMouseEnter={(e) => e.currentTarget.style.textDecoration = 'underline'}
-                            onMouseLeave={(e) => e.currentTarget.style.textDecoration = 'none'}>
-                            Kayıt Ol
-                        </Link>
-                    </p>
+
                 </div>
             </div>
         </div>

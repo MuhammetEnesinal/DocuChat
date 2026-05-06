@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 
-export default function ChatInput({ value, onChange, onSend, loading }) {
+export default function ChatInput({ value, onChange, onSend, loading, onAbort }) {
     const textareaRef = useRef(null);
 
     const handleKeyDown = (e) => {
@@ -33,15 +33,21 @@ export default function ChatInput({ value, onChange, onSend, loading }) {
                         flex: 1, padding: '8px 4px', lineHeight: '1.6',
                     }}
                 />
-                <button onClick={onSend} disabled={loading || !value.trim()}
+                <button onClick={loading ? onAbort : () => onSend()} disabled={!loading && !value.trim()}
                     style={{
                         width: '40px', height: '40px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: 'none',
-                        background: loading || !value.trim() ? 'var(--navy-light)' : 'var(--accent)',
-                        cursor: loading || !value.trim() ? 'not-allowed' : 'pointer', transition: 'background 0.2s',
+                        background: loading ? '#e74c3c' : (value.trim() ? 'var(--accent)' : 'var(--navy-light)'),
+                        cursor: loading || value.trim() ? 'pointer' : 'not-allowed', transition: 'background 0.2s',
                     }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
-                        <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
-                    </svg>
+                    {loading ? (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
+                            <rect x="5" y="5" width="14" height="14" rx="2" />
+                        </svg>
+                    ) : (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
+                            <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+                        </svg>
+                    )}
                 </button>
             </div>
             <p className="source-hint" style={{ textAlign: 'center', fontSize: '12px', marginTop: '8px', color: 'var(--gray-light)' }}>

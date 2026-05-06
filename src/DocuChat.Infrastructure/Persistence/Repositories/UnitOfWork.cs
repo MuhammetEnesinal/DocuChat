@@ -13,6 +13,7 @@ public class UnitOfWork : IUnitOfWork
     public IRepository<DocumentChunk> Chunks { get; }
     public IChatSessionRepository Sessions { get; }
     public IRepository<ChatMessage> Messages { get; }
+    public IQuestionCacheRepository QuestionCache { get; }
 
     public UnitOfWork(AppDbContext db)
     {
@@ -21,15 +22,17 @@ public class UnitOfWork : IUnitOfWork
         Chunks = new GenericRepository<DocumentChunk>(db);
         Sessions = new ChatSessionRepository(db);
         Messages = new GenericRepository<ChatMessage>(db);
+        QuestionCache = new QuestionCacheRepository(db);
     }
 
     public async Task<IReadOnlyList<(Guid Id, string FileName)>> GetDocumentNamesAsync(
         CancellationToken ct = default)
-        => await _db.Documents
+    {
+        var rows = await _db.Documents
             .Select(d => new { d.Id, d.FileName })
-            .ToListAsync(ct)
-            .ContinueWith(t => (IReadOnlyList<(Guid, string)>)
-                t.Result.Select(x => (x.Id, x.FileName)).ToList(), ct);
+            .ToListAsync(ct);
+        return rows.Select(x => (x.Id, x.FileName)).ToList();
+    }
 
     public Task<int> SaveChangesAsync(CancellationToken ct = default)
         => _db.SaveChangesAsync(ct);
