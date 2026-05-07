@@ -163,22 +163,24 @@ function PreviewModal({ doc, onClose }) {
     );
 }
 
-export default function DocumentList({ documents, loading, search, onSearchChange, onViewChunks, onDelete, onReprocess }) {
+export default function DocumentList({ documents, loading, search, onSearchChange, onViewChunks, onDelete, onReprocessStart, onReprocess }) {
     const [previewDoc, setPreviewDoc] = useState(null);
-    const [reprocessingId, setReprocessingId] = useState(null);
+    const [reprocessingIds, setReprocessingIds] = useState(new Set());
 
     const handleReprocess = useCallback(async (doc) => {
-        if (reprocessingId) return;
-        setReprocessingId(doc.id);
+        if (reprocessingIds.has(doc.id)) return;
+        setReprocessingIds(prev => new Set(prev).add(doc.id));
+        onReprocessStart?.(doc.id); // optimistic: status'ü hemen Processing yap
         try {
             await reprocessDocument(doc.id);
             onReprocess?.();
         } catch (e) {
             console.error('Yeniden işleme hatası:', e);
+            onReprocess?.(); // hata durumunda da listeni yenile
         } finally {
-            setReprocessingId(null);
+            setReprocessingIds(prev => { const s = new Set(prev); s.delete(doc.id); return s; });
         }
-    }, [onReprocess]);
+    }, [reprocessingIds, onReprocessStart, onReprocess]);
     const filtered = documents.filter(d => d.fileName.toLowerCase().includes(search.toLowerCase()));
 
     const handlePreview = useCallback((doc) => setPreviewDoc(doc), []);
@@ -249,23 +251,31 @@ export default function DocumentList({ documents, loading, search, onSearchChang
                                 )}
                                 {/* Yeniden İşle */}
                                 <button onClick={() => handleReprocess(doc)} title="Yeniden İşle"
-                                    disabled={reprocessingId === doc.id}
-                                    style={{ padding: '6px', borderRadius: '8px', background: 'none', border: 'none', cursor: reprocessingId === doc.id ? 'not-allowed' : 'pointer', color: '#64748b', opacity: reprocessingId === doc.id ? 0.5 : 1 }}
-                                    onMouseEnter={(e) => { if (!reprocessingId) { e.currentTarget.style.color = '#fbbf24'; e.currentTarget.style.background = 'rgba(251,191,36,0.1)'; } }}
+                                    disabled={reprocessingIds.has(doc.id)}
+                                    style={{ padding: '6px', borderRadius: '8px', background: 'none', border: 'none', cursor: reprocessingIds.has(doc.id) ? 'not-allowed' : 'pointer', color: '#64748b', opacity: reprocessingIds.has(doc.id) ? 0.5 : 1 }}
+                                    onMouseEnter={(e) => { if (!reprocessingIds.has(doc.id)) { e.currentTarget.style.color = '#fbbf24'; e.currentTarget.style.background = 'rgba(251,191,36,0.1)'; } }}
                                     onMouseLeave={(e) => { e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = 'transparent'; }}>
-                                    {reprocessingId === doc.id ? (
+                                    {reprocessingIds.has(doc.id) ? (
                                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite' }}><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
                                     ) : (
                                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
                                     )}
                                 </button>
                                 {/* Sil */}
-                                <button onClick={() => onDelete(doc.id, doc.fileName)}
-                                    style={{ padding: '6px', borderRadius: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}
-                                    onMouseEnter={(e) => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.background = 'rgba(248,113,113,0.1)'; }}
-                                    onMouseLeave={(e) => { e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = 'transparent'; }}>
-                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
-                                </button>
+                                {(() => {
+                                    const isProcessing = doc.status === 'Processing' || doc.status === 'Pending';
+                                    return (
+                                        <button
+                                            onClick={() => !isProcessing && onDelete(doc.id, doc.fileName)}
+                                            disabled={isProcessing}
+                                            title={isProcessing ? 'Belge işleniyor, tamamlanmasını bekleyin' : 'Sil'}
+                                            style={{ padding: '6px', borderRadius: '8px', background: 'none', border: 'none', cursor: isProcessing ? 'not-allowed' : 'pointer', color: '#64748b', opacity: isProcessing ? 0.35 : 1 }}
+                                            onMouseEnter={(e) => { if (!isProcessing) { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.background = 'rgba(248,113,113,0.1)'; } }}
+                                            onMouseLeave={(e) => { e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = 'transparent'; }}>
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
+                                        </button>
+                                    );
+                                })()}
                             </div>
                         </div>
                     );

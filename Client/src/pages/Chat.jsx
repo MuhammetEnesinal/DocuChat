@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { Virtuoso } from 'react-virtuoso';
 import { askQuestion, getSessions, getMessages, deleteSession, renameSession, getPopularQuestions } from '../services/api';
 import { formatDateShort, getRateLimitMessage } from '../utils/format';
 import { useToast } from '../components/shared/Toast';
@@ -12,9 +13,27 @@ import EmptyState from '../components/chat/EmptyState';
 import ChatInput from '../components/chat/ChatInput';
 import ThemeToggle from '../components/shared/ThemeToggle';
 import TypingIndicator from '../components/chat/TypingIndicator';
+import { MessageSkeleton } from '../components/shared/Skeleton';
 
 let _msgCounter = 0;
 const nextMsgId = () => `msg_${Date.now()}_${++_msgCounter}`;
+
+const PAGE_SIZE = 50;
+
+// Mesaj listesini tarih gruplarına dönüştürür; Virtuoso için düz dizi üretir
+function buildVirtualItems(messages) {
+    const items = [];
+    let lastDate = null;
+    for (const msg of messages) {
+        const date = formatDateShort(msg.createdAt);
+        if (date !== lastDate) {
+            items.push({ type: 'separator', date, key: `sep_${date}` });
+            lastDate = date;
+        }
+        items.push({ type: 'message', msg, key: msg.id });
+    }
+    return items;
+}
 
 export default function Chat() {
     const [sessions, setSessions] = useState([]);
@@ -29,22 +48,30 @@ export default function Chat() {
     const [editingTitle, setEditingTitle] = useState('');
     const [sessionsLoading, setSessionsLoading] = useState(true);
     const [popularQuestions, setPopularQuestions] = useState([]);
+    const [popularQuestionsLoading, setPopularQuestionsLoading] = useState(true);
+    const [deletingSessionId, setDeletingSessionId] = useState(null);
+    const [renamingSessionId, setRenamingSessionId] = useState(null);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(window.innerWidth < 768);
+    const [messagesLoading, setMessagesLoading] = useState(false);
+    const [hasMoreMessages, setHasMoreMessages] = useState(false);
+    const [messagesPage, setMessagesPage] = useState(1);
+    const [loadingMore, setLoadingMore] = useState(false);
 
-    const messagesEndRef = useRef(null);
+    const virtuosoRef = useRef(null);
     const abortRef = useRef(null);
     const { user, logout } = useAuth();
     const navigate = useNavigate();
     const toast = useToast();
 
     useEffect(() => { fetchSessions(); fetchPopularQuestions(); }, []);
-    useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
     const fetchPopularQuestions = async () => {
+        setPopularQuestionsLoading(true);
         try {
             const res = await getPopularQuestions(6);
             setPopularQuestions(res.data.data || []);
-        } catch { toast.error('Popüler sorular yüklenemedi.'); }
+        } catch { /* popular questions non-critical */ }
+        finally { setPopularQuestionsLoading(false); }
     };
 
     const fetchSessions = async () => {
@@ -56,26 +83,72 @@ export default function Chat() {
         finally { setSessionsLoading(false); }
     };
 
+    const parseMessages = (raw) =>
+        (raw || []).map(m => ({
+            ...m,
+            images: m.imagesJson ? (() => {
+                try { return JSON.parse(m.imagesJson); }
+                catch (e) { console.warn('Resim JSON parse hatası:', e); return []; }
+            })() : undefined,
+        }));
+
     const loadSession = async (session) => {
         setActiveSession(session);
         setChunks([]);
         setShowChunks(false);
+        setMessages([]);
+        setHasMoreMessages(false);
+        setMessagesPage(1);
         if (window.innerWidth < 768) setSidebarCollapsed(true);
+
+        if (abortRef.current) abortRef.current.abort();
+        abortRef.current = new AbortController();
+
+        setMessagesLoading(true);
         try {
-            const res = await getMessages(session.id);
-            const msgs = (res.data.data || []).map(m => ({
-                ...m,
-                images: m.imagesJson ? (() => { try { return JSON.parse(m.imagesJson); } catch { return []; } })() : undefined
-            }));
-            setMessages(msgs);
-        } catch { toast.error('Mesajlar yüklenemedi.'); }
+            const res = await getMessages(session.id, { page: 1, pageSize: PAGE_SIZE, signal: abortRef.current.signal });
+            const data = res.data.data;
+
+            if (data && data.items !== undefined) {
+                const msgs = parseMessages(data.items);
+                setMessages(msgs);
+                setHasMoreMessages(data.hasNextPage ?? false);
+                setMessagesPage(1);
+            } else {
+                setMessages(parseMessages(data));
+            }
+        } catch (err) {
+            if (axios.isCancel(err)) return;
+            toast.error('Mesajlar yüklenemedi.');
+        } finally {
+            setMessagesLoading(false);
+        }
     };
+
+    const loadMoreMessages = useCallback(async () => {
+        if (!activeSession || loadingMore || !hasMoreMessages) return;
+        setLoadingMore(true);
+        const nextPage = messagesPage + 1;
+        try {
+            const res = await getMessages(activeSession.id, { page: nextPage, pageSize: PAGE_SIZE });
+            const data = res.data.data;
+            if (data?.items) {
+                // Daha eski mesajlar listenin başına eklenir
+                setMessages(prev => [...parseMessages(data.items), ...prev]);
+                setHasMoreMessages(data.hasNextPage ?? false);
+                setMessagesPage(nextPage);
+            }
+        } catch { toast.error('Daha fazla mesaj yüklenemedi.'); }
+        finally { setLoadingMore(false); }
+    }, [activeSession, loadingMore, hasMoreMessages, messagesPage]);
 
     const newChat = () => {
         setActiveSession(null);
         setMessages([]);
         setChunks([]);
         setShowChunks(false);
+        setHasMoreMessages(false);
+        setMessagesPage(1);
         if (window.innerWidth < 768) setSidebarCollapsed(true);
     };
 
@@ -85,11 +158,13 @@ export default function Chat() {
         if (!forcedQuestion) setQuestion('');
         setLoading(true);
 
+        const optimisticId = nextMsgId();
         setMessages((prev) => [...prev, {
             role: 'User',
             content: q,
-            id: nextMsgId(),
-            createdAt: new Date().toISOString()
+            id: optimisticId,
+            createdAt: new Date().toISOString(),
+            isOptimistic: true
         }]);
 
         abortRef.current = new AbortController();
@@ -104,17 +179,30 @@ export default function Chat() {
                 setSessions((prev) => [newSession, ...prev]);
             }
 
-            // API'den dönen images listesini kullan (sadece LLM'in cevabında kullandıkları)
             const images = res.data.data.images || [];
 
-            setMessages((prev) => [...prev, {
-                role: 'Assistant',
-                content: answer,
-                id: nextMsgId(),
-                createdAt: new Date().toISOString(),
-                images: images.length > 0 ? images : undefined
-            }]);
+            setMessages((prev) => [
+                ...prev.filter(m => m.id !== optimisticId),
+                {
+                    role: 'User',
+                    content: q,
+                    id: nextMsgId(),
+                    createdAt: new Date().toISOString()
+                },
+                {
+                    role: 'Assistant',
+                    content: answer,
+                    id: nextMsgId(),
+                    createdAt: new Date().toISOString(),
+                    images: images.length > 0 ? images : undefined
+                }
+            ]);
             setChunks(sourceChunks || []);
+
+            // Yeni mesaj sonrası en alta kaydır
+            setTimeout(() => {
+                virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
+            }, 50);
         } catch (err) {
             if (axios.isCancel(err) || err?.code === 'ERR_CANCELED') {
                 setLoading(false);
@@ -143,34 +231,58 @@ export default function Chat() {
     };
 
     const handleDeleteSession = async (sessionId) => {
+        setDeletingSessionId(sessionId);
         try {
             await deleteSession(sessionId);
             setSessions((prev) => prev.filter((s) => s.id !== sessionId));
             if (activeSession?.id === sessionId) newChat();
             toast.success('Sohbet silindi.');
         } catch { toast.error('Sohbet silinemedi.'); }
+        finally { setDeletingSessionId(null); }
     };
 
-    const handleStartRename = (session) => { setEditingSessionId(session.id); setEditingTitle(session.title); };
+    const handleStartRename = (session) => {
+        setEditingSessionId(session.id);
+        setEditingTitle(session.title);
+    };
 
     const handleCommitRename = async (sessionId) => {
         const title = editingTitle.trim();
-        if (!title) { setEditingSessionId(null); return; }
+        setEditingSessionId(null);
+        if (!title) return;
+        setRenamingSessionId(sessionId);
         try {
             await renameSession(sessionId, title);
             setSessions((prev) => prev.map((s) => s.id === sessionId ? { ...s, title } : s));
             if (activeSession?.id === sessionId) setActiveSession((s) => ({ ...s, title }));
             toast.success('Sohbet adı güncellendi.');
         } catch { toast.error('Sohbet adı güncellenemedi.'); }
-        setEditingSessionId(null);
+        finally { setRenamingSessionId(null); }
     };
 
-    const groupedMessages = messages.reduce((acc, msg) => {
-        const date = formatDateShort(msg.createdAt);
-        if (!acc[date]) acc[date] = [];
-        acc[date].push(msg);
-        return acc;
-    }, {});
+    // Virtuoso için düz item dizisi
+    const virtualItems = buildVirtualItems(messages);
+
+    const renderVirtualItem = (index) => {
+        const item = virtualItems[index];
+        if (!item) return null;
+
+        if (item.type === 'separator') {
+            return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '8px 0' }}>
+                    <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+                    <span style={{ fontSize: '12px', color: 'var(--gray-light)', padding: '0 8px' }}>{item.date}</span>
+                    <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+                </div>
+            );
+        }
+
+        return (
+            <div style={{ padding: '0 0 24px 0' }}>
+                <MessageBubble msg={item.msg} copiedId={copiedId} onCopy={handleCopy} onRetry={handleSend} />
+            </div>
+        );
+    };
 
     return (
         <div style={{ display: 'flex', height: '100vh', background: 'var(--navy)' }}>
@@ -180,6 +292,8 @@ export default function Chat() {
                 activeSession={activeSession}
                 editingSessionId={editingSessionId}
                 editingTitle={editingTitle}
+                deletingSessionId={deletingSessionId}
+                renamingSessionId={renamingSessionId}
                 collapsed={sidebarCollapsed}
                 onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
                 onNewChat={newChat}
@@ -219,28 +333,53 @@ export default function Chat() {
 
                 <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
                     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
-                        <div style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                            {messages.length === 0 && (
-                                <EmptyState popularQuestions={popularQuestions} onSelectQuestion={setQuestion} />
-                            )}
-
-                            {Object.entries(groupedMessages).map(([date, msgs]) => (
-                                <div key={date}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '8px 0' }}>
-                                        <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
-                                        <span style={{ fontSize: '12px', color: 'var(--gray-light)', padding: '0 8px' }}>{date}</span>
-                                        <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                                        {msgs.map((msg) => (
-                                            <MessageBubble key={msg.id} msg={msg} copiedId={copiedId} onCopy={handleCopy} onRetry={handleSend} />
-                                        ))}
-                                    </div>
+                        <div style={{ flex: 1, minHeight: 0 }}>
+                            {messagesLoading ? (
+                                <div style={{ padding: '24px' }}>
+                                    <MessageSkeleton />
                                 </div>
-                            ))}
-
-                            {loading && <TypingIndicator />}
-                            <div ref={messagesEndRef} />
+                            ) : messages.length === 0 ? (
+                                <div style={{ height: '100%', overflowY: 'auto', padding: '24px' }}>
+                                    <EmptyState popularQuestions={popularQuestions} popularQuestionsLoading={popularQuestionsLoading} onSelectQuestion={setQuestion} />
+                                </div>
+                            ) : (
+                                <Virtuoso
+                                    ref={virtuosoRef}
+                                    style={{ height: '100%' }}
+                                    totalCount={virtualItems.length + (loading ? 1 : 0)}
+                                    initialTopMostItemIndex={virtualItems.length - 1}
+                                    followOutput="smooth"
+                                    startReached={hasMoreMessages ? loadMoreMessages : undefined}
+                                    components={{
+                                        Header: hasMoreMessages ? () => (
+                                            <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0' }}>
+                                                <button
+                                                    onClick={loadMoreMessages}
+                                                    disabled={loadingMore}
+                                                    style={{
+                                                        padding: '6px 16px', fontSize: '13px', borderRadius: '20px',
+                                                        background: 'var(--surface2)', color: 'var(--text-muted)',
+                                                        border: '1px solid var(--border)', cursor: loadingMore ? 'not-allowed' : 'pointer',
+                                                        opacity: loadingMore ? 0.6 : 1,
+                                                    }}>
+                                                    {loadingMore ? 'Yükleniyor...' : 'Daha eski mesajları göster'}
+                                                </button>
+                                            </div>
+                                        ) : undefined,
+                                    }}
+                                    itemContent={(index) => {
+                                        // Son item typing indicator ise
+                                        if (loading && index === virtualItems.length) {
+                                            return <div style={{ padding: '0 24px 24px' }}><TypingIndicator /></div>;
+                                        }
+                                        return (
+                                            <div style={{ padding: '0 24px' }}>
+                                                {renderVirtualItem(index)}
+                                            </div>
+                                        );
+                                    }}
+                                />
+                            )}
                         </div>
 
                         <ChatInput

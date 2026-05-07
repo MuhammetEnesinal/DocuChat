@@ -1,4 +1,4 @@
-export default function EmptyState({ popularQuestions, onSelectQuestion }) {
+export default function EmptyState({ popularQuestions, popularQuestionsLoading, onSelectQuestion }) {
     const hints = ['Bu belgeler ne hakkında?', 'Özet çıkar', 'Önemli maddeleri listele', 'Daha fazla anlat'];
 
     return (
@@ -14,7 +14,18 @@ export default function EmptyState({ popularQuestions, onSelectQuestion }) {
                 Yüklü belgeler hakkında sorularınızı sorun.
             </p>
 
-            {popularQuestions.length > 0 ? (
+            {popularQuestionsLoading ? (
+                <div className="w-full max-w-lg">
+                    <p className="text-xs font-medium mb-3 text-center" style={{ color: 'var(--text-secondary)' }}>
+                        EN ÇOK SORULAN SORULAR
+                    </p>
+                    <div className="grid grid-cols-1 gap-2">
+                        {[1, 2, 3].map(i => (
+                            <div key={i} style={{ height: '48px', borderRadius: '12px', background: 'var(--surface2)', border: '1px solid var(--border)', animation: 'pulse 1.5s ease-in-out infinite' }} />
+                        ))}
+                    </div>
+                </div>
+            ) : popularQuestions.length > 0 ? (
                 <div className="w-full max-w-lg">
                     <p className="text-xs font-medium mb-3 text-center" style={{ color: 'var(--text-secondary)' }}>
                         EN ÇOK SORULAN SORULAR

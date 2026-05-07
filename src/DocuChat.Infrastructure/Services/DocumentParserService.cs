@@ -1,4 +1,5 @@
-﻿using CsvHelper;
+﻿
+using CsvHelper;
 using DocuChat.Application.Interfaces.Services;
 using DocuChat.Domain.Enums;
 using ExcelDataReader;
@@ -21,8 +22,8 @@ public class DocumentParserService : IDocumentParser
 {
     private readonly int _chunkSize;
     private readonly int _overlap;
-    private readonly string _groqApiKey;
-    private readonly string _groqVisionModel;
+    private readonly string _geminiApiKey;
+    private readonly string _geminiVisionModel;
     private readonly string _llamaParseApiKey;
     private readonly IFileStorage _fileStorage;
     private readonly ILogger<DocumentParserService> _logger;
@@ -36,9 +37,9 @@ public class DocumentParserService : IDocumentParser
     {
         _chunkSize = int.Parse(cfg["Chunking:ChunkSize"] ?? "1200");
         _overlap = int.Parse(cfg["Chunking:Overlap"] ?? "100");
-        _groqApiKey = cfg["GroqVision:ApiKey"] ?? cfg["Llm:ApiKey"]
-            ?? throw new InvalidOperationException("GroqVision:ApiKey yapılandırılmamış.");
-        _groqVisionModel = cfg["GroqVision:Model"] ?? "meta-llama/llama-4-scout-17b-16e-instruct";
+        _geminiApiKey = cfg["Llm:ApiKey"] ?? cfg["GoogleVision:ApiKey"]
+            ?? throw new InvalidOperationException("Google API Key yapılandırılmamış.");
+        _geminiVisionModel = cfg["Llm:Model"] ?? "gemini-3.1-flash";
         _llamaParseApiKey = cfg["LlamaParse:ApiKey"] ?? "";
         _fileStorage = fileStorage;
         _logger = logger;
@@ -52,17 +53,13 @@ public class DocumentParserService : IDocumentParser
         IEnumerable<ParsedChunk> raw = fileType switch
         {
             FileType.Xlsx => await ChunkXlsxWithImagesAsync(stream),
-            FileType.Csv => Chunk(ExtractCsv(stream)),
-            FileType.Txt => Chunk(ExtractTxt(stream)),
-            _ => null!,
+            FileType.Csv  => Chunk(ExtractCsv(stream)),
+            FileType.Txt  => Chunk(ExtractTxt(stream)),
+            FileType.Docx => SemanticChunk(await ExtractDocxAsync(stream)),
+            FileType.Doc  => SemanticChunk(await ExtractDocViaLlamaParseAsync(stream)),
+            FileType.Pdf  => await PdfToSemanticChunksAsync(stream),
+            _             => throw new NotSupportedException($"Desteklenmeyen dosya türü: {fileType}"),
         };
-
-        if (fileType == FileType.Docx)
-            raw = SemanticChunk(await ExtractDocxAsync(stream));
-        else if (fileType == FileType.Doc)
-            raw = SemanticChunk(await ExtractDocViaLlamaParseAsync(stream));
-        else if (fileType == FileType.Pdf)
-            raw = await PdfToSemanticChunksAsync(stream);
 
         return fileType is FileType.Docx or FileType.Doc or FileType.Pdf
             ? PostProcess(raw)
@@ -89,7 +86,7 @@ public class DocumentParserService : IDocumentParser
                 {
                     try
                     {
-                        pageText = await OcrPageWithGroqAsync(bitmap, _groqApiKey, _groqVisionModel);
+                        pageText = await OcrPageWithGeminiAsync(bitmap, _geminiApiKey, _geminiVisionModel);
                         if (!string.IsNullOrWhiteSpace(pageText)) break;
                     }
                     catch (Exception ex)
@@ -125,9 +122,13 @@ public class DocumentParserService : IDocumentParser
             catch { continue; }
             if (imgPaths.Count == 0) continue;
 
+            // OCR'ın tablo hücrelerine koymadığı marker'ları tamamla
+            var existingMarkers = System.Text.RegularExpressions.Regex.Matches(page.Text, @"\[IMAGE_HERE\]").Count;
+            var text = InjectImageMarkersIntoTableCells(page.Text, imgPaths.Count - existingMarkers);
+
             var imgIdx = 0;
             var newText = System.Text.RegularExpressions.Regex.Replace(
-                page.Text,
+                text,
                 @"\[IMAGE_HERE\]",
                 _ => imgIdx < imgPaths.Count ? $"[IMG_REF:{imgIdx++}]" : "");
 
@@ -137,7 +138,7 @@ public class DocumentParserService : IDocumentParser
         return pages;
     }
 
-    private static async Task<string> OcrPageWithGroqAsync(SKBitmap bitmap, string apiKey, string model)
+    private static async Task<string> OcrPageWithGeminiAsync(SKBitmap bitmap, string apiKey, string model)
     {
         using var image = SKImage.FromBitmap(bitmap);
         using var data = image.Encode(SKEncodedImageFormat.Png, 100);
@@ -256,6 +257,49 @@ public class DocumentParserService : IDocumentParser
                    .GetProperty("message")
                    .GetProperty("content")
                    .GetString()?.Trim() ?? string.Empty;
+    }
+
+    private static string InjectImageMarkersIntoTableCells(string ocrText, int available)
+    {
+        if (available <= 0) return ocrText;
+
+        var imageColPattern = new System.Text.RegularExpressions.Regex(
+            @"resim|görsel|image|foto[ğg]?raf?|photo|şekil|figure",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var separatorPattern = new System.Text.RegularExpressions.Regex(@"^:?-+:?$");
+
+        var lines = ocrText.Split('\n');
+        int? imageColIndex = null;
+        int injected = 0;
+
+        for (int i = 0; i < lines.Length && injected < available; i++)
+        {
+            var line = lines[i];
+            if (!line.TrimStart().StartsWith('|')) { imageColIndex = null; continue; }
+
+            var cells = line.Split('|');
+            // Header row detection
+            if (cells.Any(c => imageColPattern.IsMatch(c.Trim())))
+            {
+                imageColIndex = Array.FindIndex(cells, c => imageColPattern.IsMatch(c.Trim()));
+                continue;
+            }
+
+            // Separator row
+            if (cells.All(c => c.Trim() == string.Empty || separatorPattern.IsMatch(c.Trim())))
+                continue;
+
+            // Data row — inject marker into empty image column cell
+            if (imageColIndex.HasValue && imageColIndex.Value < cells.Length
+                && string.IsNullOrWhiteSpace(cells[imageColIndex.Value]))
+            {
+                cells[imageColIndex.Value] = " [IMAGE_HERE] ";
+                lines[i] = string.Join('|', cells);
+                injected++;
+            }
+        }
+
+        return string.Join('\n', lines);
     }
 
     private async Task<List<PageResult>> AttachPdfPigImages(byte[] pdfBytes, List<PageResult> pages)
@@ -1162,7 +1206,8 @@ public class DocumentParserService : IDocumentParser
         stream.Position = 0;
         var sample = new byte[Math.Min(stream.Length, 8192)]; var totalRead = 0; int bytesRead;
         while (totalRead < sample.Length && (bytesRead = stream.Read(sample, totalRead, sample.Length - totalRead)) > 0) totalRead += bytesRead;
-        try { if (!Encoding.UTF8.GetString(sample, 0, totalRead).Contains('\uFFFD')) return Encoding.UTF8; } catch { }
+        try { if (!Encoding.UTF8.GetString(sample, 0, totalRead).Contains('\uFFFD')) return Encoding.UTF8; }
+        catch { /* UTF-8 decode ba\u015Far\u0131s\u0131z \u2014 UTF-8 varsay\u0131lan\u0131na d\u00FC\u015F\u00FCl\u00FCyor */ }
         return Encoding.UTF8;
     }
 

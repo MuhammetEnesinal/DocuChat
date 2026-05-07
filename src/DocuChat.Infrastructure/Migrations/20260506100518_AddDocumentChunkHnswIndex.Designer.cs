@@ -3,6 +3,7 @@ using System;
 using DocuChat.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Pgvector;
@@ -12,9 +13,11 @@ using Pgvector;
 namespace DocuChat.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260506100518_AddDocumentChunkHnswIndex")]
+    partial class AddDocumentChunkHnswIndex
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -53,7 +56,7 @@ namespace DocuChat.Infrastructure.Migrations
 
                     b.HasIndex("SessionId");
 
-                    b.ToTable("ChatMessages", (string)null);
+                    b.ToTable("ChatMessages");
                 });
 
             modelBuilder.Entity("DocuChat.Domain.Entities.ChatSession", b =>
@@ -81,7 +84,7 @@ namespace DocuChat.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("ChatSessions", (string)null);
+                    b.ToTable("ChatSessions");
                 });
 
             modelBuilder.Entity("DocuChat.Domain.Entities.Document", b =>
@@ -134,7 +137,7 @@ namespace DocuChat.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("Documents", (string)null);
+                    b.ToTable("Documents");
                 });
 
             modelBuilder.Entity("DocuChat.Domain.Entities.DocumentChunk", b =>
@@ -178,7 +181,7 @@ namespace DocuChat.Infrastructure.Migrations
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Embedding"), "hnsw");
                     NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Embedding"), new[] { "vector_cosine_ops" });
 
-                    b.ToTable("DocumentChunks", (string)null);
+                    b.ToTable("DocumentChunks");
                 });
 
             modelBuilder.Entity("DocuChat.Domain.Entities.QuestionCache", b =>
@@ -226,7 +229,7 @@ namespace DocuChat.Infrastructure.Migrations
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("QuestionVector"), "hnsw");
                     NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("QuestionVector"), new[] { "vector_cosine_ops" });
 
-                    b.ToTable("QuestionCaches", (string)null);
+                    b.ToTable("QuestionCaches");
                 });
 
             modelBuilder.Entity("DocuChat.Infrastructure.Identity.AppRole", b =>

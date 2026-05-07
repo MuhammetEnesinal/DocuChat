@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getDocuments, uploadDocument, deleteDocument, reprocessDocument, getDocumentChunks, adminGetUsers, adminCreateUser, adminDeleteUser, API_BASE } from '../services/api';
+import { getDocuments, uploadDocument, deleteDocument, reprocessDocument, getDocumentChunks, adminGetUsers, adminCreateUser, adminUpdateUser, adminDeleteUser, API_BASE } from '../services/api';
 import { useToast } from '../components/shared/Toast';
 import Modal from '../components/shared/Modal';
 import DocumentUpload from '../components/admin/DocumentUpload';
@@ -27,6 +27,7 @@ export default function Admin() {
     const [usersLoading, setUsersLoading] = useState(true);
     const [userSearch, setUserSearch] = useState('');
     const [showUserModal, setShowUserModal] = useState(false);
+    const [editingUser, setEditingUser] = useState(null);
     const [newUser, setNewUser] = useState({ fullName: '', email: '', password: '' });
     const [userFormError, setUserFormError] = useState('');
     const [userFormLoading, setUserFormLoading] = useState(false);
@@ -74,7 +75,7 @@ export default function Admin() {
             await uploadDocument(file, (p) => setUploads(prev => prev.map(u => u.id === uid ? { ...u, progress: p } : u)));
             setUploads(prev => prev.map(u => u.id === uid ? { ...u, progress: 100, status: 'done' } : u));
             toast.success(`"${file.name}" yüklendi.`);
-            fetchDocs();
+            fetchDocs(true); // silent — upload progress'i bozmamak için skeleton gösterme
             setTimeout(() => setUploads(prev => prev.filter(u => u.id !== uid)), 3000);
         } catch (err) {
             const msg = err.response?.data?.error?.message || err.message;
@@ -86,12 +87,17 @@ export default function Admin() {
 
     const handleDeleteDoc = async (id, name) => {
         if (!confirm(`"${name}" silinecek. Emin misiniz?`)) return;
+        // Optimistic update: immediately remove from UI
+        setDocuments(prev => prev.filter(d => d.id !== id));
+        if (selectedDoc?.id === id) setShowChunksModal(false);
         try {
             await deleteDocument(id);
-            setDocuments(prev => prev.filter(d => d.id !== id));
             toast.success(`"${name}" silindi.`);
-            if (selectedDoc?.id === id) setShowChunksModal(false);
-        } catch { toast.error('Belge silinemedi.'); }
+        } catch {
+            // Revert on failure
+            fetchDocs(true);
+            toast.error('Belge silinemedi.');
+        }
     };
 
     const handleViewChunks = async (doc) => {
@@ -111,25 +117,42 @@ export default function Admin() {
         setUserFormError('');
         setUserFormLoading(true);
         try {
-            await adminCreateUser(newUser.fullName, newUser.email, newUser.password);
-            toast.success(`"${newUser.fullName}" oluşturuldu.`);
+            if (editingUser) {
+                await adminUpdateUser(editingUser.id, newUser.fullName, newUser.email, newUser.password);
+                toast.success(`"${newUser.fullName}" güncellendi.`);
+            } else {
+                await adminCreateUser(newUser.fullName, newUser.email, newUser.password);
+                toast.success(`"${newUser.fullName}" oluşturuldu.`);
+            }
             setShowUserModal(false);
+            setEditingUser(null);
             setNewUser({ fullName: '', email: '', password: '' });
             fetchUsers();
         } catch (err) {
             const msg = err.response?.data?.error?.message;
             const errors = err.response?.data?.error?.errors;
-            setUserFormError(errors?.join(' ') || msg || 'Kullanıcı oluşturulamadı.');
+            setUserFormError(errors?.join(' ') || msg || (editingUser ? 'Kullanıcı güncellenemedi.' : 'Kullanıcı oluşturulamadı.'));
         } finally { setUserFormLoading(false); }
+    };
+
+    const handleEditUser = (u) => {
+        setEditingUser(u);
+        setNewUser({ fullName: u.fullName, email: u.email, password: '' });
+        setUserFormError('');
+        setShowUserModal(true);
     };
 
     const handleDeleteUser = async (id, name) => {
         if (!confirm(`"${name}" silinecek. Emin misiniz?`)) return;
+        // Optimistic update: immediately remove from UI
+        const snapshot = users.filter(u => u.id !== id);
+        setUsers(snapshot);
         try {
             await adminDeleteUser(id);
-            setUsers(prev => prev.filter(u => u.id !== id));
             toast.success(`"${name}" silindi.`);
         } catch (err) {
+            // Revert on failure
+            fetchUsers();
             toast.error(err.response?.data?.error?.message || 'Kullanıcı silinemedi.');
         }
     };
@@ -188,7 +211,12 @@ export default function Admin() {
                             onSearchChange={setDocSearch}
                             onViewChunks={handleViewChunks}
                             onDelete={handleDeleteDoc}
-                            onReprocess={fetchDocs}
+                            onReprocessStart={(id) =>
+                                setDocuments(prev => prev.map(d =>
+                                    d.id === id ? { ...d, status: 'Processing' } : d
+                                ))
+                            }
+                            onReprocess={() => fetchDocs(true)}
                         />
                     </>
                 )}
@@ -199,7 +227,8 @@ export default function Admin() {
                         loading={usersLoading}
                         search={userSearch}
                         onSearchChange={setUserSearch}
-                        onAdd={() => { setShowUserModal(true); setUserFormError(''); setNewUser({ fullName: '', email: '', password: '' }); }}
+                        onAdd={() => { setEditingUser(null); setNewUser({ fullName: '', email: '', password: '' }); setUserFormError(''); setShowUserModal(true); }}
+                        onEdit={handleEditUser}
                         onDelete={handleDeleteUser}
                     />
                 )}
@@ -252,12 +281,13 @@ export default function Admin() {
             {/* User Modal */}
             {showUserModal && (
                 <UserModal
-                    onClose={() => setShowUserModal(false)}
+                    onClose={() => { setShowUserModal(false); setEditingUser(null); }}
                     onSubmit={handleCreateUser}
                     user={newUser}
                     onChange={(key, val) => setNewUser(prev => ({ ...prev, [key]: val }))}
                     error={userFormError}
                     loading={userFormLoading}
+                    isEdit={!!editingUser}
                 />
             )}
         </div>

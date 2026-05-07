@@ -27,6 +27,10 @@ public class GenericRepository<T> : IRepository<T> where T : BaseEntity
         Expression<Func<T, bool>> predicate, CancellationToken ct = default)
         => await _set.Where(predicate).ToListAsync(ct);
 
+    public async Task<int> CountAsync(
+        Expression<Func<T, bool>> predicate, CancellationToken ct = default)
+        => await _set.CountAsync(predicate, ct);
+
     public async Task AddAsync(T entity, CancellationToken ct = default)
         => await _set.AddAsync(entity, ct);
 

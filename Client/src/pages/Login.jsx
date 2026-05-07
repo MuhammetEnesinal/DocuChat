@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { login } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/shared/Toast';
@@ -28,7 +28,11 @@ export default function Login() {
             toast.success(`Hoş geldiniz, ${user.fullName}!`);
             navigate(user.roles?.includes('Admin') ? '/admin' : '/chat');
         } catch (err) {
-            const msg = err.response?.data?.error?.message || 'Giriş başarısız.';
+            const status = err.response?.status;
+            const data = err.response?.data;
+            const msg = status === 429
+                ? (data?.message || 'Çok fazla giriş denemesi. Lütfen 1 dakika bekleyin.')
+                : (data?.error?.message || data?.message || 'Giriş başarısız.');
             setError(msg);
             toast.error(msg);
         } finally {
@@ -64,9 +68,17 @@ export default function Login() {
                             onChange={(e) => setEmail(e.target.value)}
                             placeholder="ornek@sirket.com" required />
 
-                        <FormInput label="Şifre" type={showPassword ? 'text' : 'password'}
-                            value={password} onChange={(e) => setPassword(e.target.value)}
-                            placeholder="••••••••" required suffix={<EyeIcon />} />
+                        <div>
+                            <FormInput label="Şifre" type={showPassword ? 'text' : 'password'}
+                                value={password} onChange={(e) => setPassword(e.target.value)}
+                                placeholder="••••••••" required suffix={<EyeIcon />} />
+                            <div style={{ textAlign: 'right', marginTop: '6px' }}>
+                                <Link to="/forgot-password"
+                                    style={{ fontSize: '12px', color: 'var(--accent)', textDecoration: 'none' }}>
+                                    Şifremi Unuttum
+                                </Link>
+                            </div>
+                        </div>
 
                         <button type="submit" disabled={loading}
                             className="w-full py-3 rounded-xl font-semibold text-white transition-all"

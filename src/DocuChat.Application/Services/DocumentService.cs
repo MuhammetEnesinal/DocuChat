@@ -64,12 +64,8 @@ public class DocumentService : IDocumentService
             doc.UpdatedAt = DateTime.UtcNow;
             await _uow.SaveChangesAsync(ct);
 
-            var ms = new MemoryStream();
             req.FileStream.Position = 0;
-            await req.FileStream.CopyToAsync(ms, ct);
-            ms.Position = 0;
-
-            var chunks = await _parser.ParseAsync(ms, doc.FileType);
+            var chunks = await _parser.ParseAsync(req.FileStream, doc.FileType);
             int idx = 0;
 
             foreach (var parsed in chunks)
@@ -110,11 +106,57 @@ public class DocumentService : IDocumentService
         return Result<IReadOnlyList<DocumentResponseDto>>.Success(dtos);
     }
 
+    public async Task<Result<PaginatedResult<DocumentResponseDto>>> GetAllDocumentsPagedAsync(
+        int page, int pageSize, CancellationToken ct)
+    {
+        var allDocs = await _uow.Documents.GetAllAsync(ct);
+        var ordered = allDocs.OrderByDescending(d => d.CreatedAt).ToList();
+        var total = ordered.Count;
+        var items = ordered.Skip((page - 1) * pageSize).Take(pageSize)
+            .Select(d => d.Adapt<DocumentResponseDto>()).ToList();
+        return Result<PaginatedResult<DocumentResponseDto>>.Success(
+            new PaginatedResult<DocumentResponseDto>(items, total, page, pageSize));
+    }
+
+    public async Task<Result<int>> DeleteBatchAsync(IEnumerable<Guid> ids, CancellationToken ct)
+    {
+        var idList = ids.ToList();
+        var deletedIds = new List<Guid>();
+
+        var skipped = new List<Guid>();
+        foreach (var id in idList)
+        {
+            var doc = await _uow.Documents.GetByIdAsync(id, ct);
+            if (doc is null) continue;
+            if (doc.Status == DocumentStatus.Processing)
+            {
+                skipped.Add(id);
+                _logger.LogWarning("[Delete] Atlandı — belge işleniyor. DocId: {DocId}", id);
+                continue;
+            }
+            if (doc.StoragePath is not null)
+                await _fileStorage.DeleteAsync(doc.StoragePath, ct);
+            _uow.Documents.Delete(doc);
+            deletedIds.Add(id);
+        }
+
+        if (deletedIds.Count > 0)
+        {
+            await _uow.SaveChangesAsync(ct);
+            await _cache.ClearByDocumentIdsAsync(deletedIds, ct);
+            _logger.LogInformation("[Batch] {Count} belge silindi, ilgili cache temizlendi", deletedIds.Count);
+        }
+        return Result<int>.Success(deletedIds.Count);
+    }
+
     public async Task<Result<bool>> DeleteAsync(Guid docId, CancellationToken ct)
     {
         var doc = await _uow.Documents.GetByIdAsync(docId, ct);
         if (doc is null)
             return Result<bool>.Failure(Error.NotFound("Belge bulunamadı."));
+
+        if (doc.Status == DocumentStatus.Processing)
+            return Result<bool>.Failure(Error.Validation("Belge işleniyor, lütfen tamamlanmasını bekleyin."));
 
         if (doc.StoragePath is not null)
             await _fileStorage.DeleteAsync(doc.StoragePath, ct);
@@ -122,9 +164,8 @@ public class DocumentService : IDocumentService
         _uow.Documents.Delete(doc);
         await _uow.SaveChangesAsync(ct);
 
-        // Belge silindikten sonra cache'i temizle — stale cevap üretmesin
-        await _cache.ClearAllAsync(ct);
-        _logger.LogInformation("[Cache] Belge silindi, cache temizlendi. DocId: {DocId}", docId);
+        await _cache.ClearByDocumentIdAsync(docId, ct);
+        _logger.LogInformation("[Cache] Belge silindi, ilgili cache temizlendi. DocId: {DocId}", docId);
 
         return Result<bool>.Success(true);
     }
@@ -202,9 +243,8 @@ public class DocumentService : IDocumentService
 
         await _uow.SaveChangesAsync(ct);
 
-        // Reprocess sonrası cache'i temizle — içerik değişti
-        await _cache.ClearAllAsync(ct);
-        _logger.LogInformation("[Cache] Reprocess tamamlandı, cache temizlendi. DocId: {DocId}", id);
+        await _cache.ClearByDocumentIdAsync(id, ct);
+        _logger.LogInformation("[Cache] Reprocess tamamlandı, ilgili cache temizlendi. DocId: {DocId}", id);
 
         return Result<DocumentResponseDto>.Success(doc.Adapt<DocumentResponseDto>());
     }

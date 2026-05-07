@@ -31,7 +31,8 @@ public static class DependencyInjection
             o.User.RequireUniqueEmail = true;
         })
         .AddEntityFrameworkStores<AppDbContext>()
-        .AddDefaultTokenProviders();
+        .AddDefaultTokenProviders()
+        .AddErrorDescriber<TurkishIdentityErrorDescriber>();
 
         // Repositories
         services.AddScoped<IChatSessionRepository, ChatSessionRepository>();
@@ -44,6 +45,7 @@ public static class DependencyInjection
 
         // Infrastructure Services
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IEmailService, SmtpEmailService>();
         services.AddScoped<IDocumentParser, DocumentParserService>();
         services.AddScoped<IVectorSearch, VectorSearchService>();
         services.AddScoped<IFileStorage, LocalFileStorage>();
@@ -67,11 +69,15 @@ public static class DependencyInjection
         // Provider'a göre header set edilir — LlmService constructor'da tekrar yapılmaz
         services.AddHttpClient<ILlmService, LlmService>(client =>
         {
-            client.BaseAddress = new Uri(cfg["Llm:BaseUrl"]
-                ?? throw new InvalidOperationException("Llm:BaseUrl config eksik."));
-            client.Timeout = TimeSpan.FromMinutes(5);
-
             var provider = cfg["Llm:Provider"] ?? "OpenAI";
+            
+            // Gemini kendi URL'ini kullanıyor (LlmService'de hardcoded), diğerleri BaseUrl'den gelir
+            var baseUrl = provider == "Gemini" 
+                ? "https://generativelanguage.googleapis.com/v1beta/"  // dummy, LlmService override eder
+                : (cfg["Llm:BaseUrl"] ?? throw new InvalidOperationException("Llm:BaseUrl config eksik."));
+            
+            client.BaseAddress = new Uri(baseUrl);
+            client.Timeout = TimeSpan.FromMinutes(5);
 
             if (provider == "Anthropic")
             {

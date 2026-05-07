@@ -29,6 +29,10 @@ public class DocumentChunkConfiguration : IEntityTypeConfiguration<DocumentChunk
 
         builder.HasIndex(c => c.DocumentId);
 
+        builder.HasIndex(c => c.Embedding)
+               .HasMethod("hnsw")
+               .HasOperators("vector_cosine_ops");
+
         builder.HasOne(c => c.Document)
                .WithMany(d => d.Chunks)
                .HasForeignKey(c => c.DocumentId)

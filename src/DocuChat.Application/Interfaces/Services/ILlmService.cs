@@ -16,6 +16,7 @@ public interface ILlmService
 
     Task<bool> IsCacheableAsync(
         string question,
+        IEnumerable<(string Role, string Content)>? history = null,
         CancellationToken ct = default);
 
     /// <summary>Soruyu belge araması için optimize et: kısaltma açma, yazım düzeltme, zamir netleştirme.</summary>

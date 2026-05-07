@@ -10,15 +10,23 @@ public static class ResultExtensions
         if (result.IsSuccess)
             return new OkObjectResult(ApiResponse<T>.Ok(result.Value!));
 
-        var apiError = new ApiError(
-            result.Error.Code,
-            result.Error.Message,
-            result.Error.StatusCode);
+        return ToErrorResult<T>(result.Error);
+    }
 
-        return new ObjectResult(ApiResponse<T>.Fail(apiError))
-        {
-            StatusCode = result.Error.StatusCode
-        };
+    public static IActionResult ToCreatedResult<T>(this Result<T> result)
+    {
+        if (result.IsSuccess)
+            return new ObjectResult(ApiResponse<T>.Ok(result.Value!)) { StatusCode = 201 };
+
+        return ToErrorResult<T>(result.Error);
+    }
+
+    public static IActionResult ToNoContentResult(this Result<bool> result)
+    {
+        if (result.IsSuccess)
+            return new NoContentResult();
+
+        return ToErrorResult<bool>(result.Error);
     }
 
     // Validation hataları için — birden fazla mesaj liste olarak gelir
@@ -35,5 +43,11 @@ public static class ResultExtensions
         {
             StatusCode = 422
         };
+    }
+
+    private static IActionResult ToErrorResult<T>(Error error)
+    {
+        var apiError = new ApiError(error.Code, error.Message, error.StatusCode);
+        return new ObjectResult(ApiResponse<T>.Fail(apiError)) { StatusCode = error.StatusCode };
     }
 }

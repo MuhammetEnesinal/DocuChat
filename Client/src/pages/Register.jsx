@@ -19,9 +19,28 @@ export default function Register() {
     const navigate = useNavigate();
     const toast = useToast();
 
+    const validatePassword = (pwd) => {
+        const rules = [];
+        if (pwd.length < 8) rules.push('En az 8 karakter');
+        if (!/[A-Z]/.test(pwd)) rules.push('Büyük harf');
+        if (!/[a-z]/.test(pwd)) rules.push('Küçük harf');
+        if (!/\d/.test(pwd)) rules.push('Rakam');
+        if (!/[^a-zA-Z0-9]/.test(pwd)) rules.push('Özel karakter');
+        return rules.length === 0 ? null : 'Şifre şu kuralları içermeli: ' + rules.join(', ');
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
+        
+        // Şifre geçerliliğini kontrol et
+        const passwordError = validatePassword(password);
+        if (passwordError) {
+            setError(passwordError);
+            toast.error(passwordError);
+            return;
+        }
+        
         if (password !== confirmPassword) {
             setError('Şifreler eşleşmiyor.');
             toast.error('Şifreler eşleşmiyor.');
@@ -35,11 +54,19 @@ export default function Register() {
             toast.success(`Hesabınız oluşturuldu. Hoş geldiniz, ${user.fullName}!`);
             navigate(user.roles?.includes('Admin') ? '/admin' : '/chat');
         } catch (err) {
-            const msg = err.response?.data?.error?.message;
-            const errors = err.response?.data?.error?.errors;
-            const errorText = errors?.join(' ') || msg || 'Kayıt başarısız.';
-            setError(errorText);
-            toast.error(errorText);
+            const status = err.response?.status;
+            const data = err.response?.data;
+            if (status === 429) {
+                const errorText = data?.message || 'Çok fazla kayıt denemesi. Lütfen 1 dakika bekleyin.';
+                setError(errorText);
+                toast.error(errorText);
+            } else {
+                const msg = data?.error?.message;
+                const errors = data?.error?.errors;
+                const errorText = errors?.join(' ') || msg || 'Kayıt başarısız.';
+                setError(errorText);
+                toast.error(errorText);
+            }
         } finally {
             setLoading(false);
         }
@@ -81,6 +108,7 @@ export default function Register() {
                         <FormInput label="Şifre" type={showPassword ? 'text' : 'password'}
                             value={password} onChange={(e) => setPassword(e.target.value)}
                             placeholder="En az 8 karakter" required suffix={<EyeIcon />}
+                            error={password && validatePassword(password)}
                             hint="Büyük/küçük harf, rakam ve özel karakter içermeli" />
 
                         <FormInput label="Şifre Tekrar" type={showPassword ? 'text' : 'password'}

@@ -55,4 +55,36 @@ public class QuestionCacheRepository : IQuestionCacheRepository
     {
         await _db.QuestionCaches.ExecuteDeleteAsync(ct);
     }
+
+    public async Task ClearByDocumentIdAsync(Guid docId, CancellationToken ct = default)
+    {
+        var idStr = docId.ToString();
+        await _db.QuestionCaches
+            .Where(q => q.DocumentIds != null && q.DocumentIds.Contains(idStr))
+            .ExecuteDeleteAsync(ct);
+    }
+
+    public async Task ClearByDocumentIdsAsync(IEnumerable<Guid> docIds, CancellationToken ct = default)
+    {
+        var idStrings = docIds.Select(id => id.ToString()).ToList();
+        if (idStrings.Count == 0) return;
+        await _db.QuestionCaches
+            .Where(q => q.DocumentIds != null && idStrings.Any(s => q.DocumentIds.Contains(s)))
+            .ExecuteDeleteAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<string>> GetTopByHitCountAsync(int limit, CancellationToken ct = default)
+        => await _db.QuestionCaches
+            .OrderByDescending(q => q.HitCount)
+            .Take(limit)
+            .Select(q => q.QuestionText)
+            .ToListAsync(ct);
+
+    public async Task<int> DeleteExpiredAsync(TimeSpan maxAge, CancellationToken ct = default)
+    {
+        var cutoff = DateTime.UtcNow - maxAge;
+        return await _db.QuestionCaches
+            .Where(q => q.HitCount == 0 && q.CreatedAt < cutoff)
+            .ExecuteDeleteAsync(ct);
+    }
 }

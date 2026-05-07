@@ -1,6 +1,7 @@
-﻿// DocuChat.Application/Services/ChatService.cs
+// DocuChat.Application/Services/ChatService.cs
 using System.Text.Json;
 using Mapster;
+using Microsoft.Extensions.Logging;
 using DocuChat.Application.Interfaces.Services;
 using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Application.Common;
@@ -18,6 +19,7 @@ public class ChatService : IChatService
     private readonly ICurrentUser _currentUser;
     private readonly IEmbeddingService _embeddingService;
     private readonly IQuestionCacheRepository _cache;
+    private readonly ILogger<ChatService> _logger;
 
     private const double CacheSimilarityThreshold = 0.92;
 
@@ -27,7 +29,8 @@ public class ChatService : IChatService
         ILlmService llm,
         ICurrentUser currentUser,
         IEmbeddingService embeddingService,
-        IQuestionCacheRepository cache)
+        IQuestionCacheRepository cache,
+        ILogger<ChatService> logger)
     {
         _uow = uow;
         _vectorSearch = vectorSearch;
@@ -35,6 +38,7 @@ public class ChatService : IChatService
         _currentUser = currentUser;
         _embeddingService = embeddingService;
         _cache = cache;
+        _logger = logger;
     }
 
     public async Task<Result<AskResponseDto>> AskAsync(AskRequest req, CancellationToken ct)
@@ -92,14 +96,16 @@ public class ChatService : IChatService
         var searchQuestion = req.Question;
         try
         {
-            var rewritten = await _llm.RewriteQueryAsync(req.Question, history, ct);
+            using var rewriteCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            rewriteCts.CancelAfter(TimeSpan.FromSeconds(30));
+            var rewritten = await _llm.RewriteQueryAsync(req.Question, history, rewriteCts.Token);
             if (rewritten != req.Question)
             {
-                Console.WriteLine($"[QueryRewrite] '{req.Question}' → '{rewritten}'");
+                _logger.LogInformation("[QueryRewrite] '{Original}' → '{Rewritten}'", req.Question, rewritten);
                 searchQuestion = rewritten;
             }
         }
-        catch (Exception ex) { Console.WriteLine($"[QueryRewrite] Atlandı: {ex.Message}"); }
+        catch (Exception ex) { _logger.LogWarning(ex, "[QueryRewrite] Atlandı"); }
 
         // ── Semantik cache kontrolü ──────────────────────────────────────
         var questionVector = await _embeddingService.GetEmbeddingAsync(searchQuestion, ct);
@@ -128,11 +134,11 @@ public class ChatService : IChatService
             ? string.Join(",", relevantDocIds.OrderBy(x => x))
             : null;
 
-        // Cache kontrolü — her zaman kontrol et; isIndependent sadece WRITE kararını etkiler
-        var cached = await _cache.FindSimilarAsync(questionVector, CacheSimilarityThreshold, docIdKey, ct);
+        var cached = await _cache.FindSimilarAsync(
+            questionVector, CacheSimilarityThreshold, docIdKey, ct);
         if (cached != null)
         {
-            Console.WriteLine($"[Cache] HIT — '{cached.QuestionText}' → cache'den döndürüldü.");
+            _logger.LogInformation("[Cache] HIT — '{Question}' cache'den döndürüldü", cached.QuestionText);
 
             await _cache.IncrementHitAsync(cached.Id, ct);
 
@@ -161,8 +167,7 @@ public class ChatService : IChatService
         }
 
         // Cache miss — WRITE kararı için bağımsızlık kontrolü (rewritten query ile değerlendir)
-        // "2. satırı getir", "devam et", "bunu açıkla" → false  |  "Baret nedir?" → true
-        var isIndependent = await _llm.IsCacheableAsync(searchQuestion, ct);
+        var isIndependent = await _llm.IsCacheableAsync(searchQuestion, history, ct);
 
         // ── HyDE: Varsayımsal belge üret — embedding kalitesini artırır ────
         string? hydeText = null;
@@ -170,10 +175,12 @@ public class ChatService : IChatService
         {
             try
             {
-                hydeText = await _llm.GenerateHypotheticalDocumentAsync(searchQuestion, ct);
-                Console.WriteLine($"[HyDE] {hydeText[..Math.Min(100, hydeText.Length)]}...");
+                using var hydeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                hydeCts.CancelAfter(TimeSpan.FromSeconds(30));
+                hydeText = await _llm.GenerateHypotheticalDocumentAsync(searchQuestion, hydeCts.Token);
+                _logger.LogDebug("[HyDE] {Preview}...", hydeText[..Math.Min(100, hydeText.Length)]);
             }
-            catch (Exception ex) { Console.WriteLine($"[HyDE] Atlandı: {ex.Message}"); }
+            catch (Exception ex) { _logger.LogWarning(ex, "[HyDE] Atlandı"); }
         }
 
         // ── Vector search ────────────────────────────────────────────────
@@ -199,17 +206,19 @@ public class ChatService : IChatService
         {
             try
             {
+                using var rerankCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                rerankCts.CancelAfter(TimeSpan.FromSeconds(15));
                 var topK = Math.Min(5, chunks.Count);
                 var rankedIndices = await _llm.RerankChunksAsync(
-                    searchQuestion, chunks.Select(c => c.Content).ToList(), topK, ct);
+                    searchQuestion, chunks.Select(c => c.Content).ToList(), topK, rerankCts.Token);
                 chunks = rankedIndices.Select(i => chunks[i]).ToList();
-                Console.WriteLine($"[Rerank] {chunks.Count} chunk yeniden sıralandı.");
+                _logger.LogInformation("[Rerank] {Count} chunk yeniden sıralandı", chunks.Count);
             }
-            catch (Exception ex) { Console.WriteLine($"[Rerank] Atlandı: {ex.Message}"); }
+            catch (Exception ex) { _logger.LogWarning(ex, "[Rerank] Atlandı"); }
         }
 
         // ── LLM çağrısı ──────────────────────────────────────────────────
-        var answer = await _llm.AskAsync(req.Question, chunks, history, ct);
+        var answer = await _llm.AskAsync(searchQuestion, chunks, history, ct);
 
         // ── Image path'leri topla — LlmService ile AYNI sırada ──────────
         var seenPaths = new HashSet<string>();
@@ -227,10 +236,7 @@ public class ChatService : IChatService
             .Where(p => seenPaths.Add(p))
             .ToList();
 
-        // allImagePaths'i aynen koru — [IMG:N] metnindeki N, 1-tabanlı index olarak
-        // allImagePaths[N-1]'e doğrudan map edilmeli; filtrelenmiş liste index kaymasına neden olur.
         var imagesJson = allImagePaths.Count > 0 ? JsonSerializer.Serialize(allImagePaths) : null;
-
 
         // ── Asistan mesajını kaydet ──────────────────────────────────────
         await _uow.Messages.AddAsync(new ChatMessage
@@ -243,32 +249,49 @@ public class ChatService : IChatService
         await _uow.SaveChangesAsync(ct);
 
         // ── Cache'e yaz ──────────────────────────────────────────────────
-        // isIndependent zaten yukarıda hesaplandı — IsCacheableAsync'i tekrar çağırmaya gerek yok
         if (isIndependent)
         {
             try
             {
+                // searchQuestion (normalize/rewrite edilmiş) ile yaz — read ile tutarlı olsun
                 await _cache.AddAsync(new QuestionCache
                 {
-                    QuestionText = req.Question,
+                    QuestionText = searchQuestion,
                     QuestionVector = questionVector,
                     Answer = answer,
                     ImagesJson = imagesJson,
-                    DocumentIds = docIdKey
+                    DocumentIds = docIdKey,
                 }, ct);
                 await _uow.SaveChangesAsync(ct);
-                Console.WriteLine($"[Cache] WRITE — '{req.Question}' (belgeler: {docIdKey ?? "tümü"}) cache'e yazıldı.");
+                _logger.LogInformation("[Cache] WRITE — '{Question}' (belgeler: {DocIds}) cache'e yazıldı",
+                    searchQuestion, docIdKey ?? "tümü");
+
+                // Periyodik TTL temizliği — yaklaşık %2 ihtimalle tetiklenir
+                if (Random.Shared.Next(50) == 0)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var deleted = await _cache.DeleteExpiredAsync(TimeSpan.FromDays(30), CancellationToken.None);
+                            if (deleted > 0)
+                                _logger.LogInformation("[Cache] TTL temizliği — {Count} eski kayıt silindi", deleted);
+                        }
+                        catch (Exception cleanEx)
+                        {
+                            _logger.LogWarning(cleanEx, "[Cache] TTL temizliği sırasında hata");
+                        }
+                    });
+                }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Cache] Yazma hatası: {ex.Message}");
-                if (ex.InnerException != null)
-                    Console.WriteLine($"[Cache] Inner: {ex.InnerException.Message}");
+                _logger.LogError(ex, "[Cache] Yazma hatası — '{Question}'", req.Question);
             }
         }
         else
         {
-            Console.WriteLine($"[Cache] SKIP — '{req.Question}' bağlama özgü, cache'e yazılmadı.");
+            _logger.LogDebug("[Cache] SKIP — '{Question}' bağlama özgü, cache'e yazılmadı", req.Question);
         }
 
         return Result<AskResponseDto>.Success(new AskResponseDto(session.Id, answer, chunks,
@@ -280,6 +303,28 @@ public class ChatService : IChatService
         var sessions = await _uow.Sessions.GetByUserIdAsync(_currentUser.UserId, ct);
         return Result<IReadOnlyList<ChatSessionResponseDto>>.Success(
             sessions.Select(s => s.Adapt<ChatSessionResponseDto>()).ToList());
+    }
+
+    public async Task<Result<PaginatedResult<ChatSessionResponseDto>>> GetMySessionsPagedAsync(
+        int page, int pageSize, CancellationToken ct)
+    {
+        var paged = await _uow.Sessions.GetByUserIdPagedAsync(_currentUser.UserId, page, pageSize, ct);
+        var dtos = paged.Items.Select(s => s.Adapt<ChatSessionResponseDto>()).ToList();
+        return Result<PaginatedResult<ChatSessionResponseDto>>.Success(
+            new PaginatedResult<ChatSessionResponseDto>(dtos, paged.TotalCount, paged.Page, paged.PageSize));
+    }
+
+    public async Task<Result<PaginatedResult<ChatSessionResponseDto>>> GetMySessionsFilteredAsync(
+        int page, int pageSize,
+        DateTime? dateFrom, DateTime? dateTo,
+        string sortBy, bool ascending,
+        CancellationToken ct)
+    {
+        var paged = await _uow.Sessions.GetByUserIdFilteredAsync(
+            _currentUser.UserId, page, pageSize, dateFrom, dateTo, sortBy, ascending, ct);
+        var dtos = paged.Items.Select(s => s.Adapt<ChatSessionResponseDto>()).ToList();
+        return Result<PaginatedResult<ChatSessionResponseDto>>.Success(
+            new PaginatedResult<ChatSessionResponseDto>(dtos, paged.TotalCount, paged.Page, paged.PageSize));
     }
 
     public async Task<Result<IReadOnlyList<ChatMessageResponseDto>>> GetMessagesAsync(
@@ -302,6 +347,29 @@ public class ChatService : IChatService
         return Result<IReadOnlyList<ChatMessageResponseDto>>.Success(dtos);
     }
 
+    public async Task<Result<PaginatedResult<ChatMessageResponseDto>>> GetMessagesPagedAsync(
+        Guid sessionId, int page, int pageSize, CancellationToken ct)
+    {
+        var session = await _uow.Sessions.GetByIdAsync(sessionId, ct);
+        if (session is null)
+            return Result<PaginatedResult<ChatMessageResponseDto>>.Failure(
+                Error.NotFound("Oturum bulunamadı."));
+
+        if (session.UserId != _currentUser.UserId && !_currentUser.IsInRole(Roles.Admin))
+            return Result<PaginatedResult<ChatMessageResponseDto>>.Failure(
+                Error.Forbidden("Bu oturuma erişiminiz yok."));
+
+        var pagedSession = await _uow.Sessions.GetWithMessagesPagedAsync(sessionId, page, pageSize, ct);
+        var totalCount = await _uow.Messages.CountAsync(m => m.SessionId == sessionId, ct);
+
+        var dtos = (pagedSession?.Messages ?? [])
+            .Select(m => m.Adapt<ChatMessageResponseDto>())
+            .ToList();
+
+        return Result<PaginatedResult<ChatMessageResponseDto>>.Success(
+            new PaginatedResult<ChatMessageResponseDto>(dtos, totalCount, page, pageSize));
+    }
+
     public async Task<Result<bool>> RenameSessionAsync(
         Guid sessionId, string title, CancellationToken ct)
     {
@@ -318,8 +386,12 @@ public class ChatService : IChatService
     public async Task<Result<IReadOnlyList<string>>> GetPopularQuestionsAsync(
         int limit, CancellationToken ct)
     {
-        var allMessages = await _uow.Messages.FindAsync(m => m.Role == MessageRole.User, ct);
-        var popular = allMessages
+        var cached = await _cache.GetTopByHitCountAsync(limit, ct);
+        if (cached.Count > 0)
+            return Result<IReadOnlyList<string>>.Success(cached);
+
+        var recentMessages = await _uow.Messages.FindAsync(m => m.Role == MessageRole.User, ct);
+        var popular = recentMessages
             .Select(m => m.Content.Trim())
             .Where(q => q.Length > 10 && q.Length < 200)
             .Where(q => !q.StartsWith("AŞAĞIDAKİ BELGE PARÇALARINI"))
@@ -341,6 +413,26 @@ public class ChatService : IChatService
         _uow.Sessions.Delete(session);
         await _uow.SaveChangesAsync(ct);
         return Result<bool>.Success(true);
+    }
+
+    public async Task<Result<int>> DeleteSessionsBatchAsync(
+        IEnumerable<Guid> sessionIds, CancellationToken ct)
+    {
+        var ids = sessionIds.ToHashSet();
+        var sessions = await _uow.Sessions.FindAsync(s => ids.Contains(s.Id), ct);
+
+        int deleted = 0;
+        foreach (var session in sessions)
+        {
+            if (session.UserId != _currentUser.UserId && !_currentUser.IsInRole(Roles.Admin)) continue;
+            _uow.Sessions.Delete(session);
+            deleted++;
+        }
+
+        if (deleted > 0)
+            await _uow.SaveChangesAsync(ct);
+        _logger.LogInformation("[Batch] {Count}/{Total} oturum silindi", deleted, ids.Count);
+        return Result<int>.Success(deleted);
     }
 
     private static string NormalizeQuestion(string question) =>

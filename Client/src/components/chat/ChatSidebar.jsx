@@ -5,7 +5,7 @@ import SidebarButton from './SidebarButton';
 
 export default function ChatSidebar({
     sessions, sessionsLoading, activeSession,
-    editingSessionId, editingTitle,
+    editingSessionId, editingTitle, deletingSessionId, renamingSessionId,
     collapsed, onToggleCollapse,
     onNewChat, onLoadSession,
     onStartRename, onCommitRename, onSetEditingTitle, onSetEditingSessionId,
@@ -106,22 +106,37 @@ export default function ChatSidebar({
                             )}
                             <div style={{ display: 'flex', alignItems: 'center', gap: '2px', flexShrink: 0, marginLeft: '4px' }}
                                 className="session-actions">
-                                <button onClick={(e) => { e.stopPropagation(); onStartRename(s); }}
-                                    style={{ padding: '4px', borderRadius: '4px', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
-                                    onMouseEnter={(e) => e.currentTarget.style.color = '#93c5fd'}
-                                    onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-muted)'}>
-                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                    </svg>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); if (renamingSessionId !== s.id) onStartRename(s); }}
+                                    disabled={renamingSessionId === s.id}
+                                    style={{ padding: '4px', borderRadius: '4px', color: renamingSessionId === s.id ? 'var(--accent)' : 'var(--text-muted)', background: 'none', border: 'none', cursor: renamingSessionId === s.id ? 'not-allowed' : 'pointer' }}
+                                    onMouseEnter={(e) => { if (renamingSessionId !== s.id) e.currentTarget.style.color = '#93c5fd'; }}
+                                    onMouseLeave={(e) => { if (renamingSessionId !== s.id) e.currentTarget.style.color = 'var(--text-muted)'; }}>
+                                    {renamingSessionId === s.id ? (
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
+                                            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                                        </svg>
+                                    ) : (
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                        </svg>
+                                    )}
                                 </button>
-                                <button onClick={(e) => { e.stopPropagation(); onDeleteSession(s.id); }}
-                                    style={{ padding: '4px', borderRadius: '4px', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
-                                    onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
+                                <button onClick={(e) => { e.stopPropagation(); if (deletingSessionId !== s.id) onDeleteSession(s.id); }}
+                                    disabled={deletingSessionId === s.id}
+                                    style={{ padding: '4px', borderRadius: '4px', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: deletingSessionId === s.id ? 'not-allowed' : 'pointer' }}
+                                    onMouseEnter={(e) => { if (deletingSessionId !== s.id) e.currentTarget.style.color = '#ef4444'; }}
                                     onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-muted)'}>
-                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-                                    </svg>
+                                    {deletingSessionId === s.id ? (
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
+                                            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                                        </svg>
+                                    ) : (
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                                        </svg>
+                                    )}
                                 </button>
                             </div>
                         </div>

@@ -1,7 +1,8 @@
-﻿// DocuChat.API/Controllers/DocumentsController.cs
+// DocuChat.API/Controllers/DocumentsController.cs
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using DocuChat.Application.Common;
 using DocuChat.Application.Interfaces.Services;
 using DocuChat.Application.DTOs.Document;
@@ -22,7 +23,6 @@ public class DocumentsController : ControllerBase
 {
     private readonly IDocumentService _documentService;
     private readonly IValidator<UploadDocumentRequest> _uploadValidator;
-    // IFileStorage tamamen kaldırıldı — servis katmanı üzerinden erişiliyor
 
     public DocumentsController(
         IDocumentService documentService,
@@ -33,8 +33,16 @@ public class DocumentsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetAll(CancellationToken ct)
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<DocumentResponseDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetAll(
+        [FromQuery] int? page, [FromQuery] int pageSize = 20, CancellationToken ct = default)
     {
+        if (page.HasValue)
+        {
+            var paged = await _documentService.GetAllDocumentsPagedAsync(page.Value, pageSize, ct);
+            return paged.ToActionResult();
+        }
         var result = await _documentService.GetAllDocumentsAsync(ct);
         return result.ToActionResult();
     }
@@ -47,7 +55,11 @@ public class DocumentsController : ControllerBase
     }
 
     [HttpPost("upload")]
+    [EnableRateLimiting("upload")]
     [Consumes("multipart/form-data")]
+    [ProducesResponseType(typeof(ApiResponse<DocumentResponseDto>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Upload(
         [FromForm] UploadFileRequest request, CancellationToken ct)
     {
@@ -62,13 +74,12 @@ public class DocumentsController : ControllerBase
                              .ToValidationResult<DocumentResponseDto>();
 
         var result = await _documentService.UploadAsync(req, ct);
-        return result.ToActionResult();
+        return result.ToCreatedResult();
     }
 
     [HttpGet("{id:guid}/preview")]
     public async Task<IActionResult> Preview(Guid id, CancellationToken ct)
     {
-        // IFileStorage artık controller'da yok — servis stream'i açıyor
         var result = await _documentService.GetFileStreamAsync(id, ct);
         if (!result.IsSuccess)
             return result.ToActionResult();
@@ -76,6 +87,7 @@ public class DocumentsController : ControllerBase
         var (stream, contentType, fileName) = result.Value;
         Response.Headers["Content-Disposition"] =
             $"inline; filename=\"{Uri.EscapeDataString(fileName)}\"";
+        Response.RegisterForDispose(stream);
 
         return File(stream, contentType, enableRangeProcessing: true);
     }
@@ -88,9 +100,24 @@ public class DocumentsController : ControllerBase
     }
 
     [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         var result = await _documentService.DeleteAsync(id, ct);
+        return result.ToNoContentResult();
+    }
+
+    [HttpPost("batch-delete")]
+    [ProducesResponseType(typeof(ApiResponse<int>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> DeleteBatch(
+        [FromBody] BatchDocumentDeleteRequest req, CancellationToken ct)
+    {
+        var result = await _documentService.DeleteBatchAsync(req.Ids, ct);
         return result.ToActionResult();
     }
 }
+
+public record BatchDocumentDeleteRequest(IEnumerable<Guid> Ids);

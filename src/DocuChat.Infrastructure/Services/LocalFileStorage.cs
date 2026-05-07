@@ -1,5 +1,6 @@
 ﻿// DocuChat.Infrastructure/Services/LocalFileStorage.cs
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using DocuChat.Application.Interfaces.Services;
 
 namespace DocuChat.Infrastructure.Services;
@@ -7,10 +8,12 @@ namespace DocuChat.Infrastructure.Services;
 public class LocalFileStorage : IFileStorage
 {
     private readonly string _basePath;
+    private readonly ILogger<LocalFileStorage> _logger;
 
-    public LocalFileStorage(IConfiguration cfg)
+    public LocalFileStorage(IConfiguration cfg, ILogger<LocalFileStorage> logger)
     {
         _basePath = cfg["Storage:LocalPath"] ?? "uploads";
+        _logger = logger;
         Directory.CreateDirectory(_basePath);
     }
 
@@ -44,7 +47,7 @@ public class LocalFileStorage : IFileStorage
     public Stream Read(string storagePath)
     {
         var fullPath = Path.GetFullPath(Path.Combine(_basePath, storagePath));
-        Console.WriteLine($"[FileStorage] Read: {fullPath} | Exists: {File.Exists(fullPath)}");
+        _logger.LogDebug("[FileStorage] Read: {FullPath} | Exists: {Exists}", fullPath, File.Exists(fullPath));
         if (!File.Exists(fullPath))
             throw new FileNotFoundException($"Dosya bulunamadı: {fullPath}");
         return File.OpenRead(fullPath);

@@ -76,3 +76,42 @@ export function UserSkeleton() {
         </div>
     );
 }
+
+export function MessageSkeleton() {
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', padding: '24px 0' }}>
+            <style>{`@keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }`}</style>
+            {/* User message */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <div style={{ maxWidth: '60%', display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-end' }}>
+                    <SkeletonLine width="180px" height="36px" style={{ borderRadius: '16px 16px 4px 16px' }} />
+                </div>
+            </div>
+            {/* Assistant message */}
+            <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#162440', flexShrink: 0 }} />
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <SkeletonLine width="90%" height="13px" />
+                    <SkeletonLine width="75%" height="13px" />
+                    <SkeletonLine width="60%" height="13px" />
+                </div>
+            </div>
+            {/* User message */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <div style={{ maxWidth: '60%', display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-end' }}>
+                    <SkeletonLine width="220px" height="36px" style={{ borderRadius: '16px 16px 4px 16px' }} />
+                </div>
+            </div>
+            {/* Assistant message */}
+            <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#162440', flexShrink: 0 }} />
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <SkeletonLine width="85%" height="13px" />
+                    <SkeletonLine width="70%" height="13px" />
+                    <SkeletonLine width="50%" height="13px" />
+                    <SkeletonLine width="40%" height="13px" />
+                </div>
+            </div>
+        </div>
+    );
+}

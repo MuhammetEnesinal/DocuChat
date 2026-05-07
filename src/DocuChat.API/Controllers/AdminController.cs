@@ -1,8 +1,9 @@
-﻿using FluentValidation;
+using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using DocuChat.Application.Interfaces.Services;
 using DocuChat.Application.DTOs.Auth;
+using DocuChat.Application.DTOs.Chat;
 using DocuChat.API.Extensions;
 using DocuChat.Domain.Enums;
 
@@ -49,6 +50,13 @@ public class AdminController : ControllerBase
                              .ToValidationResult<AuthResponseDto>();
 
         var result = await _authService.RegisterAsync(req, ct);
+        return result.ToCreatedResult();
+    }
+
+    [HttpPut("users/{id}")]
+    public async Task<IActionResult> UpdateUser(string id, [FromBody] UpdateUserRequest req, CancellationToken ct)
+    {
+        var result = await _authService.UpdateUserAsync(id, req, ct);
         return result.ToActionResult();
     }
 
@@ -56,14 +64,20 @@ public class AdminController : ControllerBase
     public async Task<IActionResult> DeleteUser(string id, CancellationToken ct)
     {
         var result = await _authService.DeleteUserAsync(id, ct);
-        return result.ToActionResult();
+        return result.ToNoContentResult();
     }
 
     // ───── BELGELER ─────
 
     [HttpGet("documents")]
-    public async Task<IActionResult> GetAllDocuments(CancellationToken ct)
+    public async Task<IActionResult> GetAllDocuments(
+        [FromQuery] int? page, [FromQuery] int pageSize = 20, CancellationToken ct = default)
     {
+        if (page.HasValue)
+        {
+            var paged = await _documentService.GetAllDocumentsPagedAsync(page.Value, pageSize, ct);
+            return paged.ToActionResult();
+        }
         var result = await _documentService.GetAllDocumentsAsync(ct);
         return result.ToActionResult();
     }
@@ -72,6 +86,14 @@ public class AdminController : ControllerBase
     public async Task<IActionResult> DeleteDocument(Guid id, CancellationToken ct)
     {
         var result = await _documentService.DeleteAsync(id, ct);
+        return result.ToNoContentResult();
+    }
+
+    [HttpPost("documents/batch-delete")]
+    public async Task<IActionResult> DeleteDocumentsBatch(
+        [FromBody] BatchDocumentDeleteRequest req, CancellationToken ct)
+    {
+        var result = await _documentService.DeleteBatchAsync(req.Ids, ct);
         return result.ToActionResult();
     }
 
@@ -81,6 +103,14 @@ public class AdminController : ControllerBase
     public async Task<IActionResult> DeleteSession(Guid sessionId, CancellationToken ct)
     {
         var result = await _chatService.DeleteSessionAsync(sessionId, ct);
+        return result.ToNoContentResult();
+    }
+
+    [HttpPost("sessions/batch-delete")]
+    public async Task<IActionResult> DeleteSessionsBatch(
+        [FromBody] BatchDeleteRequest req, CancellationToken ct)
+    {
+        var result = await _chatService.DeleteSessionsBatchAsync(req.Ids, ct);
         return result.ToActionResult();
     }
 }
