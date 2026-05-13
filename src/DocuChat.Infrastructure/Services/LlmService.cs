@@ -784,6 +784,18 @@ public class LlmService : ILlmService
             var json = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
             var rewritten = json.GetProperty("choices")[0].GetProperty("message")
                                 .GetProperty("content").GetString()?.Trim() ?? question;
+
+            var knownPrefixes = new[] { "Kullanıcının sorusunu", "Sen bir arama", "YALNIZCA" };
+            foreach (var prefix in knownPrefixes)
+            {
+                if (rewritten.Contains(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    var nlIdx = rewritten.LastIndexOf('\n');
+                    rewritten = nlIdx >= 0 ? rewritten[(nlIdx + 1)..].Trim() : question;
+                    break;
+                }
+            }
+
             return rewritten.Length > 0 ? rewritten : question;
         }
         catch (Exception ex)
@@ -815,7 +827,7 @@ public class LlmService : ILlmService
         var historySection = "";
         if (history != null)
         {
-            var recent = history.TakeLast(3).ToList();
+            var recent = history.TakeLast(6).ToList();
             if (recent.Count > 0)
             {
                 var lines = recent.Select(h =>
@@ -847,7 +859,7 @@ public class LlmService : ILlmService
         try
         {
             var response = await _http.PostAsJsonAsync("/openai/v1/chat/completions", payload, ct);
-            if (!response.IsSuccessStatusCode) return cachedAnswer;
+            if (!response.IsSuccessStatusCode) return null;
 
             var json = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
             var answer = json.GetProperty("choices")[0].GetProperty("message")

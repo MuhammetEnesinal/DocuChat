@@ -123,7 +123,8 @@ public class VectorSearchService : IVectorSearch
         // Dynamic TopK — belge büyüklüğüne göre
         var topK = (totalChunks, isMultiDoc) switch
         {
-            (<= 10, _)     => isMultiDoc ? Math.Min(totalChunks, 4) : totalChunks,
+            (<= 10, false) => Math.Min(totalChunks, 5),
+            (<= 10, true)  => Math.Min(totalChunks, 4),
             (<= 30, false) => 6,
             (<= 80, false) => 8,
             (_,     false) => 12,
@@ -190,7 +191,7 @@ public class VectorSearchService : IVectorSearch
         if (string.IsNullOrWhiteSpace(text)) return new HashSet<string>();
 
         return new HashSet<string>(
-            text.ToLowerInvariant()
+            text.ToLower(new System.Globalization.CultureInfo("tr-TR"))
                 .Split(new[] { ' ', '\t', '\n', '\r', '.', ',', ';', ':', '!', '?', '(', ')', '[', ']', '"', '\'' },
                        StringSplitOptions.RemoveEmptyEntries)
                 .Where(t => t.Length > 2),

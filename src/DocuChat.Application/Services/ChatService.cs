@@ -1,6 +1,7 @@
 // DocuChat.Application/Services/ChatService.cs
 using System.Text.Json;
 using Mapster;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using DocuChat.Application.Interfaces.Services;
 using DocuChat.Application.Interfaces.Repositories;
@@ -20,8 +21,7 @@ public class ChatService : IChatService
     private readonly IEmbeddingService _embeddingService;
     private readonly IQuestionCacheRepository _cache;
     private readonly ILogger<ChatService> _logger;
-
-    private const double CacheSimilarityThreshold = 0.87;
+    private readonly double _cacheSimilarityThreshold;
 
     public ChatService(
         IUnitOfWork uow,
@@ -30,7 +30,8 @@ public class ChatService : IChatService
         ICurrentUser currentUser,
         IEmbeddingService embeddingService,
         IQuestionCacheRepository cache,
-        ILogger<ChatService> logger)
+        ILogger<ChatService> logger,
+        IConfiguration configuration)
     {
         _uow = uow;
         _vectorSearch = vectorSearch;
@@ -39,6 +40,7 @@ public class ChatService : IChatService
         _embeddingService = embeddingService;
         _cache = cache;
         _logger = logger;
+        _cacheSimilarityThreshold = configuration.GetValue("Cache:SimilarityThreshold", 0.87);
     }
 
     public async Task<Result<AskResponseDto>> AskAsync(AskRequest req, CancellationToken ct)
@@ -164,7 +166,7 @@ public class ChatService : IChatService
             : null;
 
         var cached = await _cache.FindSimilarAsync(
-            questionVector, CacheSimilarityThreshold, docIdKey, ct);
+            questionVector, _cacheSimilarityThreshold, docIdKey, ct);
         if (cached != null)
         {
             var validatedAnswer = await _llm.ValidateCachedAnswerAsync(
@@ -204,17 +206,11 @@ public class ChatService : IChatService
         }
 
         // Cache miss — WRITE kararı
-        // Rewrite soruyu değiştirdiyse ve erken kontrol "bağımlı" dediyse → rewrite edilmiş soru ile tekrar kontrol
-        bool isIndependent;
-        if (earlyIsCacheable == false && searchQuestion != req.Question)
-        {
-            isIndependent = await _llm.IsCacheableAsync(searchQuestion, history, ct);
-            _logger.LogDebug("[Cache] Rewrite sonrası IsCacheable yeniden kontrol → {Result}", isIndependent);
-        }
-        else
-        {
-            isIndependent = earlyIsCacheable ?? await _llm.IsCacheableAsync(searchQuestion, history, ct);
-        }
+        // Rewrite varsa rewrite edilmiş soruyu kontrol et; yoksa erken sonucu kullan (gereksiz ikinci çağrıyı önler)
+        bool isIndependent = searchQuestion != req.Question
+            ? await _llm.IsCacheableAsync(searchQuestion, history, ct)
+            : (earlyIsCacheable ?? await _llm.IsCacheableAsync(searchQuestion, history, ct));
+        _logger.LogDebug("[Cache] IsCacheable → {Result}", isIndependent);
 
         // ── HyDE: Varsayımsal belge üret — embedding kalitesini artırır ────
         string? hydeText = null;

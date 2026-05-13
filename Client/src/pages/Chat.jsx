@@ -39,6 +39,8 @@ export default function Chat() {
     const [confirmSession, setConfirmSession] = useState(null);
 
     const virtuosoRef = useRef(null);
+    const inputRef = useRef(null);
+    const skipNextClarificationRef = useRef(false);
     const { user, logout } = useAuth();
     const navigate = useNavigate();
     const toast = useToast();
@@ -58,7 +60,7 @@ export default function Chat() {
     } = useSessions();
 
     const {
-        messages,
+        messages, setMessages,
         loading,
         messagesLoading,
         hasMoreMessages,
@@ -109,16 +111,26 @@ export default function Chat() {
         const q = (forcedQuestion ?? question).trim();
         if (!q || loading) return;
         if (!forcedQuestion) setQuestion('');
+        const skip = skipClarification || skipNextClarificationRef.current;
+        skipNextClarificationRef.current = false;
         await handleSend(q, activeSession, (newSession) => {
             setActiveSession(newSession);
             setSessions(prev => [newSession, ...prev]);
-        }, skipClarification);
+        }, skip);
     };
 
     const onClarificationSelect = (opt) => onSend(opt, true);
 
     const onClarificationDismiss = (clarificationMsgId) => {
-        setMessages(prev => prev.filter(m => m.id !== clarificationMsgId));
+        setMessages(prev => {
+            const idx = prev.findIndex(m => m.id === clarificationMsgId);
+            const preceding = idx > 0 ? prev[idx - 1] : null;
+            const originalQ = preceding?.role === 'User' ? preceding.content : null;
+            if (originalQ) setQuestion(originalQ);
+            return prev.filter(m => m.id !== clarificationMsgId && m.id !== preceding?.id);
+        });
+        skipNextClarificationRef.current = true;
+        setTimeout(() => inputRef.current?.focus(), 50);
     };
 
     const onDeleteSession = (sessionId) => {
@@ -259,6 +271,7 @@ export default function Chat() {
                             onSend={onSend}
                             loading={loading}
                             onAbort={handleAbort}
+                            inputRef={inputRef}
                         />
                     </div>
 

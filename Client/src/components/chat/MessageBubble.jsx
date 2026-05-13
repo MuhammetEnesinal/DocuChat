@@ -220,19 +220,17 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', justifyContent: isUser ? 'flex-end' : 'flex-start', flexWrap: 'wrap' }}>
                         <span style={{ fontSize: '12px', color: '#475569' }}>{formatTime(msg.createdAt)}</span>
-                        {!isUser && (
-                            <button onClick={() => onCopy(msg.content, msg.id)}
-                                style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', color: copiedId === msg.id ? '#4ade80' : '#475569', background: 'none', border: 'none', cursor: 'pointer' }}>
-                                {copiedId === msg.id ? (
-                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
-                                ) : (
-                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                    </svg>
-                                )}
-                                {copiedId === msg.id ? 'Kopyalandı' : 'Kopyala'}
-                            </button>
-                        )}
+                        <button onClick={() => onCopy(msg.content, msg.id)}
+                            style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', color: copiedId === msg.id ? '#4ade80' : '#475569', background: 'none', border: 'none', cursor: 'pointer' }}>
+                            {copiedId === msg.id ? (
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
+                            ) : (
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                </svg>
+                            )}
+                            {copiedId === msg.id ? 'Kopyalandı' : 'Kopyala'}
+                        </button>
                         {msg.isError && onRetry && msg.retryQuestion && (
                             <button onClick={() => onRetry(msg.retryQuestion)}
                                 style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--accent)', background: 'none', border: '1px solid var(--accent)', borderRadius: '6px', padding: '2px 8px', cursor: 'pointer' }}>

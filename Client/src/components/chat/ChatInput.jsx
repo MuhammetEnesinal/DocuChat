@@ -1,7 +1,8 @@
 import { useRef } from 'react';
 
-export default function ChatInput({ value, onChange, onSend, loading, onAbort }) {
-    const textareaRef = useRef(null);
+export default function ChatInput({ value, onChange, onSend, loading, onAbort, inputRef }) {
+    const internalRef = useRef(null);
+    const textareaRef = inputRef ?? internalRef;
 
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
