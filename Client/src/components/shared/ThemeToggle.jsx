@@ -8,6 +8,7 @@ export default function ThemeToggle() {
         <button
             onClick={toggleTheme}
             title={isDark ? 'Slate temaya geç' : 'Lacivert temaya geç'}
+            aria-label={isDark ? 'Slate temaya geç' : 'Lacivert temaya geç'}
             style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 width: '36px', height: '36px', borderRadius: '10px',

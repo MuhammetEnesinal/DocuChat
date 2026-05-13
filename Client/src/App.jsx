@@ -4,6 +4,7 @@ import useThemeStore from './store/useTheme';
 import { ToastProvider, useToast } from './components/shared/Toast';
 import { useAuth } from './hooks/useAuth';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
+import Spinner from './components/shared/Spinner';
 
 const Login = lazy(() => import('./pages/Login'));
 const Chat = lazy(() => import('./pages/Chat'));
@@ -51,7 +52,11 @@ export default function App() {
         <ToastProvider>
             <ErrorBoundary>
                 <OfflineDetector />
-                <Suspense fallback={<div style={{ minHeight: '100vh', background: 'var(--navy)' }} />}>
+                <Suspense fallback={
+                    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--navy)' }}>
+                        <Spinner size={32} color="var(--accent)" />
+                    </div>
+                }>
                     <Routes>
                         <Route path="/login" element={<GuestRoute><Login /></GuestRoute>} />
                         <Route path="/forgot-password" element={<GuestRoute><ForgotPassword /></GuestRoute>} />

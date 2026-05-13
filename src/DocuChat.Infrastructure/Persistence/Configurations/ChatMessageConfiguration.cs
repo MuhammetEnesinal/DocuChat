@@ -14,5 +14,7 @@ public class ChatMessageConfiguration : IEntityTypeConfiguration<ChatMessage>
                .WithMany(s => s.Messages)
                .HasForeignKey(m => m.SessionId)
                .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasIndex(m => m.SessionId);
     }
 }

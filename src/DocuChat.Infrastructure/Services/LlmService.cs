@@ -138,7 +138,9 @@ public class LlmService : ILlmService
 
             "━━━ TEMEL KURAL ━━━\n" +
             "Belge parçalarında olmayan hiçbir bilgiyi üretme, tahmin etme veya tamamlama.\n" +
-            "Kendi genel bilginden yanıt verme. Yalnızca verilen PARÇA bloklarını kullan.\n\n" +
+            "Kendi genel bilginden yanıt verme. Yalnızca verilen PARCA bloklarını kullan.\n" +
+            "PARCA, chunk, belge parçası gibi sistem etiketlerini ASLA yanıtta kullanma — bunlar yalnızca arama içindir.\n" +
+            "Soruyu yanıtta asla tekrarlama — \"Sorunuz:\", \"Şunu sordunuz:\" gibi echo kalıpları kullanma — doğrudan yanıtla.\n\n" +
 
             "━━━ ADIM ADIM ANALİZ ━━━\n" +
             "Yanıt üretmeden önce şu adımları zihinsel olarak uygula (yanıta yazma):\n" +
@@ -150,11 +152,11 @@ public class LlmService : ILlmService
             "Yalnızca bu analiz tamamlandıktan sonra yanıtı oluştur.\n\n" +
 
             "━━━ ALAKASIZ SORU ━━━\n" +
-            "Aşağıdaki durumlarda hiç yanıt verme — yalnızca şu sabit cümleleri kullan:\n" +
+            "ÖNEMLİ: Sana BELGE PARÇALARI bölümünde içerik gönderildiyse, soru o içerikle ilgilidir — \"ilgisiz\" deme ve yanıtla.\n" +
+            "Yalnızca PARÇA bloklarında hiç alakalı içerik YOKSA aşağıdaki sabit cümleleri kullan:\n" +
             "• Soru belgelerle ilgisizse → \"Bu soru yüklenen belgelerle ilgili değil. Lütfen belge içerikleriyle ilgili bir soru sorun.\"\n" +
             "• Anlamsız / rastgele karakterler → \"Anlaşılır bir soru tespit edilemedi. Lütfen sorunuzu daha net ifade edin.\"\n" +
-            "• Selamlama / genel bilgi isteği → \"Ben yalnızca yüklenen belgeler hakkında soru cevaplayabilirim.\"\n" +
-            "Bu kuralı kesinlikle atlatma — belge parçaları verilmiş olsa bile alakasız sorulara yanıt verme.\n\n" +
+            "• Selamlama / genel bilgi isteği → \"Ben yalnızca yüklenen belgeler hakkında soru cevaplayabilirim.\"\n\n" +
 
             "━━━ BİLGİ YOKSA / KISMI BİLGİ ━━━\n" +
             "• Bilgi hiçbir parçada yoksa: \"Bu bilgi yüklü belgelerde yer almıyor.\"\n" +
@@ -183,7 +185,10 @@ public class LlmService : ILlmService
             "• Sayılar, kodlar, tarihler, ölçüler değiştirmeden aktar — yuvarlama yapma\n" +
             "• Belgede ne yazıyorsa onu yaz, yorumlama veya özetleme\n" +
             "• Kullanıcı \"hepsini\" istediğinde tek satır bile atlama\n" +
-            "• Tablo verisi istendiğinde başlık satırını (header) da dahil et — yalnızca veri satırlarını verme\n\n" +
+            "• Tablo verisi istendiğinde başlık satırını (header) da dahil et — yalnızca veri satırlarını verme\n" +
+            "• Liste veya tablo istendiğinde parçada kaç satır/madde varsa hepsini yaz — \"...\" veya \"vb.\" kullanma\n" +
+            "• Uzun liste olsa bile kısaltma — kullanıcı \"hepsini\" demese de tam listeyi ver\n" +
+            "• Parçada bir bilgi varsa yanıtta kullan — atlama kararı verme\n\n" +
 
             "━━━ GÖRSELLER ━━━\n" +
             "Parçada [GORSELLER: N adet - [IMG:1] [IMG:2] ...] notu varsa görselleri yerleştir:\n" +
@@ -197,35 +202,38 @@ public class LlmService : ILlmService
             "• Tablo hücresi boşsa veya bilgi yoksa → \"—\" yaz, hücreyi boş bırakma\n" +
             "• Sayısal değerleri belgede nasılsa öyle aktar — yuvarlama veya birim değiştirme yapma\n" +
             "• Tek veri sorusu (tarih, isim, değer, kod) → tek satır cevap ver, paragraf açma\n" +
-            "• \"Hepsini/tamamını/tüm listeyi\" isteği → tek madde bile atlamadan eksiksiz listele\n\n" +
+            "• \"Hepsini/tamamını/tüm listeyi\" isteği → tek madde bile atlamadan eksiksiz listele\n" +
+            "• Markdown tablo yazarken MUTLAKA başlık satırı + ayraç satırı (|---|---|) ekle — başlıksız tablo yazma\n" +
+            "• Tablo sütun sayısı tüm satırlarda aynı olsun — eksik hücre bırakma, her satırı eksiksiz doldur\n" +
+            "• Liste yazarken her maddeyi ayrı satıra yaz — virgülle yan yana sıralama yapma\n" +
+            "• Uzun tablolarda satır atlamadan tüm veriyi yaz — tablo ortasında \"...\" kullanma\n\n" +
 
             "━━━ YANIT FORMATI ━━━\n" +
             "• Her zaman Türkçe yanıt ver\n" +
-            "• PARÇA etiketlerini yanıta yazma\n" +
+            "• PARCA etiketlerini ve \"parça\", \"chunk\", \"belge parçası\" ifadelerini yanıta yazma\n" +
+            "  YANLIŞ: \"Bu parçada belirtildiğine göre...\" → DOĞRU: \"Belgede...\" veya \"[dosyaadı]'na göre...\"\n" +
             "• Dolgu cümlesi kullanma (\"Elbette\", \"Tabii ki\", \"Merhaba\" gibi) — doğrudan yanıtla\n" +
-            "• Soruyu yanıtta tekrarlama\n" +
+            "• Soruyu yanıtta tekrarlama — başlık olarak da echo etme; DOĞRUDAN yanıtla\n" +
             "• Tablo içeriği → markdown tablo; kod içeriği → kod bloğu\n" +
             "• Uzun yanıtlarda bölüm başlıkları kullan — aynı bilgiyi iki kez yazma\n\n" +
 
             "━━━ KONUŞMA GEÇMİŞİ ━━━\n" +
-            "Önceki konuşma ÖNCEKİ KONUŞMA başlığı altında iletilir.\n" +
+            "Önceki konuşma gerçek mesaj geçmişi olarak iletilir (sıradaki mesajlar).\n" +
             "• \"o\", \"bu\", \"bahsettiğin\", \"söylediğin\" gibi zamirler → geçmişten anla\n" +
             "• \"Devam et\", \"daha fazla ver\", \"diğerleri\" → önceki yanıtı sürdür\n" +
             "• Her yeni soruyu konuşmanın bir parçası olarak değerlendir\n" +
             "• Geçmiş yanıtlardaki bilgileri tekrar etme — sadece yeni bilgi ekle\n" +
             "• Kullanıcı önceki yanıtı eleştiriyorsa (\"yanlış\", \"hayır\", \"değil\") → farklı parçalara bak, alternatif bilgi sun";
 
-        var historyPrefix = "";
-        if (historyList.Any())
+        var historyMessages = historyList.Select(h =>
         {
-            var histLines = historyList
-                .Select(h => (h.Role.ToLower() == "user" ? "Kullanıcı" : "Asistan") + ": " + h.Content)
-                .ToList();
-            historyPrefix = "ÖNCEKİ KONUŞMA:\n" + string.Join("\n", histLines) + "\n\n---\n\n";
-        }
+            var isUser = h.Role.Equals("user", StringComparison.OrdinalIgnoreCase);
+            var maxLen = isUser ? 2000 : 3000;
+            var content = h.Content.Length > maxLen ? h.Content[..maxLen] + "…" : h.Content;
+            return (Role: h.Role.ToLowerInvariant(), Content: content);
+        }).ToList();
 
         var userMessage =
-            historyPrefix +
             "BELGE PARÇALARI:\n" +
             "════════════════════════════════════════════════════════════════\n" +
             context + "\n" +
@@ -234,10 +242,10 @@ public class LlmService : ILlmService
 
         return _provider switch
         {
-            "Anthropic" => await CallAnthropicAsync(systemPrompt, userMessage, ct),
-            "Gemini" => await CallGeminiAsync(systemPrompt, userMessage, ct),
+            "Anthropic" => await CallAnthropicAsync(systemPrompt, userMessage, historyMessages, ct),
+            "Gemini" => await CallGeminiAsync(systemPrompt, userMessage, historyMessages, ct),
             "Ollama" => await CallOllamaAsync(systemPrompt, userMessage, ct),
-            _ => await CallOpenAiWithVisionAsync(systemPrompt, userMessage, imageUrls, ct)
+            _ => await CallOpenAiWithVisionAsync(systemPrompt, userMessage, imageUrls, historyMessages, ct)
         };
     }
 
@@ -311,7 +319,9 @@ public class LlmService : ILlmService
     private const int GroqMaxImages = 5; // Groq hard limit
 
     private async Task<string> CallOpenAiWithVisionAsync(
-        string system, string user, List<string> imageUrls, CancellationToken ct)
+        string system, string user, List<string> imageUrls,
+        IReadOnlyList<(string Role, string Content)> historyMessages,
+        CancellationToken ct)
     {
         var userContent = new List<object> { new { type = "text", text = user } };
 
@@ -339,13 +349,12 @@ public class LlmService : ILlmService
             catch (Exception ex) { _logger.LogWarning("[LLM] Resim eklenemedi: {Message}", ex.Message); }
         }
 
-        var msgList = new List<object>
-        {
-            new { role = "system", content = system },
-            userContent.Count > 1
-                ? (object)new { role = "user", content = userContent }
-                : (object)new { role = "user", content = user }
-        };
+        var msgList = new List<object> { new { role = "system", content = system } };
+        foreach (var h in historyMessages)
+            msgList.Add(new { role = h.Role, content = h.Content });
+        msgList.Add(userContent.Count > 1
+            ? (object)new { role = "user", content = userContent }
+            : (object)new { role = "user", content = user });
 
         var payload = new { model = _model, max_tokens = _maxTokens, temperature = 0.05f, messages = msgList };
         var response = await _http.PostAsJsonAsync("/openai/v1/chat/completions", payload, ct);
@@ -355,8 +364,16 @@ public class LlmService : ILlmService
         return json.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString()!.Trim();
     }
 
-    private async Task<string> CallAnthropicAsync(string system, string user, CancellationToken ct)
+    private async Task<string> CallAnthropicAsync(
+        string system, string user,
+        IReadOnlyList<(string Role, string Content)> historyMessages,
+        CancellationToken ct)
     {
+        var msgList = new List<object>();
+        foreach (var h in historyMessages)
+            msgList.Add(new { role = h.Role, content = h.Content });
+        msgList.Add(new { role = "user", content = user });
+
         // Anthropic header'ları DI'da set edildi — burada sadece body gönderiliyor
         using var request = new HttpRequestMessage(HttpMethod.Post, string.Empty);
         request.Content = JsonContent.Create(new
@@ -364,7 +381,7 @@ public class LlmService : ILlmService
             model = _model,
             max_tokens = _maxTokens,
             system,
-            messages = new[] { new { role = "user", content = user } }
+            messages = msgList
         });
         var response = await _http.SendAsync(request, ct);
         await EnsureSuccessAsync(response);
@@ -373,15 +390,26 @@ public class LlmService : ILlmService
         return json.GetProperty("content")[0].GetProperty("text").GetString()!.Trim();
     }
 
-    private async Task<string> CallGeminiAsync(string system, string user, CancellationToken ct)
+    private async Task<string> CallGeminiAsync(
+        string system, string user,
+        IReadOnlyList<(string Role, string Content)> historyMessages,
+        CancellationToken ct)
     {
+        var contents = new List<object>();
+        foreach (var h in historyMessages)
+        {
+            var geminiRole = h.Role.Equals("assistant", StringComparison.OrdinalIgnoreCase) ? "model" : "user";
+            contents.Add(new { role = geminiRole, parts = new[] { new { text = h.Content } } });
+        }
+        contents.Add(new { role = "user", parts = new[] { new { text = user } } });
+
         // Gemini kendi URL'ini kullanıyor — _http yerine BaseAddress override ile gönderiyoruz
         var model = _model;
         var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={_apiKey}";
         var payload = new
         {
             system_instruction = new { parts = new[] { new { text = system } } },
-            contents = new[] { new { role = "user", parts = new[] { new { text = user } } } },
+            contents,
             generationConfig = new { maxOutputTokens = _maxTokens, temperature = 0.1 }
         };
 
@@ -432,12 +460,12 @@ public class LlmService : ILlmService
         var historySection = "";
         if (history != null)
         {
-            var recent = history.TakeLast(3).ToList();
+            var recent = history.TakeLast(6).ToList();
             if (recent.Count > 0)
             {
                 var lines = recent.Select(h =>
-                    (h.Role.ToLower() == "user" ? "Kullanıcı" : "Asistan") + ": " +
-                    h.Content[..Math.Min(150, h.Content.Length)]);
+                    (h.Role.Equals("user", StringComparison.OrdinalIgnoreCase) ? "Kullanıcı" : "Asistan") + ": " +
+                    h.Content[..Math.Min(300, h.Content.Length)]);
                 historySection = "SON KONUŞMA (bağlam için):\n" +
                     string.Join("\n", lines) + "\n\n";
             }
@@ -447,25 +475,35 @@ public class LlmService : ILlmService
             "Soru bağımsız ise 'evet', bağımlı ise 'hayir' yaz.\n\n" +
             "BAĞIMLI sinyaller (→ hayir):\n" +
             "• Belirsiz zamir / eksik özne: \"o\", \"bu\", \"şu\", \"onlar\", \"onu\", " +
-                "\"peki ya X?\", \"kaç adet?\" (özne yok)\n" +
+                "\"peki ya X?\", \"kaç adet?\" (neyin kaçı belli değil)\n" +
             "• Devam ifadesi: \"devam et\", \"kalanları\", \"diğerleri\", " +
                 "\"hepsini ver\", \"geri kalanı\"\n" +
-            "• Bağlamsız sıra / konum: \"2. satırı ver\", \"2. satırı getir\", " +
-                "\"3. maddeyi göster\", \"bir sonraki\", \"yukarıdaki\" (hangi liste bilinmiyor)\n" +
-            "• Tek başına sıra/konum: \"ilkini\", \"sonuncusunu\", \"2. olanı\"\n" +
+            "• Bağlamsız sıra / konum: \"2. satırı ver\", \"bir sonraki\", \"yukarıdaki\" (hangi liste bilinmiyor)\n" +
+            "• Tek başına sıra/konum — özne yok: \"ilkini\", \"sonuncusunu\", \"2. olanı\"\n" +
             "• Karşılaştırma + eksik özne: \"aralarındaki fark ne?\" (hangileri belli değil)\n" +
-            "• Tek kelime fiil / öznesiz eylem: \"açıkla\", \"detaylandır\", \"göster\" (ne/nereyi belli değil)\n" +
+            "• Öznesiz tek eylem: \"açıkla\", \"detaylandır\", \"göster\" (ne/nereyi belli değil)\n" +
             "• Reaktif başlangıç: \"Peki\", \"Ya da\", \"Ama\", \"O zaman\" ile başlayan sorular\n" +
-            "• Konuşma geçmişine doğrudan atıf: \"az önce söylediğin\", \"yukarıdaki cevap\"\n\n" +
+            "• Geçmişe doğrudan atıf: \"az önce söylediğin\", \"yukarıdaki cevap\", \"geçen sefer\", \"bir önceki\", \"bahsettiğin\"\n" +
+            "• Bağlamlı konum referansı: \"yukarıdaki\", \"aşağıdaki\", \"ilk madde\", \"son madde\" (hangi liste belli değil)\n\n" +
             "BAĞIMSIZ işaretler (→ evet):\n" +
-            "• Özne açıkça var: \"Baret nedir?\", \"KKE ürünleri neler?\"\n" +
+            "• Özne açıkça var: \"Baret nedir?\", \"KKE ürünleri neler?\", \"SG-102 nedir?\"\n" +
+            "• Kısaltma tek başına bile bağımsızdır: \"KKE?\", \"İSG?\", \"PPE?\" → özne açık\n" +
+            "• Ürün/kod/tarih adıyla birlikte: \"SG-102 kodu nedir?\", \"Baret 301'in fiyatı?\"\n" +
             "• Tam cümle, kendine yeterli: \"Yangın tüpü nasıl kullanılır?\"\n" +
             "• Belge / konu adıyla birlikte sıra: \"KKE tablosundaki ilk 3 ürünü listele\"\n" +
-            "• Tarih / kod isteği + açık özne: \"SG-102 kodu nedir?\", \"3 Mayıs 2024 tarihi ne anlama geliyor?\"\n" +
-            "• \"... listele\", \"... göster\" + açık konu adı: \"tüm baret modellerini listele\"\n\n" +
-            "NOT: Kısa soru ≠ bağımlı. \"Baret nedir?\" kısa ama bağımsızdır.\n\n" +
-            "VARSAYILAN KURAL: Yukarıdaki BAĞIMLI sinyallerden herhangi biri varsa — diğer içerik " +
-            "ne olursa olsun — 'hayir' yaz. Emin değilsen 'hayir' yaz.\n\n" +
+            "• \"... listele\", \"... göster\" + açık konu adı: \"tüm baret modellerini listele\"\n" +
+            "• Teknik terim (ürün kodu, model numarası, kısaltma) içeriyorsa VE zamir yoksa → evet\n" +
+            "• Konuşma geçmişi yoksa ve soru tam bir özne + fiil içeriyorsa → evet\n\n" +
+            "KRİTİK KURAL — KISA SORU ≠ BAĞIMLI:\n" +
+            "• \"Baret nedir?\" → kısa ama özne var → evet\n" +
+            "• \"KKE?\" → kısa ama kısaltma özne → evet\n" +
+            "• \"Fiyatı?\" → kısa VE özne yok → hayır\n" +
+            "• \"O ne?\" → zamir → hayır\n" +
+            "Uzunluk değil, özne varlığı belirler.\n\n" +
+            "VARSAYILAN KURAL: BAĞIMLI sinyal AÇIKÇA yoksa 'evet' yaz. " +
+            "Sadece yukarıdaki BAĞIMLI listesinden en az bir sinyal varsa 'hayir' yaz. " +
+            "Geçmişe herhangi bir referans varsa veya özne belirsizse → 'hayir'. " +
+            "Şüphe durumunda 'hayir' — yanlış cache okumak, cache kaçırmaktan daha kötüdür.\n\n" +
             historySection +
             $"DEĞERLENDİR: {question}\n\n" +
             "Cevap (sadece tek kelime):";
@@ -612,6 +650,92 @@ public class LlmService : ILlmService
         }
     }
 
+    public async Task<List<string>> GenerateClarificationsAsync(
+        string question,
+        IEnumerable<(string Role, string Content)> history,
+        IEnumerable<string>? availableDocuments = null,
+        CancellationToken ct = default)
+    {
+        var docSection = "";
+        var docList = availableDocuments?.ToList();
+        if (docList?.Count > 0)
+        {
+            var docLines = string.Join("\n", docList.Select((d, i) => $"{i + 1}. {d}"));
+            docSection =
+                "\nMEVCUT BELGELER (seçenekler YALNIZCA bu belgelerle alakalı olmalı):\n" +
+                docLines +
+                "\nBu belgelerde olmayan konular hakkında kesinlikle seçenek üretme.\n";
+        }
+
+        var system =
+            "Sen bir soru netleştirme asistanısın.\n" +
+            "Kullanıcının girdisi aşağıdaki durumlarda netleştirme seçeneği üret:\n" +
+            "  A) Yazım hatası veya eksik/yarım kelime: 'anuel Transp' → 'Manuel Transpalet hakkında bilgi verir misiniz?'\n" +
+            "  B) Belirsiz zamir veya eksik özne: 'Fiyatı?' + geçmişte konu varsa → ilgili seçenekler\n" +
+            "  C) Konuşma geçmişine bağlı ama özne belirsiz\n" +
+            "KURALLAR:\n" +
+            "• Her seçenek tam, bağımsız, doğru Türkçe soru cümlesi olmalı\n" +
+            "• Yazım hatasını düzelt — uydurma; geçmişte veya belgede geçen gerçek isimleri kullan\n" +
+            "• Özne eklerken YALNIZCA kullanıcının yazdığı kelimeleri, geçmişteki kullanıcı mesajlarını veya MEVCUT BELGELER listesini kullan\n" +
+            "• Belgede olmayan konular, özellikler veya veriler hakkında seçenek üretme\n" +
+            "• Soru açık, eksiksiz ve tek anlamlıysa → BOŞ döndür\n" +
+            "• Seçenekleri YALNIZCA | karakteriyle ayır, başka hiçbir şey yazma\n" +
+            "Örnek — yazım hatası: 'anuel Transp' → 'Manuel Transpalet hakkında bilgi verir misiniz?'\n" +
+            "Örnek — belirsiz: 'Fiyatı?' + belgede 'Baret' var → 'Baret'in fiyatı nedir?'\n" +
+            "Örnek — açık: 'Baret 301 nedir?' → (boş döndür)" +
+            docSection;
+
+        var histLines = history.TakeLast(4)
+            .Select(h => (h.Role.Equals("user", StringComparison.OrdinalIgnoreCase) ? "Kullanıcı" : "Asistan") +
+                         ": " + h.Content[..Math.Min(200, h.Content.Length)])
+            .ToList();
+
+        var user = histLines.Count > 0
+            ? $"SON KONUŞMA:\n{string.Join("\n", histLines)}\n\nBELİRSİZ SORU: {question}\n\nSeçenekler (boş veya | ile ayrılmış):"
+            : $"SORU: {question}\n\nSeçenekler (boş veya | ile ayrılmış):";
+
+        try
+        {
+            var payload = new
+            {
+                model = _model,
+                max_tokens = 200,
+                temperature = 0.2f,
+                messages = new object[]
+                {
+                    new { role = "system", content = system },
+                    new { role = "user",   content = user }
+                }
+            };
+
+            var response = await _http.PostAsJsonAsync("/openai/v1/chat/completions", payload, ct);
+            if (!response.IsSuccessStatusCode) return new List<string>();
+
+            var json = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
+            var answer = json.GetProperty("choices")[0]
+                            .GetProperty("message")
+                            .GetProperty("content")
+                            .GetString()?.Trim() ?? "";
+
+            if (string.IsNullOrWhiteSpace(answer)) return new List<string>();
+
+            var options = answer
+                .Split('|', StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => s.Trim())
+                .Where(s => s.Length > 5 && s.Length < 250)
+                .Take(5)
+                .ToList();
+
+            _logger.LogDebug("[Clarify] '{Question}' → {Count} seçenek", question, options.Count);
+            return options.Count >= 2 ? options : new List<string>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Clarify] Seçenek üretilemedi — soru: {Question}", question);
+            return new List<string>();
+        }
+    }
+
     public async Task<string> RewriteQueryAsync(
         string question,
         IEnumerable<(string Role, string Content)> history,
@@ -619,14 +743,17 @@ public class LlmService : ILlmService
     {
         var system =
             "Sen bir arama sorgusu optimize edicisin. Kullanıcının sorusunu belge arama için netleştir:\n" +
-            "• Kısaltmaları aç (KKE → Kişisel Koruyucu Ekipman) gibi\n" +
+            "• Kısaltmaları aç: KKE → Kişisel Koruyucu Ekipman gibi — ASLA tam kelimeyi kısaltmaya çevirme\n" +
+            "  YANLIŞ: \"Kişisel Koruyucu Ekipman\" → \"KKE\" — bunu yapma\n" +
             "• Yazım hatalarını düzelt\n" +
-            "• 'bu', 'o', 'bunu' gibi belirsiz zamirleri konuşma geçmişine bakarak somutlaştır\n" +
-            "  DOĞRU: \"bu ürünün fiyatı\" + geçmişte \"Baret 301\" → \"Baret 301'in fiyatı nedir?\"\n" +
-            "  YANLIŞ: Geçmişte özne yoksa uydurma — soruyu olduğu gibi döndür\n" +
+            "• 'bu', 'o', 'bunu' gibi belirsiz zamirleri YALNIZCA geçmişte AÇIKÇA geçen kelimelerle somutlaştır\n" +
+            "  DOĞRU: \"bu ürünün fiyatı\" + geçmişte kullanıcı \"Baret 301\" yazdıysa → \"Baret 301'in fiyatı nedir?\"\n" +
+            "  YANLIŞ: Geçmişte özne yoksa veya asistan cevabından çıkarım yapıyorsan — soruyu olduğu gibi döndür\n" +
+            "  YANLIŞ: \"Fiyatı?\" + geçmişte yalnızca \"Baret nedir?\" → \"Baret 301'in fiyatı\" YAZMA — özne belli değil\n" +
+            "• Geçmişte geçmeyen hiçbir model adı, kod, numara veya özellik ekleme — asistan cevabından çıkarım yapma\n" +
             "• Sorunun anlamını ve dilini (Türkçe) koru — asla değiştirme\n" +
             "• Anlamlı bir değişiklik gerekmiyorsa soruyu kelimesi kelimesine döndür\n" +
-            "• Soruyu kısaltma; bilgi çıkarma veya yeniden ifade etme\n" +
+            "• Soruyu kısaltma, özetleme veya farklı bir anlama çekme\n" +
             "YALNIZCA yeniden yazılmış soruyu döndür. Açıklama, tırnak işareti veya başka metin ekleme.";
 
         var historyLines = history.TakeLast(4)
@@ -657,12 +784,84 @@ public class LlmService : ILlmService
             var json = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
             var rewritten = json.GetProperty("choices")[0].GetProperty("message")
                                 .GetProperty("content").GetString()?.Trim() ?? question;
-            return rewritten.Length > 0 && rewritten.Length < question.Length * 4 ? rewritten : question;
+            return rewritten.Length > 0 ? rewritten : question;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[RewriteQuery] Sorgu yeniden yazılamadı — soru: {Question}", question);
             return question;
+        }
+    }
+
+    public async Task<string?> ValidateCachedAnswerAsync(
+        string question,
+        string cachedQuestion,
+        string cachedAnswer,
+        IEnumerable<(string Role, string Content)>? history = null,
+        CancellationToken ct = default)
+    {
+        var system =
+            "Sen bir cevap doğrulayıcısın. Sana bir soru, bu soruyla eşleştirilmiş önceki bir soru ve o soruya verilmiş cevap gösterilecek.\n" +
+            "İki sorunun aynı şeyi kastetip kastetmediğine ve cevabın mevcut soruyu karşılayıp karşılamadığına karar ver.\n\n" +
+            "Geçerli say (→ GECERLI):\n" +
+            "• İki soru aynı konuyu/özneyi soruyor (kısaltma farkı, yazım farkı, sıralama farkı dahil)\n" +
+            "• Cevap mevcut sorunun talebini doğrudan karşılıyor\n\n" +
+            "Geçersiz say (→ GECERSIZ):\n" +
+            "• Sorular farklı ürün/konu/özne hakkında\n" +
+            "• Cevap mevcut soruyu kısmen karşılıyor ama eksik ya da yanlış bilgi içeriyor\n" +
+            "• Konuşma geçmişine göre mevcut soru farklı bir şey kastediyor\n\n" +
+            "YALNIZCA \"GECERLI\" veya \"GECERSIZ\" yaz. Başka hiçbir şey yazma.";
+
+        var historySection = "";
+        if (history != null)
+        {
+            var recent = history.TakeLast(3).ToList();
+            if (recent.Count > 0)
+            {
+                var lines = recent.Select(h =>
+                    (h.Role.Equals("user", StringComparison.OrdinalIgnoreCase) ? "Kullanıcı" : "Asistan") + ": " +
+                    h.Content[..Math.Min(150, h.Content.Length)]);
+                historySection = $"SON KONUŞMA:\n{string.Join("\n", lines)}\n\n";
+            }
+        }
+
+        var user =
+            $"{historySection}" +
+            $"MEVCUT SORU: {question}\n\n" +
+            $"ÖNCEKİ SORU (cevabın yazıldığı): {cachedQuestion}\n\n" +
+            $"CEVAP: {cachedAnswer[..Math.Min(500, cachedAnswer.Length)]}\n\n" +
+            "Bu cevap mevcut soruyu karşılıyor mu? (GECERLI / GECERSIZ):";
+
+        var payload = new
+        {
+            model = _model,
+            max_tokens = 10,
+            temperature = 0.0f,
+            messages = new object[]
+            {
+                new { role = "system", content = system },
+                new { role = "user",   content = user }
+            }
+        };
+
+        try
+        {
+            var response = await _http.PostAsJsonAsync("/openai/v1/chat/completions", payload, ct);
+            if (!response.IsSuccessStatusCode) return cachedAnswer;
+
+            var json = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
+            var answer = json.GetProperty("choices")[0].GetProperty("message")
+                             .GetProperty("content").GetString()?.Trim().ToUpperInvariant() ?? "";
+
+            _logger.LogDebug("[CacheValidate] Soru='{Question}' → '{Answer}'", question, answer);
+
+            var isValid = answer.StartsWith("GEC") && answer.Contains("LI") && !answer.Contains("SIZ");
+            return isValid ? cachedAnswer : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[CacheValidate] Kontrol başarısız, fresh cevap üretiliyor");
+            return null;
         }
     }
 

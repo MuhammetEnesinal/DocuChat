@@ -72,7 +72,11 @@ export function ToastProvider({ children }) {
 
     const toast = useCallback((message, type = 'info', duration = 3500) => {
         const id = Date.now() + Math.random();
-        setToasts(prev => [...prev, { id, message, type, duration }]);
+        setToasts(prev => {
+            if (prev.some(t => t.message === message && t.type === type)) return prev;
+            const trimmed = prev.length >= 5 ? prev.slice(1) : prev;
+            return [...trimmed, { id, message, type, duration }];
+        });
     }, []);
 
     toast.success = (msg, dur) => toast(msg, 'success', dur);

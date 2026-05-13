@@ -28,5 +28,6 @@ public class DocumentConfiguration : IEntityTypeConfiguration<Document>
 
         builder.HasIndex(d => d.UserId);
         builder.HasIndex(d => d.Status);
+        builder.HasIndex(d => d.CreatedAt);
     }
 }

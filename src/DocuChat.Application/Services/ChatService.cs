@@ -21,7 +21,7 @@ public class ChatService : IChatService
     private readonly IQuestionCacheRepository _cache;
     private readonly ILogger<ChatService> _logger;
 
-    private const double CacheSimilarityThreshold = 0.92;
+    private const double CacheSimilarityThreshold = 0.87;
 
     public ChatService(
         IUnitOfWork uow,
@@ -86,33 +86,62 @@ public class ChatService : IChatService
             var allMessages = sessionWithMessages.Messages.OrderBy(m => m.CreatedAt).ToList();
             history = allMessages
                 .Take(allMessages.Count - 1)
-                .TakeLast(6)
+                .TakeLast(16)
                 .Where(m => !m.Content.StartsWith("AŞAĞIDAKİ BELGE PARÇALARINI"))
                 .Select(m => (m.Role == MessageRole.User ? "user" : "assistant", m.Content))
                 .ToList();
         }
 
-        // ── Query Rewriting: kısaltma, yazım hatası, belirsiz zamir temizle ──
-        var searchQuestion = req.Question;
+        // ── Belge isimlerini çek (clarification için erken gerekli) ────────
+        var docNames = await _uow.GetDocumentNamesAsync(ct);
+        var docNameStrings = docNames.Select(d => d.FileName).ToList();
+
+        // ── Belirsizlik / yazım hatası kontrolü: her mesajda çalışır ──────────
+        bool? earlyIsCacheable = null;
         try
         {
-            using var rewriteCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            rewriteCts.CancelAfter(TimeSpan.FromSeconds(30));
-            var rewritten = await _llm.RewriteQueryAsync(req.Question, history, rewriteCts.Token);
-            if (rewritten != req.Question)
+            bool shouldClarify;
+            if (history.Count > 0)
             {
-                _logger.LogInformation("[QueryRewrite] '{Original}' → '{Rewritten}'", req.Question, rewritten);
-                searchQuestion = rewritten;
+                earlyIsCacheable = await _llm.IsCacheableAsync(req.Question, history, ct);
+                shouldClarify = !earlyIsCacheable.Value;
+            }
+            else
+            {
+                shouldClarify = true;
+            }
+
+            if (shouldClarify && !req.SkipClarification)
+            {
+                var options = await _llm.GenerateClarificationsAsync(req.Question, history, docNameStrings, ct);
+                if (options.Count >= 2)
+                {
+                    _logger.LogInformation("[Clarify] '{Question}' → {Count} seçenek", req.Question, options.Count);
+                    return Result<AskResponseDto>.Success(
+                        new AskResponseDto(session.Id, string.Empty, [], null, options));
+                }
             }
         }
-        catch (Exception ex) { _logger.LogWarning(ex, "[QueryRewrite] Atlandı"); }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Clarify] Atlandı"); }
+
+        // ── Query Rewriting: yalnızca geçmiş varsa çalıştır (zamir/bağlam çözümlemesi için) ──
+        var searchQuestion = req.Question;
+        if (history.Count > 0)
+        {
+            try
+            {
+                var rewritten = await _llm.RewriteQueryAsync(req.Question, history, ct);
+                if (rewritten != req.Question)
+                {
+                    _logger.LogInformation("[QueryRewrite] '{Original}' → '{Rewritten}'", req.Question, rewritten);
+                    searchQuestion = rewritten;
+                }
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "[QueryRewrite] Atlandı"); }
+        }
 
         // ── Semantik cache kontrolü ──────────────────────────────────────
         var questionVector = await _embeddingService.GetEmbeddingAsync(searchQuestion, ct);
-
-        // ── Belge tespiti (cache kontrolünden önce — belge bazlı cache için gerekli) ──
-        var docNames = await _uow.GetDocumentNamesAsync(ct);
-        var docNameStrings = docNames.Select(d => d.FileName).ToList();
 
         var relevantDocNames = await _llm.DetectRelevantDocumentsAsync(
             searchQuestion, history, docNameStrings, ct);
@@ -138,46 +167,63 @@ public class ChatService : IChatService
             questionVector, CacheSimilarityThreshold, docIdKey, ct);
         if (cached != null)
         {
-            _logger.LogInformation("[Cache] HIT — '{Question}' cache'den döndürüldü", cached.QuestionText);
+            var validatedAnswer = await _llm.ValidateCachedAnswerAsync(
+                searchQuestion, cached.QuestionText, cached.Answer, history, ct);
 
-            await _cache.IncrementHitAsync(cached.Id, ct);
-
-            await _uow.Messages.AddAsync(new ChatMessage
+            if (validatedAnswer != null)
             {
-                SessionId = session.Id,
-                Role = MessageRole.Assistant,
-                Content = cached.Answer,
-                ImagesJson = cached.ImagesJson
-            }, ct);
-            await _uow.SaveChangesAsync(ct);
+                _logger.LogInformation("[Cache] HIT VALID — '{Question}' cache'den döndürüldü", cached.QuestionText);
 
-            var cachedChunks = new List<ChunkResult>();
-            if (cached.ImagesJson != null)
-                cachedChunks.Add(new ChunkResult(
-                    FileName: string.Empty,
-                    Content: cached.Answer,
-                    ImagePath: cached.ImagesJson));
+                await _cache.IncrementHitAsync(cached.Id, ct);
 
-            var cachedImgs = cached.ImagesJson != null
-                ? (JsonSerializer.Deserialize<List<string>>(cached.ImagesJson) ?? new())
-                : new List<string>();
+                await _uow.Messages.AddAsync(new ChatMessage
+                {
+                    SessionId = session.Id,
+                    Role = MessageRole.Assistant,
+                    Content = cached.Answer,
+                    ImagesJson = cached.ImagesJson
+                }, ct);
+                await _uow.SaveChangesAsync(ct);
 
-            return Result<AskResponseDto>.Success(
-                new AskResponseDto(session.Id, cached.Answer, cachedChunks, cachedImgs));
+                var cachedChunks = new List<ChunkResult>();
+                if (cached.ImagesJson != null)
+                    cachedChunks.Add(new ChunkResult(
+                        FileName: string.Empty,
+                        Content: cached.Answer,
+                        ImagePath: cached.ImagesJson));
+
+                var cachedImgs = cached.ImagesJson != null
+                    ? (JsonSerializer.Deserialize<List<string>>(cached.ImagesJson) ?? new())
+                    : new List<string>();
+
+                return Result<AskResponseDto>.Success(
+                    new AskResponseDto(session.Id, cached.Answer, cachedChunks, cachedImgs));
+            }
+
+            _logger.LogInformation("[Cache] HIT INVALID — '{Question}' geçersiz, sıfırdan üretiliyor", searchQuestion);
         }
 
-        // Cache miss — WRITE kararı için bağımsızlık kontrolü (rewritten query ile değerlendir)
-        var isIndependent = await _llm.IsCacheableAsync(searchQuestion, history, ct);
+        // Cache miss — WRITE kararı
+        // Rewrite soruyu değiştirdiyse ve erken kontrol "bağımlı" dediyse → rewrite edilmiş soru ile tekrar kontrol
+        bool isIndependent;
+        if (earlyIsCacheable == false && searchQuestion != req.Question)
+        {
+            isIndependent = await _llm.IsCacheableAsync(searchQuestion, history, ct);
+            _logger.LogDebug("[Cache] Rewrite sonrası IsCacheable yeniden kontrol → {Result}", isIndependent);
+        }
+        else
+        {
+            isIndependent = earlyIsCacheable ?? await _llm.IsCacheableAsync(searchQuestion, history, ct);
+        }
 
         // ── HyDE: Varsayımsal belge üret — embedding kalitesini artırır ────
         string? hydeText = null;
-        if (!history.Any())
+        var hydeEligible = true;
+        if (hydeEligible)
         {
             try
             {
-                using var hydeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                hydeCts.CancelAfter(TimeSpan.FromSeconds(30));
-                hydeText = await _llm.GenerateHypotheticalDocumentAsync(searchQuestion, hydeCts.Token);
+                hydeText = await _llm.GenerateHypotheticalDocumentAsync(searchQuestion, ct);
                 _logger.LogDebug("[HyDE] {Preview}...", hydeText[..Math.Min(100, hydeText.Length)]);
             }
             catch (Exception ex) { _logger.LogWarning(ex, "[HyDE] Atlandı"); }
@@ -201,16 +247,14 @@ public class ChatService : IChatService
             return Result<AskResponseDto>.Success(new AskResponseDto(session.Id, noData, []));
         }
 
-        // ── LLM Rerank: 4+ chunk varsa LLM ile yeniden sırala ───────────
-        if (chunks.Count >= 4)
+        // ── LLM Rerank: 2+ chunk varsa LLM ile yeniden sırala ───────────
+        if (chunks.Count >= 2)
         {
             try
             {
-                using var rerankCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                rerankCts.CancelAfter(TimeSpan.FromSeconds(15));
-                var topK = Math.Min(5, chunks.Count);
+                var topK = Math.Min(chunks.Count, 8);
                 var rankedIndices = await _llm.RerankChunksAsync(
-                    searchQuestion, chunks.Select(c => c.Content).ToList(), topK, rerankCts.Token);
+                    searchQuestion, chunks.Select(c => c.Content).ToList(), topK, ct);
                 chunks = rankedIndices.Select(i => chunks[i]).ToList();
                 _logger.LogInformation("[Rerank] {Count} chunk yeniden sıralandı", chunks.Count);
             }
@@ -261,28 +305,12 @@ public class ChatService : IChatService
                     Answer = answer,
                     ImagesJson = imagesJson,
                     DocumentIds = docIdKey,
+                    LastHitAt = DateTime.UtcNow,
                 }, ct);
                 await _uow.SaveChangesAsync(ct);
                 _logger.LogInformation("[Cache] WRITE — '{Question}' (belgeler: {DocIds}) cache'e yazıldı",
                     searchQuestion, docIdKey ?? "tümü");
 
-                // Periyodik TTL temizliği — yaklaşık %2 ihtimalle tetiklenir
-                if (Random.Shared.Next(50) == 0)
-                {
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            var deleted = await _cache.DeleteExpiredAsync(TimeSpan.FromDays(30), CancellationToken.None);
-                            if (deleted > 0)
-                                _logger.LogInformation("[Cache] TTL temizliği — {Count} eski kayıt silindi", deleted);
-                        }
-                        catch (Exception cleanEx)
-                        {
-                            _logger.LogWarning(cleanEx, "[Cache] TTL temizliği sırasında hata");
-                        }
-                    });
-                }
             }
             catch (Exception ex)
             {

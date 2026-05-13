@@ -96,8 +96,11 @@ try
 
             await ctx.HttpContext.Response.WriteAsJsonAsync(new
             {
-                error = "Çok fazla istek gönderdiniz.",
-                message = $"Lütfen {retryAfter} saniye sonra tekrar deneyin.",
+                error = new
+                {
+                    message = $"Çok fazla istek gönderdiniz. Lütfen {retryAfter} saniye sonra tekrar deneyin.",
+                    errors = Array.Empty<string>()
+                },
                 retryAfterSeconds = retryAfter
             }, cancellationToken);
         };
@@ -127,6 +130,12 @@ try
             RateLimitPartition.GetFixedWindowLimiter(GetIp(ctx), _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
+            }));
+
+        options.AddPolicy("read-ops", ctx =>
+            RateLimitPartition.GetFixedWindowLimiter(GetIp(ctx), _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 60, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
         options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>

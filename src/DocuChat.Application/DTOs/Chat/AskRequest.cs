@@ -2,4 +2,5 @@
 
 public record AskRequest(
     string Question,
-    Guid? SessionId);
+    Guid? SessionId,
+    bool SkipClarification = false);

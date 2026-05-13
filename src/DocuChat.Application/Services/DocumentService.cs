@@ -1,4 +1,5 @@
 ﻿
+using System.Text.Json;
 using Mapster;
 using Microsoft.Extensions.Logging;
 using DocuChat.Application.Interfaces.Services;
@@ -66,12 +67,13 @@ public class DocumentService : IDocumentService
 
             req.FileStream.Position = 0;
             var chunks = await _parser.ParseAsync(req.FileStream, doc.FileType);
+            var addedChunks = new List<DocumentChunk>();
             int idx = 0;
 
             foreach (var parsed in chunks)
             {
                 var vec = await _embedder.GetEmbeddingAsync(parsed.Content, ct);
-                await _uow.Chunks.AddAsync(new DocumentChunk
+                var chunk = new DocumentChunk
                 {
                     DocumentId = doc.Id,
                     Content = parsed.Content,
@@ -79,7 +81,9 @@ public class DocumentService : IDocumentService
                     Embedding = vec,
                     ImagePath = parsed.ImagePath,
                     Header = parsed.Header,
-                }, ct);
+                };
+                await _uow.Chunks.AddAsync(chunk, ct);
+                addedChunks.Add(chunk);
             }
 
             doc.Status = DocumentStatus.Ready;
@@ -92,6 +96,9 @@ public class DocumentService : IDocumentService
             doc.Status = DocumentStatus.Failed;
             doc.ErrorMessage = ex.Message;
             doc.UpdatedAt = DateTime.UtcNow;
+            // Yarım kalan chunk'ları temizle
+            var dirtyChunks = await _uow.Chunks.FindAsync(c => c.DocumentId == doc.Id, ct);
+            foreach (var c in dirtyChunks) _uow.Chunks.Delete(c);
         }
 
         await _uow.SaveChangesAsync(ct);
@@ -99,10 +106,13 @@ public class DocumentService : IDocumentService
     }
 
     public async Task<Result<IReadOnlyList<DocumentResponseDto>>> GetAllDocumentsAsync(
-        CancellationToken ct)
+        string? search = null, CancellationToken ct = default)
     {
         var docs = await _uow.Documents.GetAllAsync(ct);
-        var dtos = docs.Select(d => d.Adapt<DocumentResponseDto>()).ToList();
+        IEnumerable<Document> filtered = docs;
+        if (!string.IsNullOrWhiteSpace(search))
+            filtered = docs.Where(d => d.FileName.Contains(search, StringComparison.OrdinalIgnoreCase));
+        var dtos = filtered.Select(d => d.Adapt<DocumentResponseDto>()).ToList();
         return Result<IReadOnlyList<DocumentResponseDto>>.Success(dtos);
     }
 
@@ -110,10 +120,13 @@ public class DocumentService : IDocumentService
         int page, int pageSize, CancellationToken ct)
     {
         var allDocs = await _uow.Documents.GetAllAsync(ct);
-        var ordered = allDocs.OrderByDescending(d => d.CreatedAt).ToList();
-        var total = ordered.Count;
-        var items = ordered.Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(d => d.Adapt<DocumentResponseDto>()).ToList();
+        var total = allDocs.Count;
+        var items = allDocs
+            .OrderByDescending(d => d.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(d => d.Adapt<DocumentResponseDto>())
+            .ToList();
         return Result<PaginatedResult<DocumentResponseDto>>.Success(
             new PaginatedResult<DocumentResponseDto>(items, total, page, pageSize));
     }
@@ -134,6 +147,7 @@ public class DocumentService : IDocumentService
                 _logger.LogWarning("[Delete] Atlandı — belge işleniyor. DocId: {DocId}", id);
                 continue;
             }
+            await DeleteChunkImagesAsync(id, ct);
             if (doc.StoragePath is not null)
                 await _fileStorage.DeleteAsync(doc.StoragePath, ct);
             _uow.Documents.Delete(doc);
@@ -158,6 +172,7 @@ public class DocumentService : IDocumentService
         if (doc.Status == DocumentStatus.Processing)
             return Result<bool>.Failure(Error.Validation("Belge işleniyor, lütfen tamamlanmasını bekleyin."));
 
+        await DeleteChunkImagesAsync(docId, ct);
         if (doc.StoragePath is not null)
             await _fileStorage.DeleteAsync(doc.StoragePath, ct);
 
@@ -195,14 +210,8 @@ public class DocumentService : IDocumentService
         if (doc.StoragePath is null)
             return Result<DocumentResponseDto>.Failure(Error.Validation("Orijinal dosya bulunamadı."));
 
-        // Mevcut chunk'ları sil
-        var existingChunks = await _uow.Chunks.FindAsync(c => c.DocumentId == id, ct);
-        foreach (var chunk in existingChunks)
-            _uow.Chunks.Delete(chunk);
-
         doc.Status = DocumentStatus.Processing;
         doc.ErrorMessage = null;
-        doc.ChunkCount = 0;
         doc.UpdatedAt = DateTime.UtcNow;
         await _uow.SaveChangesAsync(ct);
 
@@ -210,14 +219,15 @@ public class DocumentService : IDocumentService
 
         try
         {
+            // Önce yeni chunk'ları üret
             using var stream = _fileStorage.Read(doc.StoragePath);
-            var chunks = await _parser.ParseAsync(stream, doc.FileType);
+            var parsedChunks = await _parser.ParseAsync(stream, doc.FileType);
+            var newChunks = new List<DocumentChunk>();
             int idx = 0;
-
-            foreach (var parsed in chunks)
+            foreach (var parsed in parsedChunks)
             {
                 var vec = await _embedder.GetEmbeddingAsync(parsed.Content, ct);
-                await _uow.Chunks.AddAsync(new DocumentChunk
+                newChunks.Add(new DocumentChunk
                 {
                     DocumentId = doc.Id,
                     Content = parsed.Content,
@@ -225,8 +235,15 @@ public class DocumentService : IDocumentService
                     Embedding = vec,
                     ImagePath = parsed.ImagePath,
                     Header = parsed.Header,
-                }, ct);
+                });
             }
+
+            // Başarılı olduktan sonra eskileri sil, yenileri ekle
+            var existingChunks = await _uow.Chunks.FindAsync(c => c.DocumentId == id, ct);
+            foreach (var chunk in existingChunks)
+                _uow.Chunks.Delete(chunk);
+            foreach (var chunk in newChunks)
+                await _uow.Chunks.AddAsync(chunk, ct);
 
             doc.Status = DocumentStatus.Ready;
             doc.ChunkCount = idx;
@@ -259,6 +276,9 @@ public class DocumentService : IDocumentService
         if (doc is null || doc.StoragePath is null)
             return Result<(Stream, string, string)>.Failure(Error.NotFound("Belge bulunamadı."));
 
+        if (doc.UserId != _currentUser.UserId && !_currentUser.IsInRole(Roles.Admin))
+            return Result<(Stream, string, string)>.Failure(Error.Forbidden("Bu belgeye erişim yetkiniz yok."));
+
         try
         {
             var stream = _fileStorage.Read(doc.StoragePath);
@@ -271,6 +291,26 @@ public class DocumentService : IDocumentService
         {
             return Result<(Stream, string, string)>.Failure(
                 Error.NotFound("Dosya storage'da bulunamadı. Belgeyi yeniden yükleyin."));
+        }
+    }
+
+    private async Task DeleteChunkImagesAsync(Guid docId, CancellationToken ct)
+    {
+        var chunks = await _uow.Chunks.FindAsync(c => c.DocumentId == docId, ct);
+        foreach (var chunk in chunks)
+        {
+            if (string.IsNullOrWhiteSpace(chunk.ImagePath)) continue;
+            try
+            {
+                var paths = JsonSerializer.Deserialize<List<string>>(chunk.ImagePath);
+                if (paths is null) continue;
+                foreach (var p in paths)
+                    await _fileStorage.DeleteAsync(p, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[ImageCleanup] Resim silinemedi, chunk: {ChunkId}", chunk.Id);
+            }
         }
     }
 

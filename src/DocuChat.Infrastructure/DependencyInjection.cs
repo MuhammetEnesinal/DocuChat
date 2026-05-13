@@ -98,6 +98,9 @@ public static class DependencyInjection
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUser, CurrentUserService>();
 
+        // Background services
+        services.AddHostedService<CacheCleanupService>();
+
         // Mapster
         MappingConfig.Register();
 

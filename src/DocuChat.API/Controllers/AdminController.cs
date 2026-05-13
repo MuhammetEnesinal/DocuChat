@@ -18,17 +18,20 @@ public class AdminController : ControllerBase
     private readonly IChatService _chatService;
     private readonly IAuthService _authService;
     private readonly IValidator<RegisterRequest> _registerValidator;
+    private readonly IValidator<UpdateUserRequest> _updateUserValidator;
 
     public AdminController(
         IDocumentService documentService,
         IChatService chatService,
         IAuthService authService,
-        IValidator<RegisterRequest> registerValidator)
+        IValidator<RegisterRequest> registerValidator,
+        IValidator<UpdateUserRequest> updateUserValidator)
     {
         _documentService = documentService;
         _chatService = chatService;
         _authService = authService;
         _registerValidator = registerValidator;
+        _updateUserValidator = updateUserValidator;
     }
 
     // ───── KULLANICILAR ─────
@@ -56,6 +59,12 @@ public class AdminController : ControllerBase
     [HttpPut("users/{id}")]
     public async Task<IActionResult> UpdateUser(string id, [FromBody] UpdateUserRequest req, CancellationToken ct)
     {
+        var validation = await _updateUserValidator.ValidateAsync(req, ct);
+        if (!validation.IsValid)
+            return validation.Errors
+                             .Select(e => e.ErrorMessage)
+                             .ToValidationResult<UserSummaryResponseDto>();
+
         var result = await _authService.UpdateUserAsync(id, req, ct);
         return result.ToActionResult();
     }
@@ -78,7 +87,7 @@ public class AdminController : ControllerBase
             var paged = await _documentService.GetAllDocumentsPagedAsync(page.Value, pageSize, ct);
             return paged.ToActionResult();
         }
-        var result = await _documentService.GetAllDocumentsAsync(ct);
+        var result = await _documentService.GetAllDocumentsAsync(null, ct);
         return result.ToActionResult();
     }
 

@@ -1,165 +1,102 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getDocuments, uploadDocument, deleteDocument, reprocessDocument, getDocumentChunks, adminGetUsers, adminCreateUser, adminUpdateUser, adminDeleteUser, API_BASE } from '../services/api';
-import { useToast } from '../components/shared/Toast';
+import { API_BASE } from '../services/api';
 import Modal from '../components/shared/Modal';
 import DocumentUpload from '../components/admin/DocumentUpload';
 import DocumentList from '../components/admin/DocumentList';
 import UserList from '../components/admin/UserList';
 import UserModal from '../components/admin/UserModal';
 import ThemeToggle from '../components/shared/ThemeToggle';
+import ConfirmDialog from '../components/shared/ConfirmDialog';
+import { useToast } from '../components/shared/Toast';
+import { useDocuments } from '../hooks/useDocuments';
+import { useUsers } from '../hooks/useUsers';
 
 export default function Admin() {
     const [tab, setTab] = useState('documents');
+    const [confirmDoc, setConfirmDoc] = useState(null);
+    const [confirmUser, setConfirmUser] = useState(null);
+    const [deletingDocId, setDeletingDocId] = useState(null);
+    const [deletingUserId, setDeletingUserId] = useState(null);
 
-    const [documents, setDocuments] = useState([]);
-    const [docsLoading, setDocsLoading] = useState(true);
-    const [uploads, setUploads] = useState([]);
-    const [docSearch, setDocSearch] = useState('');
-    const [dragOver, setDragOver] = useState(false);
-    const [selectedDoc, setSelectedDoc] = useState(null);
-    const [chunks, setChunks] = useState([]);
-    const [chunksLoading, setChunksLoading] = useState(false);
-    const [showChunksModal, setShowChunksModal] = useState(false);
     const fileInputRef = useRef();
-
-    const [users, setUsers] = useState([]);
-    const [usersLoading, setUsersLoading] = useState(true);
-    const [userSearch, setUserSearch] = useState('');
-    const [showUserModal, setShowUserModal] = useState(false);
-    const [editingUser, setEditingUser] = useState(null);
-    const [newUser, setNewUser] = useState({ fullName: '', email: '', password: '' });
-    const [userFormError, setUserFormError] = useState('');
-    const [userFormLoading, setUserFormLoading] = useState(false);
-
     const navigate = useNavigate();
     const toast = useToast();
 
+    const {
+        documents, setDocuments,
+        docsLoading,
+        uploads,
+        docSearch, setDocSearch,
+        dragOver, setDragOver,
+        selectedDoc,
+        chunks,
+        chunksLoading,
+        showChunksModal, setShowChunksModal,
+        fetchDocs,
+        deleteDoc,
+        handleViewChunks,
+        processFiles,
+    } = useDocuments();
+
+    const {
+        users,
+        usersLoading,
+        userSearch, setUserSearch,
+        showUserModal,
+        editingUser,
+        userForm,
+        setUserForm,
+        userFormError,
+        userFormLoading,
+        fetchUsers,
+        openAddModal,
+        openEditModal,
+        closeUserModal,
+        handleSubmitUser,
+        deleteUser,
+    } = useUsers();
+
     useEffect(() => { fetchDocs(); fetchUsers(); }, []);
 
-    const fetchDocs = useCallback(async (silent = false) => {
-        if (!silent) setDocsLoading(true);
-        try {
-            const res = await getDocuments();
-            const docs = res.data.data || [];
-            setDocuments(docs);
-            if (docs.some(d => d.status === 'Processing' || d.status === 'Pending'))
-                setTimeout(() => fetchDocs(true), 3000);
-        } catch { if (!silent) toast.error('Belgeler yüklenemedi.'); }
-        finally { if (!silent) setDocsLoading(false); }
-    }, []);
-
-    const fetchUsers = useCallback(async () => {
-        setUsersLoading(true);
-        try {
-            const res = await adminGetUsers();
-            setUsers(res.data.data || []);
-        } catch { toast.error('Kullanıcılar yüklenemedi.'); }
-        finally { setUsersLoading(false); }
-    }, []);
-
-    const processFiles = (files) => {
-        const allowed = ['application/pdf', 'application/msword',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'text/plain', 'text/csv'];
-        const valid = Array.from(files).filter(f => allowed.includes(f.type));
-        if (valid.length === 0) { toast.error('Desteklenmeyen format.'); return; }
-        valid.forEach(uploadFile);
+    const handleDeleteDoc = (id, name) => {
+        setConfirmDoc({ id, name });
     };
 
-    const uploadFile = async (file) => {
-        const uid = Date.now() + Math.random();
-        setUploads(prev => [...prev, { id: uid, name: file.name, progress: 0, status: 'uploading' }]);
+    const confirmDeleteDoc = async () => {
+        const { id, name } = confirmDoc;
+        setConfirmDoc(null);
+        setDeletingDocId(id);
         try {
-            await uploadDocument(file, (p) => setUploads(prev => prev.map(u => u.id === uid ? { ...u, progress: p } : u)));
-            setUploads(prev => prev.map(u => u.id === uid ? { ...u, progress: 100, status: 'done' } : u));
-            toast.success(`"${file.name}" yüklendi.`);
-            fetchDocs(true); // silent — upload progress'i bozmamak için skeleton gösterme
-            setTimeout(() => setUploads(prev => prev.filter(u => u.id !== uid)), 3000);
-        } catch (err) {
-            const msg = err.response?.data?.error?.message || err.message;
-            setUploads(prev => prev.map(u => u.id === uid ? { ...u, status: 'error', error: msg } : u));
-            toast.error(`"${file.name}" yüklenemedi.`);
-            setTimeout(() => setUploads(prev => prev.filter(u => u.id !== uid)), 5000);
-        }
-    };
-
-    const handleDeleteDoc = async (id, name) => {
-        if (!confirm(`"${name}" silinecek. Emin misiniz?`)) return;
-        // Optimistic update: immediately remove from UI
-        setDocuments(prev => prev.filter(d => d.id !== id));
-        if (selectedDoc?.id === id) setShowChunksModal(false);
-        try {
-            await deleteDocument(id);
+            await deleteDoc(id);
             toast.success(`"${name}" silindi.`);
         } catch {
-            // Revert on failure
-            fetchDocs(true);
             toast.error('Belge silinemedi.');
+        } finally {
+            setDeletingDocId(null);
         }
     };
 
-    const handleViewChunks = async (doc) => {
-        setSelectedDoc(doc);
-        setShowChunksModal(true);
-        setChunksLoading(true);
-        setChunks([]);
-        try {
-            const res = await getDocumentChunks(doc.id);
-            setChunks(res.data.data || []);
-        } catch { toast.error("Chunk'lar yüklenemedi."); }
-        finally { setChunksLoading(false); }
+    const handleDeleteUser = (id, name) => {
+        setConfirmUser({ id, name });
     };
 
-    const handleCreateUser = async (e) => {
-        e.preventDefault();
-        setUserFormError('');
-        setUserFormLoading(true);
+    const confirmDeleteUser = async () => {
+        const { id, name } = confirmUser;
+        setConfirmUser(null);
+        setDeletingUserId(id);
         try {
-            if (editingUser) {
-                await adminUpdateUser(editingUser.id, newUser.fullName, newUser.email, newUser.password);
-                toast.success(`"${newUser.fullName}" güncellendi.`);
-            } else {
-                await adminCreateUser(newUser.fullName, newUser.email, newUser.password);
-                toast.success(`"${newUser.fullName}" oluşturuldu.`);
-            }
-            setShowUserModal(false);
-            setEditingUser(null);
-            setNewUser({ fullName: '', email: '', password: '' });
-            fetchUsers();
-        } catch (err) {
-            const msg = err.response?.data?.error?.message;
-            const errors = err.response?.data?.error?.errors;
-            setUserFormError(errors?.join(' ') || msg || (editingUser ? 'Kullanıcı güncellenemedi.' : 'Kullanıcı oluşturulamadı.'));
-        } finally { setUserFormLoading(false); }
-    };
-
-    const handleEditUser = (u) => {
-        setEditingUser(u);
-        setNewUser({ fullName: u.fullName, email: u.email, password: '' });
-        setUserFormError('');
-        setShowUserModal(true);
-    };
-
-    const handleDeleteUser = async (id, name) => {
-        if (!confirm(`"${name}" silinecek. Emin misiniz?`)) return;
-        // Optimistic update: immediately remove from UI
-        const snapshot = users.filter(u => u.id !== id);
-        setUsers(snapshot);
-        try {
-            await adminDeleteUser(id);
+            await deleteUser(id);
             toast.success(`"${name}" silindi.`);
         } catch (err) {
-            // Revert on failure
-            fetchUsers();
-            toast.error(err.response?.data?.error?.message || 'Kullanıcı silinemedi.');
+            toast.error(err?.response?.data?.error?.message || 'Kullanıcı silinemedi.');
+        } finally {
+            setDeletingUserId(null);
         }
     };
 
     return (
         <div style={{ minHeight: '100vh', background: 'var(--navy)' }}>
-            {/* Header */}
             <div className="admin-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', gap: '12px', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <button onClick={() => navigate('/chat')}
@@ -211,6 +148,7 @@ export default function Admin() {
                             onSearchChange={setDocSearch}
                             onViewChunks={handleViewChunks}
                             onDelete={handleDeleteDoc}
+                            deletingDocId={deletingDocId}
                             onReprocessStart={(id) =>
                                 setDocuments(prev => prev.map(d =>
                                     d.id === id ? { ...d, status: 'Processing' } : d
@@ -227,14 +165,14 @@ export default function Admin() {
                         loading={usersLoading}
                         search={userSearch}
                         onSearchChange={setUserSearch}
-                        onAdd={() => { setEditingUser(null); setNewUser({ fullName: '', email: '', password: '' }); setUserFormError(''); setShowUserModal(true); }}
-                        onEdit={handleEditUser}
+                        onAdd={openAddModal}
+                        onEdit={openEditModal}
                         onDelete={handleDeleteUser}
+                        deletingUserId={deletingUserId}
                     />
                 )}
             </div>
 
-            {/* Chunk Modal */}
             {showChunksModal && (
                 <Modal title={selectedDoc?.fileName} subtitle={chunksLoading ? 'Yükleniyor...' : `${chunks.length} chunk`} onClose={() => setShowChunksModal(false)} maxWidth="max-w-2xl">
                     <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -278,16 +216,35 @@ export default function Admin() {
                 </Modal>
             )}
 
-            {/* User Modal */}
             {showUserModal && (
                 <UserModal
-                    onClose={() => { setShowUserModal(false); setEditingUser(null); }}
-                    onSubmit={handleCreateUser}
-                    user={newUser}
-                    onChange={(key, val) => setNewUser(prev => ({ ...prev, [key]: val }))}
+                    onClose={closeUserModal}
+                    onSubmit={handleSubmitUser}
+                    user={userForm}
+                    onChange={setUserForm}
                     error={userFormError}
                     loading={userFormLoading}
                     isEdit={!!editingUser}
+                />
+            )}
+
+            {confirmDoc && (
+                <ConfirmDialog
+                    title="Belgeyi Sil"
+                    message={`"${confirmDoc.name}" kalıcı olarak silinecek. Emin misiniz?`}
+                    confirmLabel="Sil"
+                    onConfirm={confirmDeleteDoc}
+                    onCancel={() => setConfirmDoc(null)}
+                />
+            )}
+
+            {confirmUser && (
+                <ConfirmDialog
+                    title="Kullanıcıyı Sil"
+                    message={`"${confirmUser.name}" kalıcı olarak silinecek. Emin misiniz?`}
+                    confirmLabel="Sil"
+                    onConfirm={confirmDeleteUser}
+                    onCancel={() => setConfirmUser(null)}
                 />
             )}
         </div>

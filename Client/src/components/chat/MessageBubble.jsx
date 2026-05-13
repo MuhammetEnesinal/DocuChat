@@ -56,10 +56,47 @@ function ImageModal({ src, onClose }) {
     );
 }
 
-export default function MessageBubble({ msg, copiedId, onCopy, onRetry }) {
+function ClarificationBubble({ msg, onClarificationSelect, onClarificationDismiss }) {
+    return (
+        <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'flex-start', gap: '12px' }}>
+            <div style={{ width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '4px', background: 'var(--accent)' }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '16px', borderTopLeftRadius: '4px', padding: '14px 16px' }}>
+                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 10px 0' }}>Bunu mu demek istediniz?</p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {msg.clarificationOptions.map((opt, i) => (
+                            <button key={i} onClick={() => onClarificationSelect(opt)}
+                                style={{ textAlign: 'left', padding: '9px 13px', borderRadius: '8px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px', transition: 'border-color 0.15s, background 0.15s' }}
+                                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.background = 'var(--surface2)'; }}
+                                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--surface)'; }}>
+                                {opt}
+                            </button>
+                        ))}
+                    </div>
+                    <button
+                        onClick={() => onClarificationDismiss(msg.id)}
+                        style={{ marginTop: '10px', padding: '7px 13px', borderRadius: '8px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '12px', width: '100%', textAlign: 'center' }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = '#ef4444'; e.currentTarget.style.color = '#ef4444'; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
+                        Hayır, kendi cümlemle sormak istiyorum
+                    </button>
+                </div>
+                <span style={{ fontSize: '12px', color: '#475569', marginTop: '4px', display: 'block' }}>{formatTime(msg.createdAt)}</span>
+            </div>
+        </div>
+    );
+}
+
+export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarificationSelect, onClarificationDismiss }) {
     const isUser = msg.role === 'User';
     const images = msg.images || [];
     const [modalSrc, setModalSrc] = useState(null);
+
+    if (msg.isClarification) return <ClarificationBubble msg={msg} onClarificationSelect={onClarificationSelect} onClarificationDismiss={onClarificationDismiss} />;
 
     const resolveImgMarker = (text) => {
         const match = text?.match(/^\[IMG:(\d+)\]$/);

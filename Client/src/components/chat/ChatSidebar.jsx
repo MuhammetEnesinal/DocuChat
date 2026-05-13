@@ -75,19 +75,32 @@ export default function ChatSidebar({
                 </div>
 
                 {/* Session listesi */}
-                <div style={{ flex: 1, overflowY: 'auto', padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <div role="list" style={{ flex: 1, overflowY: 'auto', padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                     {sessionsLoading ? <SessionSkeleton /> : sessions.length === 0 ? (
                         <p style={{ fontSize: '12px', textAlign: 'center', marginTop: '16px', color: 'var(--gray-light)' }}>Henüz sohbet yok</p>
                     ) : null}
                     {sessions.map((s) => (
-                        <div key={s.id} onClick={() => onLoadSession(s)}
+                        <div key={s.id}
+                            role="listitem"
+                            tabIndex={0}
+                            aria-label={s.title || 'Sohbet'}
+                            aria-current={activeSession?.id === s.id ? 'true' : undefined}
+                            onClick={() => onLoadSession(s)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onLoadSession(s); }
+                                else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); onDeleteSession(s.id); }
+                                else if (e.key === 'F2') { e.preventDefault(); onStartRename(s); }
+                            }}
                             className="group"
                             style={{
                                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                                 padding: '8px 10px', borderRadius: '10px', cursor: 'pointer', transition: 'background 0.15s',
                                 background: activeSession?.id === s.id ? 'var(--navy-light)' : 'transparent',
                                 border: activeSession?.id === s.id ? '1px solid var(--border)' : '1px solid transparent',
+                                outline: 'none',
                             }}
+                            onFocus={(e) => { if (activeSession?.id !== s.id) e.currentTarget.style.background = 'var(--surface2)'; }}
+                            onBlur={(e) => { if (activeSession?.id !== s.id) e.currentTarget.style.background = 'transparent'; }}
                             onMouseEnter={(e) => { if (activeSession?.id !== s.id) e.currentTarget.style.background = 'var(--surface2)'; }}
                             onMouseLeave={(e) => { if (activeSession?.id !== s.id) e.currentTarget.style.background = 'transparent'; }}>
                             {editingSessionId === s.id ? (
@@ -96,11 +109,12 @@ export default function ChatSidebar({
                                     onBlur={() => onCommitRename(s.id)}
                                     onKeyDown={(e) => { if (e.key === 'Enter') onCommitRename(s.id); if (e.key === 'Escape') onSetEditingSessionId(null); }}
                                     onClick={(e) => e.stopPropagation()}
+                                    maxLength={60}
                                     style={{ flex: 1, fontSize: '14px', background: 'transparent', outline: 'none', border: 'none', borderBottom: '1px solid var(--accent)', color: 'var(--text-primary)' }}
                                     autoFocus
                                 />
                             ) : (
-                                <span style={{ fontSize: '13px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: activeSession?.id === s.id ? '#e2e8f0' : '#94a3b8', maxWidth: '150px' }}>
+                                <span style={{ fontSize: '13px', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: activeSession?.id === s.id ? '#e2e8f0' : '#94a3b8' }}>
                                     {s.title || 'Sohbet'}
                                 </span>
                             )}
@@ -109,6 +123,7 @@ export default function ChatSidebar({
                                 <button
                                     onClick={(e) => { e.stopPropagation(); if (renamingSessionId !== s.id) onStartRename(s); }}
                                     disabled={renamingSessionId === s.id}
+                                    aria-label="Yeniden adlandır"
                                     style={{ padding: '4px', borderRadius: '4px', color: renamingSessionId === s.id ? 'var(--accent)' : 'var(--text-muted)', background: 'none', border: 'none', cursor: renamingSessionId === s.id ? 'not-allowed' : 'pointer' }}
                                     onMouseEnter={(e) => { if (renamingSessionId !== s.id) e.currentTarget.style.color = '#93c5fd'; }}
                                     onMouseLeave={(e) => { if (renamingSessionId !== s.id) e.currentTarget.style.color = 'var(--text-muted)'; }}>
@@ -125,6 +140,7 @@ export default function ChatSidebar({
                                 </button>
                                 <button onClick={(e) => { e.stopPropagation(); if (deletingSessionId !== s.id) onDeleteSession(s.id); }}
                                     disabled={deletingSessionId === s.id}
+                                    aria-label="Sohbeti sil"
                                     style={{ padding: '4px', borderRadius: '4px', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: deletingSessionId === s.id ? 'not-allowed' : 'pointer' }}
                                     onMouseEnter={(e) => { if (deletingSessionId !== s.id) e.currentTarget.style.color = '#ef4444'; }}
                                     onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-muted)'}>

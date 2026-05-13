@@ -1,6 +1,7 @@
 ﻿// DocuChat.Infrastructure/Services/AuthService.cs
 using DocuChat.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using DocuChat.Application.Interfaces.Services;
@@ -83,9 +84,11 @@ public class AuthService : IAuthService
     public async Task<Result<IReadOnlyList<UserSummaryResponseDto>>> GetAllUsersAsync(
         CancellationToken ct)
     {
-        var users = _userManager.Users.ToList();
-        var dtos = new List<UserSummaryResponseDto>();
+        var users = await _userManager.Users
+            .OrderBy(u => u.CreatedAt)
+            .ToListAsync(ct);
 
+        var dtos = new List<UserSummaryResponseDto>(users.Count);
         foreach (var user in users)
         {
             var roles = await _userManager.GetRolesAsync(user);

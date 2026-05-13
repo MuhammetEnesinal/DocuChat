@@ -48,6 +48,7 @@ public class ChatController : ControllerBase
     }
 
     [HttpGet("sessions")]
+    [EnableRateLimiting("read-ops")]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<ChatSessionResponseDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetMySessions(
@@ -79,6 +80,7 @@ public class ChatController : ControllerBase
     }
 
     [HttpGet("sessions/{sessionId:guid}/messages")]
+    [EnableRateLimiting("read-ops")]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<ChatMessageResponseDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -136,6 +138,7 @@ public class ChatController : ControllerBase
     }
 
     [HttpGet("popular-questions")]
+    [EnableRateLimiting("read-ops")]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<string>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetPopularQuestions(

@@ -34,5 +34,7 @@ public class QuestionCacheConfiguration : IEntityTypeConfiguration<QuestionCache
         builder.HasIndex(x => x.QuestionVector)
                .HasMethod("hnsw")
                .HasOperators("vector_cosine_ops");
+
+        builder.HasIndex(x => x.LastHitAt);
     }
 }

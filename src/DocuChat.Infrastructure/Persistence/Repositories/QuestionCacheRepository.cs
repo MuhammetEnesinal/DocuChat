@@ -84,7 +84,7 @@ public class QuestionCacheRepository : IQuestionCacheRepository
     {
         var cutoff = DateTime.UtcNow - maxAge;
         return await _db.QuestionCaches
-            .Where(q => q.HitCount == 0 && q.CreatedAt < cutoff)
+            .Where(q => q.LastHitAt < cutoff)
             .ExecuteDeleteAsync(ct);
     }
 }

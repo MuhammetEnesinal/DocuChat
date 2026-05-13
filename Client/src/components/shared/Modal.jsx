@@ -1,5 +1,12 @@
-// Ortak modal bileşeni
+import { useEffect } from 'react';
+
 export default function Modal({ title, subtitle, onClose, children, maxWidth = 'max-w-md' }) {
+    useEffect(() => {
+        const h = (e) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', h);
+        return () => window.removeEventListener('keydown', h);
+    }, [onClose]);
+
     return (
         <div
             className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -20,6 +27,7 @@ export default function Modal({ title, subtitle, onClose, children, maxWidth = '
                     </div>
                     <button
                         onClick={onClose}
+                        aria-label="Kapat"
                         style={{ color: '#64748b', background: 'none', border: 'none', cursor: 'pointer', padding: '6px' }}
                         onMouseEnter={(e) => e.currentTarget.style.color = '#e2e8f0'}
                         onMouseLeave={(e) => e.currentTarget.style.color = '#64748b'}

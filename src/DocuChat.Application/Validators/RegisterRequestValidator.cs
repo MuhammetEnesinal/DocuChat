@@ -18,9 +18,9 @@ public class RegisterRequestValidator : AbstractValidator<RegisterRequest>
         RuleFor(x => x.Password)
             .NotEmpty().WithMessage("Şifre boş olamaz.")
             .MinimumLength(8).WithMessage("Şifre en az 8 karakter olmalıdır.")
-            .Matches("[A-Z]").WithMessage("En az bir büyük harf içermelidir.")
-            .Matches("[a-z]").WithMessage("En az bir küçük harf içermelidir.")
+            .Matches("[A-ZÇĞİÖŞÜ]").WithMessage("En az bir büyük harf içermelidir.")
+            .Matches("[a-zçğıöşü]").WithMessage("En az bir küçük harf içermelidir.")
             .Matches("[0-9]").WithMessage("En az bir rakam içermelidir.")
-            .Matches("[^a-zA-Z0-9]").WithMessage("En az bir özel karakter içermelidir.");
+            .Matches("[^a-zA-ZÇĞİÖŞÜçğıöşü0-9]").WithMessage("En az bir özel karakter içermelidir.");
     }
 }

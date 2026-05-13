@@ -19,6 +19,15 @@ public interface ILlmService
         IEnumerable<(string Role, string Content)>? history = null,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Belirsiz soru için 2-3 olası yorum seçeneği üret. Soru açıksa boş liste döner.
+    /// </summary>
+    Task<List<string>> GenerateClarificationsAsync(
+        string question,
+        IEnumerable<(string Role, string Content)> history,
+        IEnumerable<string>? availableDocuments = null,
+        CancellationToken ct = default);
+
     /// <summary>Soruyu belge araması için optimize et: kısaltma açma, yazım düzeltme, zamir netleştirme.</summary>
     Task<string> RewriteQueryAsync(
         string question,
@@ -35,5 +44,16 @@ public interface ILlmService
         string question,
         IReadOnlyList<string> chunkContents,
         int topK,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Cache'ten gelen cevabın soruya hâlâ geçerli olup olmadığını kontrol eder.
+    /// Geçerliyse cached cevabı döndürür, değilse null döndürür.
+    /// </summary>
+    Task<string?> ValidateCachedAnswerAsync(
+        string question,
+        string cachedQuestion,
+        string cachedAnswer,
+        IEnumerable<(string Role, string Content)>? history = null,
         CancellationToken ct = default);
 }

@@ -33,21 +33,24 @@ public class DocumentsController : ControllerBase
     }
 
     [HttpGet]
+    [EnableRateLimiting("read-ops")]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<DocumentResponseDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetAll(
-        [FromQuery] int? page, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        [FromQuery] int? page, [FromQuery] int pageSize = 20,
+        [FromQuery] string? search = null, CancellationToken ct = default)
     {
         if (page.HasValue)
         {
             var paged = await _documentService.GetAllDocumentsPagedAsync(page.Value, pageSize, ct);
             return paged.ToActionResult();
         }
-        var result = await _documentService.GetAllDocumentsAsync(ct);
+        var result = await _documentService.GetAllDocumentsAsync(search, ct);
         return result.ToActionResult();
     }
 
     [HttpGet("{id:guid}/chunks")]
+    [EnableRateLimiting("read-ops")]
     public async Task<IActionResult> GetChunks(Guid id, CancellationToken ct)
     {
         var result = await _documentService.GetChunksAsync(id, ct);
@@ -78,6 +81,7 @@ public class DocumentsController : ControllerBase
     }
 
     [HttpGet("{id:guid}/preview")]
+    [EnableRateLimiting("read-ops")]
     public async Task<IActionResult> Preview(Guid id, CancellationToken ct)
     {
         var result = await _documentService.GetFileStreamAsync(id, ct);

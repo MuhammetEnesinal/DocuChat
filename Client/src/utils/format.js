@@ -20,11 +20,24 @@ export function formatSize(bytes) {
 }
 
 export function getRateLimitMessage(err) {
-    const msg = err?.response?.data?.error?.message || '';
-    if (err?.response?.status === 429 || msg.includes('rate_limit') || msg.includes('Rate limit')) {
-        const waitMatch = msg.match(/Please try again in ([\d.]+[ms])/i);
-        const wait = waitMatch ? ` Lütfen ${waitMatch[1]} sonra tekrar deneyin.` : ' Lütfen birkaç saniye bekleyin.';
-        return `Sunucu meşgul (token limiti).${wait}`;
+    const data = err?.response?.data;
+    const status = err?.response?.status;
+    // Backend'den gelen hata mesajı (standard format: { error: { message } })
+    const apiMsg = data?.error?.message || '';
+
+    if (status === 429) {
+        // Kendi API'mizin 429 mesajı varsa doğrudan göster
+        if (apiMsg) return apiMsg;
+        // Groq/LLM token limit hatası
+        const retryMatch = apiMsg.match(/Please try again in ([\d.]+\s*\w+)/i);
+        const wait = retryMatch ? ` Lütfen ${retryMatch[1]} sonra tekrar deneyin.` : ' Lütfen birkaç saniye bekleyin.';
+        return `İstek limiti aşıldı.${wait}`;
     }
-    return msg || 'Sunucuya bağlanılamadı.';
+    // LLM sağlayıcısından gelen rate_limit hatası (500 olarak sarılmış)
+    if (apiMsg.toLowerCase().includes('rate_limit') || apiMsg.toLowerCase().includes('rate limit')) {
+        const retryMatch = apiMsg.match(/Please try again in ([\d.]+\s*\w+)/i);
+        const wait = retryMatch ? ` Lütfen ${retryMatch[1]} sonra tekrar deneyin.` : ' Lütfen birkaç saniye bekleyin.';
+        return `Sunucu meşgul (AI limiti).${wait}`;
+    }
+    return apiMsg || 'Sunucuya bağlanılamadı.';
 }

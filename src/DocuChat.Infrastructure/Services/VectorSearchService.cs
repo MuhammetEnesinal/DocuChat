@@ -123,12 +123,12 @@ public class VectorSearchService : IVectorSearch
         // Dynamic TopK — belge büyüklüğüne göre
         var topK = (totalChunks, isMultiDoc) switch
         {
-            (<= 10, _)     => isMultiDoc ? Math.Min(totalChunks, 3) : totalChunks,
-            (<= 30, false) => 5,
-            (<= 80, false) => 7,
-            (_,     false) => 10,
-            (<= 30, true)  => 3,
-            (_,     true)  => 4,
+            (<= 10, _)     => isMultiDoc ? Math.Min(totalChunks, 4) : totalChunks,
+            (<= 30, false) => 6,
+            (<= 80, false) => 8,
+            (_,     false) => 12,
+            (<= 30, true)  => 4,
+            (_,     true)  => 6,
         };
 
         _logger.LogInformation("[VectorSearch] DocId={DocId}, totalChunks={Total}, topK={TopK}, isMultiDoc={IsMultiDoc}", docId, totalChunks, topK, isMultiDoc);

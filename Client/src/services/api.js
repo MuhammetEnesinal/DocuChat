@@ -33,6 +33,9 @@ export default api;
 export const login = (email, password) =>
     api.post('/auth/login', { email, password });
 
+export const register = (fullName, email, password) =>
+    api.post('/auth/register', { fullName, email, password });
+
 export const forgotPassword = (email) =>
     api.post('/auth/forgot-password', { email });
 
@@ -41,8 +44,8 @@ export const resetPassword = (email, token, newPassword) =>
 
 
 // ── Chat ──────────────────────────────────────────────────────────────────
-export const askQuestion = (question, sessionId = null, signal = null) =>
-    api.post('/chat/ask', { question, sessionId }, { signal });
+export const askQuestion = (question, sessionId = null, signal = null, skipClarification = false) =>
+    api.post('/chat/ask', { question, sessionId, skipClarification }, { signal });
 
 export const getSessions = (params = {}) =>
     api.get('/chat/sessions', { params });

@@ -8,4 +8,5 @@ public record AskResponseDto(
     Guid SessionId,
     string Answer,
     IEnumerable<ChunkResult> SourceChunks,
-    List<string>? Images = null);
+    List<string>? Images = null,
+    List<string>? ClarificationOptions = null);
