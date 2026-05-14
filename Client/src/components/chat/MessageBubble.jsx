@@ -59,8 +59,8 @@ function ImageModal({ src, onClose }) {
 function ClarificationBubble({ msg, onClarificationSelect, onClarificationDismiss }) {
     return (
         <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'flex-start', gap: '12px' }}>
-            <div style={{ width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '4px', background: 'var(--accent)' }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
+            <div style={{ width: '34px', height: '34px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '4px', background: 'var(--gradient-accent)', boxShadow: '0 6px 18px -6px rgba(139,92,246,0.6)' }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                 </svg>
             </div>
@@ -195,21 +195,26 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
 
             <div style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', alignItems: 'flex-start', gap: '12px' }}>
                 {!isUser && (
-                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '4px', background: 'var(--accent)' }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
+                    <div style={{ width: '34px', height: '34px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '4px', background: 'var(--gradient-accent)', boxShadow: '0 6px 18px -6px rgba(139,92,246,0.6)' }}>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
                             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                         </svg>
                     </div>
                 )}
                 <div style={{ maxWidth: '48rem', minWidth: 0, ...(isUser ? {} : { flex: 1 }) }}>
                     <div className="prose-dark" style={{
-                        borderRadius: '16px', padding: '12px 16px', fontSize: '14px',
-                        background: isUser ? 'var(--accent)' : 'var(--surface2)',
-                        border: isUser ? 'none' : '1px solid var(--border)',
-                        color: isUser ? 'white' : '#e2e8f0',
-                        borderTopRightRadius: isUser ? '4px' : '16px',
-                        borderTopLeftRadius: !isUser ? '4px' : '16px',
+                        borderRadius: '18px', padding: '13px 18px', fontSize: '14.5px',
+                        background: isUser ? 'var(--gradient-user-bubble)' : 'rgba(30, 35, 55, 0.55)',
+                        backdropFilter: !isUser ? 'blur(20px) saturate(160%)' : undefined,
+                        WebkitBackdropFilter: !isUser ? 'blur(20px) saturate(160%)' : undefined,
+                        border: isUser ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(255,255,255,0.08)',
+                        color: isUser ? 'white' : '#e8eaf0',
+                        borderTopRightRadius: isUser ? '6px' : '18px',
+                        borderTopLeftRadius: !isUser ? '6px' : '18px',
                         lineHeight: '1.7',
+                        boxShadow: isUser
+                            ? '0 10px 30px -8px rgba(139,92,246,0.45), 0 0 0 1px rgba(255,255,255,0.06) inset'
+                            : '0 8px 24px -10px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04) inset',
                     }}>
                         {!isUser ? (
                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
@@ -218,14 +223,16 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
                         ) : msg.content}
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', justifyContent: isUser ? 'flex-end' : 'flex-start', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: '12px', color: '#475569' }}>{formatTime(msg.createdAt)}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px', justifyContent: isUser ? 'flex-end' : 'flex-start', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.55)', fontWeight: 500 }}>{formatTime(msg.createdAt)}</span>
                         <button onClick={() => onCopy(msg.content, msg.id)}
-                            style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', color: copiedId === msg.id ? '#4ade80' : '#475569', background: 'none', border: 'none', cursor: 'pointer' }}>
+                            style={{ fontSize: '12px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 9px', borderRadius: '8px', color: copiedId === msg.id ? '#86efac' : 'rgba(255,255,255,0.7)', background: copiedId === msg.id ? 'rgba(34,197,94,0.12)' : 'rgba(255,255,255,0.05)', border: '1px solid ' + (copiedId === msg.id ? 'rgba(34,197,94,0.25)' : 'rgba(255,255,255,0.08)'), cursor: 'pointer', transition: 'all 0.15s' }}
+                            onMouseEnter={(e) => { if (copiedId !== msg.id) { e.currentTarget.style.background = 'rgba(167,139,250,0.14)'; e.currentTarget.style.borderColor = 'rgba(167,139,250,0.3)'; e.currentTarget.style.color = '#fff'; } }}
+                            onMouseLeave={(e) => { if (copiedId !== msg.id) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'rgba(255,255,255,0.7)'; } }}>
                             {copiedId === msg.id ? (
-                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                             ) : (
-                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                     <rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                                 </svg>
                             )}
@@ -233,7 +240,7 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
                         </button>
                         {msg.isError && onRetry && msg.retryQuestion && (
                             <button onClick={() => onRetry(msg.retryQuestion)}
-                                style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--accent)', background: 'none', border: '1px solid var(--accent)', borderRadius: '6px', padding: '2px 8px', cursor: 'pointer' }}>
+                                style={{ fontSize: '12px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '5px', color: '#c4b5fd', background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.3)', borderRadius: '8px', padding: '4px 9px', cursor: 'pointer' }}>
                                 ↺ Tekrar dene
                             </button>
                         )}

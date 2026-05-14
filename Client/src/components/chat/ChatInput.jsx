@@ -17,8 +17,8 @@ export default function ChatInput({ value, onChange, onSend, loading, onAbort, i
     };
 
     return (
-        <div className="chat-input-area" style={{ padding: '12px 24px 20px' }}>
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', padding: '10px 12px', borderRadius: '16px', background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+        <div className="chat-input-area" style={{ padding: '16px 24px 20px', position: 'relative', maxWidth: '900px', margin: '0 auto', width: '100%' }}>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', padding: '14px 16px', borderRadius: '20px', background: 'rgba(20, 18, 32, 0.65)', backdropFilter: 'blur(28px) saturate(180%)', WebkitBackdropFilter: 'blur(28px) saturate(180%)', border: '1px solid rgba(167, 139, 250, 0.18)', boxShadow: '0 20px 60px -20px rgba(139, 92, 246, 0.4), inset 0 1px 0 rgba(255,255,255,0.05)' }}>
                 <textarea
                     ref={textareaRef}
                     value={value}
@@ -29,18 +29,15 @@ export default function ChatInput({ value, onChange, onSend, loading, onAbort, i
                     rows={1}
                     maxLength={2000}
                     style={{
-                        resize: 'none', minHeight: '44px', maxHeight: '160px',
+                        resize: 'none', minHeight: '48px', maxHeight: '180px',
                         overflowY: 'auto', background: 'transparent', border: 'none',
-                        outline: 'none', color: 'var(--text-primary)', fontSize: '0.9rem',
-                        flex: 1, padding: '8px 4px', lineHeight: '1.6',
+                        outline: 'none', color: 'var(--text-primary)', fontSize: '0.95rem',
+                        flex: 1, padding: '10px 6px', lineHeight: '1.6',
                     }}
                 />
                 <button onClick={loading ? onAbort : () => onSend()} disabled={!loading && !value.trim()}
-                    style={{
-                        width: '40px', height: '40px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: 'none',
-                        background: loading ? '#e74c3c' : (value.trim() ? 'var(--accent)' : 'var(--navy-light)'),
-                        cursor: loading || value.trim() ? 'pointer' : 'not-allowed', transition: 'background 0.2s',
-                    }}>
+                    className={loading ? 'btn btn-icon btn-danger' : (value.trim() ? 'btn btn-icon btn-primary' : 'btn btn-icon btn-secondary')}
+                    style={{ width: '44px', height: '44px', borderRadius: '12px', flexShrink: 0 }}>
                     {loading ? (
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
                             <rect x="5" y="5" width="14" height="14" rx="2" />

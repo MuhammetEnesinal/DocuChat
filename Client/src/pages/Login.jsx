@@ -41,7 +41,7 @@ export default function Login() {
 
     return (
         <AuthCard>
-            <h2 className="text-lg font-semibold text-white mb-6">Hesabınıza giriş yapın</h2>
+            <h2 className="text-lg font-semibold mb-6" style={{ color: '#f1f5f9' }}>Hesabınıza giriş yapın</h2>
             <ErrorAlert message={error} />
 
             <form onSubmit={handleSubmit} className="space-y-5">

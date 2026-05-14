@@ -57,7 +57,7 @@ export default function DocumentPreviewModal({ doc, onClose }) {
             a.href = url; a.download = doc.fileName; a.click();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
         } catch (e) {
-            console.error('Indirme hatasi:', e);
+            console.error('İndirme hatası:', e);
             toast.error('Dosya indirilemedi. Lütfen tekrar deneyin.');
         }
     };
@@ -69,9 +69,10 @@ export default function DocumentPreviewModal({ doc, onClose }) {
             display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px',
         }}>
             <div style={{
-                background: 'var(--surface)', border: '1px solid var(--border)',
+                background: '#0e0a1c', border: '1px solid rgba(167,139,250,0.18)',
                 borderRadius: '16px', width: '100%', maxWidth: '900px',
                 maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+                boxShadow: '0 30px 80px -20px rgba(0,0,0,0.7), 0 0 40px -10px rgba(139,92,246,0.2)',
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
@@ -84,7 +85,7 @@ export default function DocumentPreviewModal({ doc, onClose }) {
                     <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
                         <button onClick={handleDownload} style={{ padding: '6px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: 500, background: 'rgba(96,165,250,0.1)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.2)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
-                            Indir
+                            İndir
                         </button>
                         <button onClick={onClose} aria-label="Kapat" style={{ padding: '6px', borderRadius: '8px', background: 'none', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
@@ -96,11 +97,11 @@ export default function DocumentPreviewModal({ doc, onClose }) {
                     {loading ? (
                         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', color: 'var(--gray-light)' }}>
                             <Spinner size={20} />
-                            Yukleniyor...
+                            Yükleniyor...
                         </div>
                     ) : error ? (
                         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f87171', fontSize: '14px' }}>
-                            Dosya yuklenemedi: {error}
+                            Dosya yüklenemedi: {error}
                         </div>
                     ) : !canPreview ? (
                         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 24px', gap: '16px' }}>
@@ -109,10 +110,10 @@ export default function DocumentPreviewModal({ doc, onClose }) {
                             </div>
                             <div style={{ textAlign: 'center' }}>
                                 <p style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>{doc.fileName}</p>
-                                <p style={{ fontSize: '13px', color: 'var(--gray-light)', marginBottom: '20px' }}>Bu dosya turu tarayicida onizlenemiyor.</p>
+                                <p style={{ fontSize: '13px', color: 'var(--gray-light)', marginBottom: '20px' }}>Bu dosya türü tarayıcıda önizlenemiyor.</p>
                                 <button onClick={handleDownload} style={{ padding: '10px 20px', borderRadius: '10px', fontSize: '14px', fontWeight: 500, background: 'var(--accent)', color: 'var(--text-primary)', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
-                                    Indir
+                                    İndir
                                 </button>
                             </div>
                         </div>

@@ -264,4 +264,36 @@ public class AuthService : IAuthService
 
         return Result<bool>.Success(true);
     }
+
+    public async Task<Result<UserSummaryResponseDto>> GetMeAsync(string userId, CancellationToken ct)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is null)
+            return Result<UserSummaryResponseDto>.Failure(Error.NotFound("Kullanıcı bulunamadı."));
+
+        var roles = await _userManager.GetRolesAsync(user);
+        return Result<UserSummaryResponseDto>.Success(new UserSummaryResponseDto(
+            user.Id,
+            user.Email ?? string.Empty,
+            user.FullName ?? string.Empty,
+            user.CreatedAt,
+            roles));
+    }
+
+    public async Task<Result<bool>> ChangePasswordAsync(string userId, string currentPassword, string newPassword, CancellationToken ct)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is null)
+            return Result<bool>.Failure(Error.NotFound("Kullanıcı bulunamadı."));
+
+        var result = await _userManager.ChangePasswordAsync(user, currentPassword, newPassword);
+        if (!result.Succeeded)
+        {
+            var msg = string.Join(", ", result.Errors.Select(e => e.Description));
+            return Result<bool>.Failure(Error.Validation(msg));
+        }
+
+        _logger.LogInformation("Şifre değiştirildi. UserId: {UserId}", userId);
+        return Result<bool>.Success(true);
+    }
 }

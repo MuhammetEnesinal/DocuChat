@@ -42,6 +42,11 @@ export const forgotPassword = (email) =>
 export const resetPassword = (email, token, newPassword) =>
     api.post('/auth/reset-password', { email, token, newPassword });
 
+export const getMe = () => api.get('/auth/me');
+
+export const changePassword = (currentPassword, newPassword) =>
+    api.post('/auth/change-password', { currentPassword, newPassword });
+
 
 // ── Chat ──────────────────────────────────────────────────────────────────
 export const askQuestion = (question, sessionId = null, signal = null, skipClarification = false) =>

@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { API_BASE } from '../services/api';
 import Modal from '../components/shared/Modal';
 import DocumentUpload from '../components/admin/DocumentUpload';
 import DocumentList from '../components/admin/DocumentList';
 import UserList from '../components/admin/UserList';
 import UserModal from '../components/admin/UserModal';
-import ThemeToggle from '../components/shared/ThemeToggle';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import { useToast } from '../components/shared/Toast';
 import { useDocuments } from '../hooks/useDocuments';
@@ -96,39 +96,43 @@ export default function Admin() {
     };
 
     return (
-        <div style={{ minHeight: '100vh', background: 'var(--navy)' }}>
-            <div className="admin-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', gap: '12px', flexWrap: 'wrap' }}>
+        <div className="violet-drift" style={{ minHeight: '100vh' }}>
+            <div className="admin-header glass" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 36px', borderBottom: '1px solid var(--glass-border)', gap: '16px', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 10 }}>
+                <div className="gradient-beam" style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <button onClick={() => navigate('/chat')}
-                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '6px 10px', borderRadius: '8px' }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface2)'}
-                        onMouseLeave={(e) => e.currentTarget.style.background = 'none'}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <button onClick={() => navigate('/chat')} className="btn btn-ghost btn-sm">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
                         </svg>
                         Geri
                     </button>
                     <div style={{ width: '1px', height: '20px', background: 'var(--border)' }} />
-                    <h1 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Admin Panel</h1>
-                    <ThemeToggle />
+                    <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>Admin Panel</h1>
                 </div>
 
-                <div className="admin-tabs" style={{ display: 'flex', gap: '4px', padding: '4px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '12px' }}>
+                <div className="admin-tabs" style={{ display: 'flex', gap: '4px', padding: '5px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '14px', backdropFilter: 'blur(20px) saturate(180%)' }}>
                     {[
                         { key: 'documents', label: 'Belgeler', count: documents.length, icon: <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /> },
                         { key: 'users', label: 'Kullanıcılar', count: users.length, icon: <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></> },
                     ].map(t => (
-                        <button key={t.key} onClick={() => setTab(t.key)} className="admin-tab-btn"
-                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '8px', fontSize: '14px', fontWeight: 500, background: tab === t.key ? 'var(--accent)' : 'transparent', color: tab === t.key ? 'white' : '#94a3b8', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">{t.icon}</svg>
+                        <button key={t.key} onClick={() => setTab(t.key)} className={`btn admin-tab-btn ${tab === t.key ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '9px 16px', fontWeight: 600 }}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.icon}</svg>
                             <span className="admin-tab-label">{t.label}</span>
-                            <span style={{ fontSize: '12px', padding: '1px 7px', borderRadius: '6px', background: tab === t.key ? 'rgba(255,255,255,0.2)' : 'var(--border)', color: tab === t.key ? 'white' : '#64748b', minWidth: '20px', textAlign: 'center' }}>{t.count}</span>
+                            <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '8px', fontWeight: 700, background: tab === t.key ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.08)', color: tab === t.key ? 'white' : 'rgba(255,255,255,0.55)', minWidth: '22px', textAlign: 'center' }}>{t.count}</span>
                         </button>
                     ))}
                 </div>
             </div>
 
-            <div className="admin-content" style={{ maxWidth: '900px', margin: '0 auto', padding: '32px 24px' }}>
+            <div className="admin-content" style={{ maxWidth: '1100px', margin: '0 auto', padding: '40px 28px' }}>
+                <AnimatePresence mode="wait">
+                <motion.div
+                    key={tab}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.25, ease: 'easeOut' }}
+                >
                 {tab === 'documents' && (
                     <>
                         <DocumentUpload
@@ -171,6 +175,8 @@ export default function Admin() {
                         deletingUserId={deletingUserId}
                     />
                 )}
+                </motion.div>
+                </AnimatePresence>
             </div>
 
             {showChunksModal && (

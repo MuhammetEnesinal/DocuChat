@@ -55,10 +55,10 @@ export default function DocumentList({ documents, loading, search, onSearchChang
 
     return (
         <>
-            <div style={{ borderRadius: '16px', overflow: 'hidden', background: 'var(--surface)', border: '1px solid var(--border)' }}>
-                <div className="admin-list-header" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+            <div style={{ borderRadius: '16px', overflow: 'hidden', background: 'rgba(32, 26, 58, 0.55)', border: '1px solid rgba(167,139,250,0.14)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', boxShadow: '0 8px 28px -10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)' }}>
+                <div className="admin-list-header" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
-                        <h2 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Yuklu Belgeler</h2>
+                        <h2 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Yüklü Belgeler</h2>
                         <span style={{ fontSize: '13px', color: 'var(--gray-light)' }}>{documents.length} belge</span>
                     </div>
                     <div className="admin-search" style={{ maxWidth: '260px', width: '100%' }}>
@@ -71,7 +71,7 @@ export default function DocumentList({ documents, loading, search, onSearchChang
                         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#334155" strokeWidth="1.5" style={{ margin: '0 auto 12px', display: 'block' }}>
                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
                         </svg>
-                        <p style={{ fontSize: '14px', color: 'var(--gray-light)' }}>{search ? 'Sonuc bulunamadi' : 'Henuz belge yuklenmedi'}</p>
+                        <p style={{ fontSize: '14px', color: 'var(--gray-light)' }}>{search ? 'Sonuç bulunamadı' : 'Henüz belge yüklenmedi'}</p>
                     </div>
                 ) : documents.map((doc) => {
                     const st = statusLabel(doc.status);
@@ -92,7 +92,7 @@ export default function DocumentList({ documents, loading, search, onSearchChang
                                         style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0, cursor: 'pointer' }}
                                         onMouseEnter={(e) => e.currentTarget.style.color = '#60a5fa'}
                                         onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
-                                        title="Onizle">
+                                        title="Önizle">
                                         {doc.fileName}
                                     </p>
                                     <p style={{ fontSize: '12px', color: 'var(--gray-light)', marginTop: '2px' }}>
@@ -103,11 +103,11 @@ export default function DocumentList({ documents, loading, search, onSearchChang
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: '12px' }}>
                                 <span style={{ fontSize: '12px', padding: '3px 10px', borderRadius: '8px', fontWeight: 500, background: st.bg, color: st.color }}>{st.label}</span>
-                                <IconButton onClick={() => handlePreview(doc)} title="Onizle" hoverColor="#a78bfa" hoverBg="rgba(167,139,250,0.1)">
+                                <IconButton onClick={() => handlePreview(doc)} title="Önizle" hoverColor="#a78bfa" hoverBg="rgba(167,139,250,0.1)">
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
                                 </IconButton>
                                 {doc.status === 'Ready' && (
-                                    <IconButton onClick={() => onViewChunks(doc)} title="Chunk goruntule" hoverColor="#93c5fd" hoverBg="rgba(147,197,253,0.1)">
+                                    <IconButton onClick={() => onViewChunks(doc)} title="Chunk görüntüle" hoverColor="#93c5fd" hoverBg="rgba(147,197,253,0.1)">
                                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" /></svg>
                                     </IconButton>
                                 )}

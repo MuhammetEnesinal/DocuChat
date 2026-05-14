@@ -12,4 +12,6 @@ public interface IAuthService
     Task<Result<UserSummaryResponseDto>> UpdateUserAsync(string userId, UpdateUserRequest req, CancellationToken ct = default);
     Task<Result<bool>> ForgotPasswordAsync(string email, CancellationToken ct = default);
     Task<Result<bool>> ResetPasswordAsync(string email, string token, string newPassword, CancellationToken ct = default);
+    Task<Result<UserSummaryResponseDto>> GetMeAsync(string userId, CancellationToken ct = default);
+    Task<Result<bool>> ChangePasswordAsync(string userId, string currentPassword, string newPassword, CancellationToken ct = default);
 }

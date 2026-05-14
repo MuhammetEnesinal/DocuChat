@@ -1,10 +1,16 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import path from 'path'
 
 // https://vite.dev/config/
 // Bundle analizi için: npx vite-bundle-visualizer (ayrı kurulum gerekmez)
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
   build: {
     // Chunk boyutu uyarı limiti: 500KB
     chunkSizeWarningLimit: 500,

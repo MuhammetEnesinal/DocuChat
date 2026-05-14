@@ -11,8 +11,8 @@ import ChatSidebar from '../components/chat/ChatSidebar';
 import MessageBubble from '../components/chat/MessageBubble';
 import SourcePanel from '../components/chat/SourcePanel';
 import EmptyState from '../components/chat/EmptyState';
+import NewChatHero from '../components/chat/NewChatHero';
 import ChatInput from '../components/chat/ChatInput';
-import ThemeToggle from '../components/shared/ThemeToggle';
 import TypingIndicator from '../components/chat/TypingIndicator';
 import { MessageSkeleton } from '../components/shared/Skeleton';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -169,7 +169,7 @@ export default function Chat() {
     };
 
     return (
-        <div style={{ display: 'flex', height: '100dvh', background: 'var(--navy)' }}>
+        <div style={{ display: 'flex', height: '100dvh', background: '#000' }}>
             <ChatSidebar
                 sessions={sessions}
                 sessionsLoading={sessionsLoading}
@@ -192,40 +192,47 @@ export default function Chat() {
             />
 
             <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
-                <div className="chat-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
-                    <div style={{ minWidth: 0 }}>
-                        <h1 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>
+                <div className="chat-header glass" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', borderBottom: '1px solid var(--glass-border)', position: 'relative', height: '74px', flexShrink: 0 }}>
+                    <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 8px rgba(34,197,94,0.6)', flexShrink: 0 }} />
+                        <h1 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0, letterSpacing: '-0.01em' }}>
                             {activeSession?.title || 'Yeni Sohbet'}
                         </h1>
-                        <p style={{ fontSize: '12px', marginTop: '2px', color: 'var(--gray-light)', margin: '2px 0 0' }}>
-                            Tüm belgeler üzerinde arama yapılıyor
-                        </p>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: '12px' }}>
                         {chunks.length > 0 && (
-                            <button onClick={() => setShowChunks(!showChunks)}
-                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: 500, cursor: 'pointer', background: showChunks ? 'var(--accent)' : 'var(--surface2)', color: showChunks ? 'white' : '#94a3b8', border: '1px solid var(--border)' }}>
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <button onClick={() => setShowChunks(!showChunks)} className={`btn btn-sm ${showChunks ? 'btn-primary' : 'btn-secondary'}`}>
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
                                 </svg>
                                 Kaynaklar ({chunks.length})
                             </button>
                         )}
-                        <ThemeToggle />
                     </div>
+                    <div className="gradient-beam" style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }} />
                 </div>
 
-                <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+                <div className={messages.length > 0 ? 'violet-drift' : ''} style={{ display: 'flex', flex: 1, minHeight: 0 }}>
                     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
-                        <div style={{ flex: 1, minHeight: 0 }}>
+                        <div className={messages.length > 0 ? 'messages-fade' : ''} style={{ flex: 1, minHeight: 0 }}>
                             {messagesLoading ? (
                                 <div style={{ padding: '24px' }}>
                                     <MessageSkeleton />
                                 </div>
                             ) : messages.length === 0 ? (
-                                <div style={{ height: '100%', overflowY: 'auto', padding: '24px' }}>
-                                    <EmptyState popularQuestions={popularQuestions} popularQuestionsLoading={popularQuestionsLoading} onSelectQuestion={setQuestion} />
-                                </div>
+                                <NewChatHero
+                                    popularQuestions={popularQuestions}
+                                    onSelectQuestion={(q) => { setQuestion(q); setTimeout(() => inputRef.current?.focus(), 50); }}
+                                >
+                                    <ChatInput
+                                        value={question}
+                                        onChange={setQuestion}
+                                        onSend={onSend}
+                                        loading={loading}
+                                        onAbort={handleAbort}
+                                        inputRef={inputRef}
+                                    />
+                                </NewChatHero>
                             ) : (
                                 <Virtuoso
                                     ref={virtuosoRef}
@@ -265,14 +272,16 @@ export default function Chat() {
                             )}
                         </div>
 
-                        <ChatInput
-                            value={question}
-                            onChange={setQuestion}
-                            onSend={onSend}
-                            loading={loading}
-                            onAbort={handleAbort}
-                            inputRef={inputRef}
-                        />
+                        {messages.length > 0 && (
+                            <ChatInput
+                                value={question}
+                                onChange={setQuestion}
+                                onSend={onSend}
+                                loading={loading}
+                                onAbort={handleAbort}
+                                inputRef={inputRef}
+                            />
+                        )}
                     </div>
 
                     {showChunks && chunks.length > 0 && <SourcePanel chunks={chunks} />}

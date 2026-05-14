@@ -1,19 +1,50 @@
-// Sidebar'da tekrar eden nav butonu
 export default function SidebarButton({ onClick, icon, label, active = false, danger = false }) {
+    const baseColor = active ? '#fff' : danger ? '#fca5a5' : 'rgba(255,255,255,0.92)';
+    const baseBg = active
+        ? 'linear-gradient(135deg, rgba(139,92,246,0.25) 0%, rgba(99,102,241,0.18) 100%)'
+        : 'transparent';
+    const baseBorder = active ? '1px solid rgba(167,139,250,0.4)' : '1px solid transparent';
+
     return (
         <button
             onClick={onClick}
-            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm transition-all"
-            style={{ color: active ? 'white' : danger ? '#f87171' : '#94a3b8', background: active ? 'var(--accent)' : 'transparent' }}
+            style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '11px 14px',
+                borderRadius: '12px',
+                fontSize: '14px',
+                fontWeight: 600,
+                color: baseColor,
+                background: baseBg,
+                border: baseBorder,
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+                outline: 'none',
+            }}
             onMouseEnter={(e) => {
-                if (!active) e.currentTarget.style.background = danger ? 'rgba(248,113,113,0.1)' : 'var(--surface2)';
+                if (active) return;
+                if (danger) {
+                    e.currentTarget.style.background = 'rgba(239,68,68,0.12)';
+                    e.currentTarget.style.color = '#fecaca';
+                    e.currentTarget.style.borderColor = 'rgba(239,68,68,0.25)';
+                } else {
+                    e.currentTarget.style.background = 'rgba(167,139,250,0.12)';
+                    e.currentTarget.style.color = '#fff';
+                    e.currentTarget.style.borderColor = 'rgba(167,139,250,0.22)';
+                }
             }}
             onMouseLeave={(e) => {
-                if (!active) e.currentTarget.style.background = 'transparent';
+                if (active) return;
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = baseColor;
+                e.currentTarget.style.borderColor = 'transparent';
             }}
         >
             {icon}
-            {label}
+            <span>{label}</span>
         </button>
     );
 }

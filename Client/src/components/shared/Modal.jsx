@@ -10,17 +10,22 @@ export default function Modal({ title, subtitle, onClose, children, maxWidth = '
     return (
         <div
             className="fixed inset-0 z-50 flex items-center justify-center p-4"
-            style={{ background: 'rgba(0,0,0,0.7)' }}
+            style={{ background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
             onClick={onClose}
         >
             <div
                 className={`w-full ${maxWidth} flex flex-col rounded-2xl overflow-hidden`}
-                style={{ background: 'var(--surface)', border: '1px solid var(--border)', maxHeight: '85vh' }}
+                style={{
+                    background: '#15161f',
+                    border: '1px solid rgba(167,139,250,0.22)',
+                    maxHeight: '85vh',
+                    boxShadow: '0 30px 80px -20px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04), 0 0 40px -10px rgba(139,92,246,0.25)',
+                }}
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
                 <div className="px-6 py-4 flex items-center justify-between flex-shrink-0"
-                    style={{ borderBottom: '1px solid var(--border)' }}>
+                    style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' }}>
                     <div>
                         <h3 className="font-semibold text-white text-sm">{title}</h3>
                         {subtitle && <p className="text-xs mt-0.5" style={{ color: 'var(--gray-light)' }}>{subtitle}</p>}
