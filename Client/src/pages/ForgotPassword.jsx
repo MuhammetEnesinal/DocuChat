@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { forgotPassword } from '../services/api';
 import { useToast } from '../components/shared/Toast';
+import { showApiError } from '../utils/format';
 import AuthCard from '../components/auth/AuthCard';
 import FormInput from '../components/auth/FormInput';
 import SubmitButton from '../components/auth/SubmitButton';
@@ -20,8 +21,7 @@ export default function ForgotPassword() {
             toast.success('Şifre sıfırlama bağlantısı e-posta adresinize gönderildi.');
             setSent(true);
         } catch (err) {
-            const msg = err.response?.data?.error?.message || 'Bir hata oluştu. Lütfen tekrar deneyin.';
-            toast.error(msg);
+            showApiError(toast, err, 'Bir hata oluştu. Lütfen tekrar deneyin.');
         } finally {
             setLoading(false);
         }

@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using DocuChat.Application.Common;
-using DocuChat.Application.Interfaces.Services;
+using DocuChat.Application.Interfaces.UseCases;
 using DocuChat.Application.DTOs.Document;
 using DocuChat.API.Extensions;
 using DocuChat.Domain.Enums;
@@ -21,19 +21,21 @@ public class UploadFileRequest
 [Authorize(Roles = Roles.Admin)]
 public class DocumentsController : ControllerBase
 {
-    private readonly IDocumentService _documentService;
+    private readonly IDocumentUseCase _document;
     private readonly IValidator<UploadDocumentRequest> _uploadValidator;
+    private readonly IValidator<BatchDocumentDeleteRequest> _batchDeleteValidator;
 
     public DocumentsController(
-        IDocumentService documentService,
-        IValidator<UploadDocumentRequest> uploadValidator)
+        IDocumentUseCase document,
+        IValidator<UploadDocumentRequest> uploadValidator,
+        IValidator<BatchDocumentDeleteRequest> batchDeleteValidator)
     {
-        _documentService = documentService;
+        _document = document;
         _uploadValidator = uploadValidator;
+        _batchDeleteValidator = batchDeleteValidator;
     }
 
     [HttpGet]
-    [EnableRateLimiting("read-ops")]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<DocumentResponseDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetAll(
@@ -42,23 +44,21 @@ public class DocumentsController : ControllerBase
     {
         if (page.HasValue)
         {
-            var paged = await _documentService.GetAllDocumentsPagedAsync(page.Value, pageSize, ct);
+            var paged = await _document.GetAllDocumentsPagedAsync(page.Value, pageSize, ct);
             return paged.ToActionResult();
         }
-        var result = await _documentService.GetAllDocumentsAsync(search, ct);
+        var result = await _document.GetAllDocumentsAsync(search, ct);
         return result.ToActionResult();
     }
 
     [HttpGet("{id:guid}/chunks")]
-    [EnableRateLimiting("read-ops")]
     public async Task<IActionResult> GetChunks(Guid id, CancellationToken ct)
     {
-        var result = await _documentService.GetChunksAsync(id, ct);
+        var result = await _document.GetChunksAsync(id, ct);
         return result.ToActionResult();
     }
 
     [HttpPost("upload")]
-    [EnableRateLimiting("upload")]
     [Consumes("multipart/form-data")]
     [ProducesResponseType(typeof(ApiResponse<DocumentResponseDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
@@ -76,15 +76,14 @@ public class DocumentsController : ControllerBase
                              .Select(e => e.ErrorMessage)
                              .ToValidationResult<DocumentResponseDto>();
 
-        var result = await _documentService.UploadAsync(req, ct);
+        var result = await _document.UploadAsync(req, ct);
         return result.ToCreatedResult();
     }
 
     [HttpGet("{id:guid}/preview")]
-    [EnableRateLimiting("read-ops")]
     public async Task<IActionResult> Preview(Guid id, CancellationToken ct)
     {
-        var result = await _documentService.GetFileStreamAsync(id, ct);
+        var result = await _document.GetFileStreamAsync(id, ct);
         if (!result.IsSuccess)
             return result.ToActionResult();
 
@@ -99,7 +98,7 @@ public class DocumentsController : ControllerBase
     [HttpPost("{id:guid}/reprocess")]
     public async Task<IActionResult> Reprocess(Guid id, CancellationToken ct)
     {
-        var result = await _documentService.ReprocessAsync(id, ct);
+        var result = await _document.ReprocessAsync(id, ct);
         return result.ToActionResult();
     }
 
@@ -109,19 +108,22 @@ public class DocumentsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
-        var result = await _documentService.DeleteAsync(id, ct);
+        var result = await _document.DeleteAsync(id, ct);
         return result.ToNoContentResult();
     }
 
     [HttpPost("batch-delete")]
     [ProducesResponseType(typeof(ApiResponse<int>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> DeleteBatch(
         [FromBody] BatchDocumentDeleteRequest req, CancellationToken ct)
     {
-        var result = await _documentService.DeleteBatchAsync(req.Ids, ct);
+        var validation = await _batchDeleteValidator.ValidateAsync(req, ct);
+        if (!validation.IsValid)
+            return validation.Errors.Select(e => e.ErrorMessage).ToValidationResult<int>();
+
+        var result = await _document.DeleteBatchAsync(req.Ids, ct);
         return result.ToActionResult();
     }
 }
-
-public record BatchDocumentDeleteRequest(IEnumerable<Guid> Ids);

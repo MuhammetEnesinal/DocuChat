@@ -19,4 +19,22 @@ const useAuthStore = create((set) => ({
     isAuthenticated: () => !!localStorage.getItem('token'),
 }));
 
+// Cross-tab senkronizasyonu: başka bir sekme token/user değiştirirse bu sekmenin state'ini de güncelle.
+// `storage` event yalnızca DİĞER sekmelerde tetiklenir (kendi sekmende değil).
+if (typeof window !== 'undefined') {
+    window.addEventListener('storage', (e) => {
+        if (e.key === 'token') {
+            if (e.newValue === null) {
+                useAuthStore.setState({ token: null, user: null });
+            } else {
+                const userRaw = localStorage.getItem('user');
+                const user = userRaw ? JSON.parse(userRaw) : null;
+                useAuthStore.setState({ token: e.newValue, user });
+            }
+        } else if (e.key === 'user') {
+            useAuthStore.setState({ user: e.newValue ? JSON.parse(e.newValue) : null });
+        }
+    });
+}
+
 export default useAuthStore;

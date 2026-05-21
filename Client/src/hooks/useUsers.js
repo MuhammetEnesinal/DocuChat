@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { adminGetUsers, adminCreateUser, adminUpdateUser, adminDeleteUser } from '../services/api';
 import { useToast } from '../components/shared/Toast';
+import { showApiError, getApiErrorMessage } from '../utils/format';
 
 export function useUsers() {
     const [users, setUsers] = useState([]);
@@ -18,7 +19,7 @@ export function useUsers() {
         try {
             const res = await adminGetUsers();
             setUsers(res.data.data || []);
-        } catch { toast.error('Kullanıcılar yüklenemedi.'); }
+        } catch (err) { showApiError(toast, err, 'Kullanıcılar yüklenemedi.'); }
         finally { setUsersLoading(false); }
     }, [toast]);
 
@@ -60,11 +61,9 @@ export function useUsers() {
             closeUserModal();
             fetchUsers();
         } catch (err) {
-            const msg = err.response?.data?.error?.message;
-            const errors = err.response?.data?.error?.errors;
-            const errorMsg = errors?.join(' ') || msg || (editingUser ? 'Kullanıcı güncellenemedi.' : 'Kullanıcı oluşturulamadı.');
+            const errorMsg = getApiErrorMessage(err, editingUser ? 'Kullanıcı güncellenemedi.' : 'Kullanıcı oluşturulamadı.');
             setUserFormError(errorMsg);
-            toast.error(errorMsg);
+            showApiError(toast, err, errorMsg);
         } finally { setUserFormLoading(false); }
     }, [editingUser, userForm, toast, closeUserModal, fetchUsers]);
 
@@ -78,6 +77,28 @@ export function useUsers() {
             throw err;
         }
     }, [users]);
+
+    // Çoklu kullanıcı silme — backend'de batch endpoint yok, sırayla delete
+    const batchDeleteUsers = useCallback(async (ids) => {
+        if (ids.length === 0) return 0;
+        const snapshot = users;
+        let success = 0, failed = 0;
+        const failedIds = [];
+        for (const id of ids) {
+            try {
+                await adminDeleteUser(id);
+                success++;
+            } catch {
+                failed++;
+                failedIds.push(id);
+            }
+        }
+        // Sadece başarılı olanları çıkar
+        setUsers(prev => prev.filter(u => failedIds.includes(u.id) || !ids.includes(u.id)));
+        if (success > 0) toast.success(`${success} kullanıcı silindi.`);
+        if (failed > 0) toast.error(`${failed} kullanıcı silinemedi.`);
+        return success;
+    }, [users, toast]);
 
     return {
         users,
@@ -95,5 +116,6 @@ export function useUsers() {
         closeUserModal,
         handleSubmitUser,
         deleteUser,
+        batchDeleteUsers,
     };
 }

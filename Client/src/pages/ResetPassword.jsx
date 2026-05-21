@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { resetPassword } from '../services/api';
 import { useToast } from '../components/shared/Toast';
+import { showApiError, getApiErrorMessage } from '../utils/format';
 import AuthCard from '../components/auth/AuthCard';
 import FormInput from '../components/auth/FormInput';
 import PasswordToggle from '../components/auth/PasswordToggle';
@@ -54,9 +55,9 @@ export default function ResetPassword() {
             toast.success('Şifreniz başarıyla sıfırlandı!');
             navigate('/login');
         } catch (err) {
-            const msg = err.response?.data?.error?.message || 'Şifre sıfırlanamadı. Token geçersiz veya süresi dolmuş olabilir.';
+            const msg = getApiErrorMessage(err, 'Şifre sıfırlanamadı. Token geçersiz veya süresi dolmuş olabilir.');
             setError(msg);
-            toast.error(msg);
+            showApiError(toast, err, msg);
         } finally {
             setLoading(false);
         }

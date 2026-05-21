@@ -1,8 +1,9 @@
 import { useState, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { askQuestion, getMessages } from '../services/api';
-import { getRateLimitMessage } from '../utils/format';
+import { getRateLimitMessage, showApiError } from '../utils/format';
 import { useToast } from '../components/shared/Toast';
+import { broadcastSessionCreated } from '../lib/sessionsChannel';
 
 let _msgCounter = 0;
 const nextMsgId = () => `msg_${Date.now()}_${++_msgCounter}`;
@@ -55,7 +56,7 @@ export function useChatMessages(virtuosoRef) {
             }
         } catch (err) {
             if (axios.isCancel(err)) return;
-            toast.error('Mesajlar yüklenemedi.');
+            showApiError(toast, err, 'Mesajlar yüklenemedi.');
         } finally {
             setMessagesLoading(false);
         }
@@ -73,7 +74,7 @@ export function useChatMessages(virtuosoRef) {
                 setHasMoreMessages(data.hasNextPage ?? false);
                 setMessagesPage(nextPage);
             }
-        } catch { toast.error('Daha fazla mesaj yüklenemedi.'); }
+        } catch (err) { showApiError(toast, err, 'Daha fazla mesaj yüklenemedi.'); }
         finally { setLoadingMore(false); }
     }, [loadingMore, hasMoreMessages, messagesPage, toast]);
 
@@ -94,7 +95,9 @@ export function useChatMessages(virtuosoRef) {
             const { sessionId, answer, sourceChunks, clarificationOptions, images: respImages } = res.data.data;
 
             if (!activeSession) {
-                onNewSession?.({ id: sessionId, title: q.slice(0, 60), createdAt: new Date().toISOString() });
+                const newSession = { id: sessionId, title: q.slice(0, 60), createdAt: new Date().toISOString() };
+                onNewSession?.(newSession);
+                broadcastSessionCreated(newSession);
             }
 
             if (clarificationOptions?.length >= 2) {
@@ -119,10 +122,10 @@ export function useChatMessages(virtuosoRef) {
             }, 50);
         } catch (err) {
             if (axios.isCancel(err) || err?.code === 'ERR_CANCELED') {
-                setLoading(false);
-                return;
+                return;  // finally bloğu setLoading(false) yapacak
             }
-            toast.error(getRateLimitMessage(err));
+            // showApiError 429'da warning, diğerlerinde error toast atar
+            showApiError(toast, err, getRateLimitMessage(err));
             setMessages(prev => [...prev, {
                 role: 'Assistant',
                 content: err?.response?.status === 429

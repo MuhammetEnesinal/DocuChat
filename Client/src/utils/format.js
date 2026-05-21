@@ -41,3 +41,58 @@ export function getRateLimitMessage(err) {
     }
     return apiMsg || 'Sunucuya bağlanılamadı.';
 }
+
+/**
+ * Merkezi API hata mesajı çözücüsü.
+ * - 429 → backend'in Türkçe rate-limit mesajını döner (Retry-After saniyesi ile).
+ * - LLM sağlayıcısından gelen rate_limit (500'e sarılmış) → "Sunucu meşgul (AI limiti)" + bekleme süresi.
+ * - 422 validation errors → mesajları birleştirir.
+ * - Backend `error.message` varsa onu kullanır.
+ * - Hiçbiri yoksa `fallback`.
+ */
+export function getApiErrorMessage(err, fallback = 'Bir hata oluştu.') {
+    if (!err) return fallback;
+    const status = err?.response?.status;
+    const data = err?.response?.data;
+    const apiMsg = data?.error?.message || '';
+    const errors = data?.error?.errors;
+
+    if (status === 429) return getRateLimitMessage(err);
+
+    if (apiMsg && (apiMsg.toLowerCase().includes('rate_limit') || apiMsg.toLowerCase().includes('rate limit'))) {
+        return getRateLimitMessage(err);
+    }
+
+    if (Array.isArray(errors) && errors.length > 0) {
+        return errors.join(' ');
+    }
+
+    if (apiMsg) return apiMsg;
+
+    // Network / sunucuya ulaşılamıyor
+    if (!err.response) return 'Sunucuya bağlanılamadı.';
+
+    return fallback;
+}
+
+/**
+ * Hata türüne göre uygun toast tipini gösterir.
+ * - 429 (rate limit) → warning (turuncu) — kalıcı hata değil, beklemesi yeterli
+ * - Diğerleri → error (kırmızı)
+ * Cancelled request'lerde hiçbir şey göstermez.
+ */
+export function showApiError(toast, err, fallback = 'Bir hata oluştu.') {
+    if (!err) { toast.error(fallback); return; }
+    // Iptal edilmiş istek için toast atma
+    if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return;
+
+    const status = err?.response?.status;
+    const apiMsg = err?.response?.data?.error?.message || '';
+    const isRateLimit = status === 429
+        || apiMsg.toLowerCase().includes('rate_limit')
+        || apiMsg.toLowerCase().includes('rate limit');
+
+    const message = getApiErrorMessage(err, fallback);
+    if (isRateLimit) toast.warning(message);
+    else toast.error(message);
+}

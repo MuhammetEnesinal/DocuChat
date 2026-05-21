@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { getMe, changePassword } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/shared/Toast';
-import { formatDate } from '../utils/format';
+import { formatDate, showApiError, getApiErrorMessage } from '../utils/format';
 import FormInput from '../components/auth/FormInput';
 import PasswordToggle from '../components/auth/PasswordToggle';
 import ErrorAlert from '../components/auth/ErrorAlert';
@@ -100,9 +100,9 @@ export default function Profile() {
             setNewPwd('');
             setConfirmPwd('');
         } catch (err) {
-            const msg = err.response?.data?.error?.message || 'Şifre değiştirilemedi.';
+            const msg = getApiErrorMessage(err, 'Şifre değiştirilemedi.');
             setFormError(msg);
-            toast.error(msg);
+            showApiError(toast, err, msg);
         } finally {
             setSubmitting(false);
         }

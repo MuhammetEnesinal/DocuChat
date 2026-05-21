@@ -4,13 +4,18 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using DocuChat.Application.Interfaces.Services;
+using DocuChat.Application.Interfaces.UseCases;
 using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Application.Mappings;
-using DocuChat.Application.Services;
+using DocuChat.Application.UseCases;
 using DocuChat.Infrastructure.Identity;
 using DocuChat.Infrastructure.Persistence;
 using DocuChat.Infrastructure.Persistence.Repositories;
-using DocuChat.Infrastructure.Services;
+using DocuChat.Infrastructure.Services.Ai;
+using DocuChat.Infrastructure.Services.Auth;
+using DocuChat.Infrastructure.Services.BackgroundJobs;
+using DocuChat.Infrastructure.Services.Email;
+using DocuChat.Infrastructure.Services.Storage;
 
 namespace DocuChat.Infrastructure;
 
@@ -39,9 +44,9 @@ public static class DependencyInjection
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IQuestionCacheRepository, QuestionCacheRepository>();
 
-        // Application Services
-        services.AddScoped<IDocumentService, DocumentService>();
-        services.AddScoped<IChatService, ChatService>();
+        // Application Use Cases
+        services.AddScoped<IDocumentUseCase, DocumentUseCase>();
+        services.AddScoped<IChatUseCase, ChatUseCase>();
 
         // Infrastructure Services
         services.AddScoped<IAuthService, AuthService>();
@@ -92,6 +97,20 @@ public static class DependencyInjection
                         "Authorization", $"Bearer {llmApiKey}");
             }
             // Gemini kendi URL'ini kullanıyor — header burada set edilmez
+        });
+
+        // Memory cache
+        services.AddMemoryCache();
+
+        // HttpClient — Mistral OCR
+        services.AddHttpClient("Mistral", client =>
+        {
+            client.BaseAddress = new Uri(cfg["Mistral:BaseUrl"] ?? "https://api.mistral.ai");
+            var timeout = int.TryParse(cfg["Mistral:TimeoutSeconds"], out var t) ? t : 120;
+            client.Timeout = TimeSpan.FromSeconds(timeout);
+            var apiKey = cfg["Mistral:ApiKey"]
+                ?? throw new InvalidOperationException("Mistral:ApiKey config eksik.");
+            client.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
         });
 
         // Identity helpers

@@ -37,6 +37,7 @@ export default function Chat() {
     const [sidebarCollapsed, setSidebarCollapsed] = useState(window.innerWidth < 768);
     const [question, setQuestion] = useState('');
     const [confirmSession, setConfirmSession] = useState(null);
+    const [confirmBatch, setConfirmBatch] = useState(null);
 
     const virtuosoRef = useRef(null);
     const inputRef = useRef(null);
@@ -55,6 +56,7 @@ export default function Chat() {
         renamingSessionId,
         fetchSessions,
         handleDeleteSession,
+        handleBatchDeleteSessions,
         handleStartRename,
         handleCommitRename,
     } = useSessions();
@@ -83,10 +85,16 @@ export default function Chat() {
             try {
                 const res = await getPopularQuestions(6);
                 setPopularQuestions(res.data.data || []);
-            } catch { /* popular questions non-critical */ }
+            } catch (err) {
+                // Non-critical: öneri listesi boş kalır, kullanıcı kendi sorusunu yazabilir.
+                // 401 → interceptor zaten redirect ediyor, cancel → unmount, ikisi de loglanmaz.
+                if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return;
+                if (err?.response?.status === 401) return;
+                console.warn('[Chat] Popüler sorular yüklenemedi:', err);
+            }
             finally { setPopularQuestionsLoading(false); }
         })();
-    }, []);
+    }, [fetchSessions]);
 
     useEffect(() => {
         const handleResize = () => { if (window.innerWidth < 768) setSidebarCollapsed(true); };
@@ -145,6 +153,21 @@ export default function Chat() {
         });
     };
 
+    const onBatchDeleteSessions = (ids, exitSelectMode) => {
+        setConfirmBatch({ ids, exitSelectMode });
+    };
+
+    const confirmBatchDelete = async () => {
+        const { ids, exitSelectMode } = confirmBatch;
+        setConfirmBatch(null);
+        try {
+            await handleBatchDeleteSessions(ids, (deletedIds) => {
+                if (activeSession && deletedIds.includes(activeSession.id)) newChat();
+            });
+            exitSelectMode?.();
+        } catch { /* toast hook'ta atıldı */ }
+    };
+
     const virtualItems = buildVirtualItems(messages);
 
     const renderVirtualItem = (index) => {
@@ -187,6 +210,7 @@ export default function Chat() {
                 onSetEditingTitle={setEditingTitle}
                 onSetEditingSessionId={setEditingSessionId}
                 onDeleteSession={onDeleteSession}
+                onBatchDeleteSessions={onBatchDeleteSessions}
                 user={user}
                 onLogout={() => { logout(); navigate('/login'); }}
             />
@@ -295,6 +319,16 @@ export default function Chat() {
                     confirmLabel="Sil"
                     onConfirm={confirmDeleteSession}
                     onCancel={() => setConfirmSession(null)}
+                />
+            )}
+
+            {confirmBatch && (
+                <ConfirmDialog
+                    title="Sohbetleri Sil"
+                    message={`${confirmBatch.ids.length} sohbet kalıcı olarak silinecek. Emin misiniz?`}
+                    confirmLabel="Sil"
+                    onConfirm={confirmBatchDelete}
+                    onCancel={() => setConfirmBatch(null)}
                 />
             )}
         </div>

@@ -1,8 +1,12 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
-import { getSessions, deleteSession, renameSession } from '../services/api';
+import { useState, useCallback, useEffect } from 'react';
+import { getSessions, deleteSession, deleteSessionsBatch, renameSession } from '../services/api';
 import { useToast } from '../components/shared/Toast';
-
-const CHANNEL_NAME = 'docuchat-sessions';
+import { showApiError } from '../utils/format';
+import {
+    subscribeSessions,
+    broadcastSessionDeleted,
+    broadcastSessionRenamed,
+} from '../lib/sessionsChannel';
 
 export function useSessions() {
     const [sessions, setSessions] = useState([]);
@@ -13,24 +17,24 @@ export function useSessions() {
     const [deletingSessionId, setDeletingSessionId] = useState(null);
     const [renamingSessionId, setRenamingSessionId] = useState(null);
     const toast = useToast();
-    const channelRef = useRef(null);
 
     useEffect(() => {
-        if (!('BroadcastChannel' in window)) return;
-        channelRef.current = new BroadcastChannel(CHANNEL_NAME);
-        channelRef.current.onmessage = (e) => {
-            const { type, id, title } = e.data;
-            if (type === 'session-deleted') {
+        const unsubscribe = subscribeSessions((e) => {
+            const data = e?.data;
+            if (!data?.type) return;
+            const { type, id, title, session } = data;
+
+            if (type === 'session-deleted' && id) {
                 setSessions(prev => prev.filter(s => s.id !== id));
                 setActiveSession(prev => prev?.id === id ? null : prev);
-            } else if (type === 'session-renamed') {
+            } else if (type === 'session-renamed' && id && typeof title === 'string') {
                 setSessions(prev => prev.map(s => s.id === id ? { ...s, title } : s));
                 setActiveSession(prev => prev?.id === id ? { ...prev, title } : prev);
-            } else if (type === 'session-created') {
-                setSessions(prev => prev.some(s => s.id === id) ? prev : [e.data.session, ...prev]);
+            } else if (type === 'session-created' && session?.id) {
+                setSessions(prev => prev.some(s => s.id === session.id) ? prev : [session, ...prev]);
             }
-        };
-        return () => { channelRef.current?.close(); };
+        });
+        return unsubscribe;
     }, []);
 
     const fetchSessions = useCallback(async () => {
@@ -38,9 +42,29 @@ export function useSessions() {
         try {
             const res = await getSessions();
             setSessions(res.data.data || []);
-        } catch { toast.error('Sohbet listesi yüklenemedi.'); }
+        } catch (err) { showApiError(toast, err, 'Sohbet listesi yüklenemedi.'); }
         finally { setSessionsLoading(false); }
     }, [toast]);
+
+    const handleBatchDeleteSessions = useCallback(async (ids, onDeleted) => {
+        const idSet = new Set(ids);
+        const snapshot = sessions;
+        setSessions(prev => prev.filter(s => !idSet.has(s.id)));
+        setActiveSession(prev => prev && idSet.has(prev.id) ? null : prev);
+        try {
+            const res = await deleteSessionsBatch(ids);
+            const count = res.data?.data ?? ids.length;
+            // Her silinen id için cross-tab broadcast
+            ids.forEach(id => broadcastSessionDeleted(id));
+            onDeleted?.(ids);
+            toast.success(`${count} sohbet silindi.`);
+            return count;
+        } catch (err) {
+            setSessions(snapshot);
+            showApiError(toast, err, 'Sohbetler silinemedi.');
+            throw err;
+        }
+    }, [sessions, toast]);
 
     const handleDeleteSession = useCallback(async (sessionId, onDeleted) => {
         setDeletingSessionId(sessionId);
@@ -48,9 +72,9 @@ export function useSessions() {
             await deleteSession(sessionId);
             setSessions(prev => prev.filter(s => s.id !== sessionId));
             onDeleted?.(sessionId);
-            channelRef.current?.postMessage({ type: 'session-deleted', id: sessionId });
+            broadcastSessionDeleted(sessionId);
             toast.success('Sohbet silindi.');
-        } catch { toast.error('Sohbet silinemedi.'); }
+        } catch (err) { showApiError(toast, err, 'Sohbet silinemedi.'); }
         finally { setDeletingSessionId(null); }
     }, [toast]);
 
@@ -68,9 +92,9 @@ export function useSessions() {
             await renameSession(sessionId, title);
             setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, title } : s));
             setActiveSession(s => s?.id === sessionId ? { ...s, title } : s);
-            channelRef.current?.postMessage({ type: 'session-renamed', id: sessionId, title });
+            broadcastSessionRenamed(sessionId, title);
             toast.success('Sohbet adı güncellendi.');
-        } catch { toast.error('Sohbet adı güncellenemedi.'); }
+        } catch (err) { showApiError(toast, err, 'Sohbet adı güncellenemedi.'); }
         finally { setRenamingSessionId(null); }
     }, [editingTitle, toast]);
 
@@ -84,6 +108,7 @@ export function useSessions() {
         renamingSessionId,
         fetchSessions,
         handleDeleteSession,
+        handleBatchDeleteSessions,
         handleStartRename,
         handleCommitRename,
     };

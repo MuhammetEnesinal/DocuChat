@@ -27,7 +27,7 @@ export class ErrorBoundary extends Component {
                         Beklenmedik bir hata oluştu.
                     </p>
                     <button
-                        onClick={() => this.setState({ hasError: false })}
+                        onClick={() => window.location.reload()}
                         style={{
                             background: 'var(--accent)',
                             color: '#fff',

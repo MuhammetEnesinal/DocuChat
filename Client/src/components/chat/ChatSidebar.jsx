@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SessionSkeleton } from '../shared/Skeleton';
 import SidebarButton from './SidebarButton';
@@ -9,10 +9,39 @@ export default function ChatSidebar({
     collapsed, onToggleCollapse,
     onNewChat, onLoadSession,
     onStartRename, onCommitRename, onSetEditingTitle, onSetEditingSessionId,
-    onDeleteSession, user, onLogout,
+    onDeleteSession, onBatchDeleteSessions, user, onLogout,
 }) {
     const renameInputRef = useRef(null);
     const navigate = useNavigate();
+    const [selectMode, setSelectMode] = useState(false);
+    const [selectedIds, setSelectedIds] = useState(new Set());
+
+    const allSelected = sessions.length > 0 && sessions.every(s => selectedIds.has(s.id));
+
+    const toggleSelect = useCallback((id) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    }, []);
+
+    const toggleSelectAll = useCallback(() => {
+        setSelectedIds(prev => {
+            if (sessions.every(s => prev.has(s.id))) return new Set();
+            return new Set(sessions.map(s => s.id));
+        });
+    }, [sessions]);
+
+    const exitSelectMode = useCallback(() => {
+        setSelectMode(false);
+        setSelectedIds(new Set());
+    }, []);
+
+    const handleBatchDelete = useCallback(() => {
+        if (selectedIds.size === 0) return;
+        onBatchDeleteSessions?.(Array.from(selectedIds), exitSelectMode);
+    }, [selectedIds, onBatchDeleteSessions, exitSelectMode]);
 
     if (collapsed) {
         return (
@@ -74,19 +103,65 @@ export default function ChatSidebar({
                     </button>
                 </div>
 
+                {/* Çoklu seçim toolbar */}
+                {sessions.length > 0 && (
+                    <div style={{ padding: '0 14px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', fontSize: '12px' }}>
+                        {selectMode ? (
+                            <>
+                                <button onClick={toggleSelectAll}
+                                    style={{ background: 'linear-gradient(135deg, rgba(167,139,250,0.35), rgba(139,92,246,0.25))', border: '1px solid rgba(167,139,250,0.65)', color: '#ffffff', cursor: 'pointer', padding: '4px 10px', fontSize: '12px', fontWeight: 700, borderRadius: '6px', boxShadow: '0 0 8px rgba(167,139,250,0.25)' }}>
+                                    {allSelected ? 'Hiçbiri' : 'Tümü'}
+                                </button>
+                                <span style={{ color: '#ffffff', fontSize: '12px', fontWeight: 700 }}>{selectedIds.size} seçili</span>
+                                <div style={{ display: 'flex', gap: '4px' }}>
+                                    <button onClick={handleBatchDelete} disabled={selectedIds.size === 0}
+                                        title={`${selectedIds.size} sohbeti sil`}
+                                        style={{ background: selectedIds.size === 0 ? 'rgba(248,113,113,0.15)' : 'linear-gradient(135deg, #ef4444, #dc2626)', border: '1px solid ' + (selectedIds.size === 0 ? 'rgba(248,113,113,0.65)' : '#ef4444'), color: '#ffffff', cursor: selectedIds.size === 0 ? 'not-allowed' : 'pointer', padding: '4px 12px', fontSize: '11px', fontWeight: 700, borderRadius: '6px', opacity: selectedIds.size === 0 ? 0.7 : 1, boxShadow: selectedIds.size === 0 ? 'none' : '0 0 10px rgba(239,68,68,0.4)', transition: 'all 0.15s' }}>
+                                        Sil
+                                    </button>
+                                    <button onClick={exitSelectMode}
+                                        style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.35)', color: '#ffffff', cursor: 'pointer', padding: '4px 12px', fontSize: '11px', fontWeight: 700, borderRadius: '6px', transition: 'all 0.15s' }}>
+                                        Vazgeç
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            <button onClick={() => setSelectMode(true)}
+                                style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.45)', cursor: 'pointer', padding: '4px 6px', fontSize: '11.5px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <rect x="2" y="2" width="14" height="14" rx="2" />
+                                    <path d="M8 22h12a2 2 0 0 0 2-2V8" />
+                                </svg>
+                                Çoklu Seç
+                            </button>
+                        )}
+                    </div>
+                )}
+
                 {/* Session listesi */}
                 <div role="list" style={{ flex: 1, overflowY: 'auto', padding: '0 10px 12px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
                     {sessionsLoading ? <SessionSkeleton /> : sessions.length === 0 ? (
                         <p style={{ fontSize: '12px', textAlign: 'center', marginTop: '16px', color: 'var(--gray-light)' }}>Henüz sohbet yok</p>
                     ) : null}
-                    {sessions.map((s) => (
+                    {sessions.map((s) => {
+                        const isSelected = selectMode && selectedIds.has(s.id);
+                        const baseBg = isSelected
+                            ? 'rgba(139,92,246,0.18)'
+                            : activeSession?.id === s.id
+                                ? 'linear-gradient(135deg, rgba(139,92,246,0.22) 0%, rgba(99,102,241,0.16) 100%)'
+                                : 'transparent';
+                        return (
                         <div key={s.id}
                             role="listitem"
                             tabIndex={0}
                             aria-label={s.title || 'Sohbet'}
                             aria-current={activeSession?.id === s.id ? 'true' : undefined}
-                            onClick={() => onLoadSession(s)}
+                            onClick={() => selectMode ? toggleSelect(s.id) : onLoadSession(s)}
                             onKeyDown={(e) => {
+                                if (selectMode) {
+                                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSelect(s.id); }
+                                    return;
+                                }
                                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onLoadSession(s); }
                                 else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); onDeleteSession(s.id); }
                                 else if (e.key === 'F2') { e.preventDefault(); onStartRename(s); }
@@ -95,15 +170,26 @@ export default function ChatSidebar({
                             style={{
                                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                                 padding: '11px 12px', borderRadius: '12px', cursor: 'pointer', transition: 'all 0.15s',
-                                background: activeSession?.id === s.id ? 'linear-gradient(135deg, rgba(139,92,246,0.22) 0%, rgba(99,102,241,0.16) 100%)' : 'transparent',
-                                border: activeSession?.id === s.id ? '1px solid rgba(167,139,250,0.35)' : '1px solid transparent',
+                                background: baseBg,
+                                border: isSelected
+                                    ? '1px solid rgba(167,139,250,0.45)'
+                                    : activeSession?.id === s.id ? '1px solid rgba(167,139,250,0.35)' : '1px solid transparent',
                                 boxShadow: activeSession?.id === s.id ? '0 4px 14px -6px rgba(139,92,246,0.4), inset 0 1px 0 rgba(255,255,255,0.05)' : 'none',
                                 outline: 'none',
                             }}
-                            onFocus={(e) => { if (activeSession?.id !== s.id) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
-                            onBlur={(e) => { if (activeSession?.id !== s.id) e.currentTarget.style.background = 'transparent'; }}
-                            onMouseEnter={(e) => { if (activeSession?.id !== s.id) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
-                            onMouseLeave={(e) => { if (activeSession?.id !== s.id) e.currentTarget.style.background = 'transparent'; }}>
+                            onFocus={(e) => { if (!isSelected && activeSession?.id !== s.id) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
+                            onBlur={(e) => { if (!isSelected && activeSession?.id !== s.id) e.currentTarget.style.background = 'transparent'; }}
+                            onMouseEnter={(e) => { if (!isSelected && activeSession?.id !== s.id) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
+                            onMouseLeave={(e) => { if (!isSelected && activeSession?.id !== s.id) e.currentTarget.style.background = 'transparent'; }}>
+                            {selectMode && (
+                                <input
+                                    type="checkbox"
+                                    checked={selectedIds.has(s.id)}
+                                    onChange={() => toggleSelect(s.id)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    style={{ width: '14px', height: '14px', cursor: 'pointer', accentColor: '#a78bfa', marginRight: '8px', flexShrink: 0 }}
+                                />
+                            )}
                             {editingSessionId === s.id ? (
                                 <input ref={renameInputRef} value={editingTitle}
                                     onChange={(e) => onSetEditingTitle(e.target.value)}
@@ -157,7 +243,8 @@ export default function ChatSidebar({
                                 </button>
                             </div>
                         </div>
-                    ))}
+                        );
+                    })}
                 </div>
 
                 {/* Alt butonlar */}

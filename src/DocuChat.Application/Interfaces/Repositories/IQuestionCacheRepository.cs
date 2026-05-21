@@ -8,6 +8,7 @@ public interface IQuestionCacheRepository
         float[] queryVector,
         double threshold,
         string? documentIds = null,
+        string? documentContentHashes = null,
         CancellationToken ct = default);
 
     Task AddAsync(QuestionCache entry, CancellationToken ct = default);

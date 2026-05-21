@@ -108,41 +108,29 @@ try
         static string GetIp(HttpContext ctx) =>
             ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
+        // login (brute-force protection — public endpoint)
         options.AddPolicy("login", ctx =>
             RateLimitPartition.GetFixedWindowLimiter(GetIp(ctx), _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 5, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
-        options.AddPolicy("register", ctx =>
+        // password-reset (forgot/reset password — public, e-mail spam koruması)
+        options.AddPolicy("password-reset", ctx =>
             RateLimitPartition.GetFixedWindowLimiter(GetIp(ctx), _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 3, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
+        // chat-ask (LLM cüzdan koruması — Gemini free tier limiti var)
         options.AddPolicy("chat-ask", ctx =>
             RateLimitPartition.GetFixedWindowLimiter(GetIp(ctx), _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
-        options.AddPolicy("upload", ctx =>
-            RateLimitPartition.GetFixedWindowLimiter(GetIp(ctx), _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
-            }));
-
-        options.AddPolicy("read-ops", ctx =>
-            RateLimitPartition.GetFixedWindowLimiter(GetIp(ctx), _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 60, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
-            }));
-
-        options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
-            RateLimitPartition.GetFixedWindowLimiter(GetIp(ctx), _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 100, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
-            }));
+        // NOT: Diğer endpoint'lerde rate limit yok (admin operasyonları, read, upload, mutation).
+        // Global limit de yok — admin sınırsız iş yapabilir, sıradan saldırı yüzeyi düşük.
     });
 
     // AddInfrastructure calls AddIdentity<> which sets cookie as default scheme.
@@ -188,6 +176,27 @@ try
 
     using (var scope = app.Services.CreateScope())
         await SeedData.SeedRolesAndAdminAsync(scope.ServiceProvider);
+
+    // Startup recovery: önceki çalıştırmadan kalan "Processing" belgeleri "Failed" yap
+    using (var scope = app.Services.CreateScope())
+    {
+        var db = scope.ServiceProvider.GetRequiredService<DocuChat.Infrastructure.Persistence.AppDbContext>();
+        var stuck = db.Documents
+            .Where(d => d.Status == DocuChat.Domain.Enums.DocumentStatus.Processing
+                     || d.Status == DocuChat.Domain.Enums.DocumentStatus.Pending)
+            .ToList();
+        if (stuck.Count > 0)
+        {
+            foreach (var d in stuck)
+            {
+                d.Status = DocuChat.Domain.Enums.DocumentStatus.Failed;
+                d.ErrorMessage = "Sunucu yeniden başlatıldı; işlem yarım kaldı. Yeniden işlemeyi deneyin.";
+                d.UpdatedAt = DateTime.UtcNow;
+            }
+            await db.SaveChangesAsync();
+            Log.Information("[Startup] {Count} takılı belge Failed olarak işaretlendi", stuck.Count);
+        }
+    }
 
     if (app.Environment.IsDevelopment())
     {

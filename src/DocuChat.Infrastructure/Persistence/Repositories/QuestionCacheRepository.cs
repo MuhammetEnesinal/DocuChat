@@ -18,6 +18,7 @@ public class QuestionCacheRepository : IQuestionCacheRepository
         float[] queryVector,
         double threshold,
         string? documentIds = null,
+        string? documentContentHashes = null,
         CancellationToken ct = default)
     {
         var vector = new Vector(queryVector);
@@ -30,15 +31,40 @@ public class QuestionCacheRepository : IQuestionCacheRepository
         else
             query = query.Where(q => q.DocumentIds == null);
 
+        // 1C: belge ContentHash'leri verilmişse → cache satırı aynı hash setine sahip olmalı.
+        // Reprocess sonrası belgenin hash'i değişir → eski cache mismatch'le elenir.
+        if (!string.IsNullOrWhiteSpace(documentContentHashes))
+            query = query.Where(q => q.DocumentContentHashes == documentContentHashes);
+
         return await query
             .OrderByDescending(q => 1 - q.QuestionVector.CosineDistance(vector))
             .FirstOrDefaultAsync(ct);
     }
 
-    public Task AddAsync(QuestionCache entry, CancellationToken ct = default)
+    /// <summary>
+    /// Aynı (normalize edilmiş QuestionText, DocumentIds) çifti varsa yeni satır eklemek yerine
+    /// mevcut satırı tazeler (Answer/ImagesJson/Vector + HitCount++) — yarış koşulu veya
+    /// embedding eşiği altı tekrarlarda çoğalmayı engeller.
+    /// </summary>
+    public async Task AddAsync(QuestionCache entry, CancellationToken ct = default)
     {
+        var normalized = (entry.QuestionText ?? string.Empty).Trim().ToLower();
+        var existing = await _db.QuestionCaches
+            .Where(q => q.DocumentIds == entry.DocumentIds
+                     && q.QuestionText.ToLower() == normalized)
+            .FirstOrDefaultAsync(ct);
+
+        if (existing is not null)
+        {
+            existing.Answer = entry.Answer;
+            existing.ImagesJson = entry.ImagesJson;
+            existing.QuestionVector = entry.QuestionVector;
+            existing.HitCount += 1;
+            existing.LastHitAt = DateTime.UtcNow;
+            return;
+        }
+
         _db.QuestionCaches.Add(entry);
-        return Task.CompletedTask;
     }
 
     public async Task IncrementHitAsync(Guid id, CancellationToken ct = default)
@@ -58,18 +84,19 @@ public class QuestionCacheRepository : IQuestionCacheRepository
 
     public async Task ClearByDocumentIdAsync(Guid docId, CancellationToken ct = default)
     {
-        var idStr = docId.ToString();
+        // DocumentIds formatı: ",<guid>,<guid>," (önce ve sonra virgül) — alt-string çakışması yok.
+        var token = $",{docId},";
         await _db.QuestionCaches
-            .Where(q => q.DocumentIds != null && q.DocumentIds.Contains(idStr))
+            .Where(q => q.DocumentIds != null && q.DocumentIds.Contains(token))
             .ExecuteDeleteAsync(ct);
     }
 
     public async Task ClearByDocumentIdsAsync(IEnumerable<Guid> docIds, CancellationToken ct = default)
     {
-        var idStrings = docIds.Select(id => id.ToString()).ToList();
-        if (idStrings.Count == 0) return;
+        var tokens = docIds.Select(id => $",{id},").ToList();
+        if (tokens.Count == 0) return;
         await _db.QuestionCaches
-            .Where(q => q.DocumentIds != null && idStrings.Any(s => q.DocumentIds.Contains(s)))
+            .Where(q => q.DocumentIds != null && tokens.Any(t => q.DocumentIds.Contains(t)))
             .ExecuteDeleteAsync(ct);
     }
 
@@ -82,9 +109,11 @@ public class QuestionCacheRepository : IQuestionCacheRepository
 
     public async Task<int> DeleteExpiredAsync(TimeSpan maxAge, CancellationToken ct = default)
     {
+        // Hit almamış cache de eskidiğinde silinmeli — bu yüzden CreatedAt'i de kontrol et.
         var cutoff = DateTime.UtcNow - maxAge;
         return await _db.QuestionCaches
-            .Where(q => q.LastHitAt < cutoff)
+            .Where(q => q.CreatedAt < cutoff
+                     && (q.LastHitAt == null || q.LastHitAt < cutoff))
             .ExecuteDeleteAsync(ct);
     }
 }

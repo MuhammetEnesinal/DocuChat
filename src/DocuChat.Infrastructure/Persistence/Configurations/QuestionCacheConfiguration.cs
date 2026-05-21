@@ -16,6 +16,7 @@ public class QuestionCacheConfiguration : IEntityTypeConfiguration<QuestionCache
         builder.Property(x => x.Answer).IsRequired();
         builder.Property(x => x.HitCount).HasDefaultValue(0);
         builder.Property(x => x.DocumentIds).IsRequired(false);
+        builder.Property(x => x.DocumentContentHashes).IsRequired(false);
 
         var converter = new ValueConverter<float[], Vector>(
             v => new Vector(v),
@@ -36,5 +37,6 @@ public class QuestionCacheConfiguration : IEntityTypeConfiguration<QuestionCache
                .HasOperators("vector_cosine_ops");
 
         builder.HasIndex(x => x.LastHitAt);
+        builder.HasIndex(x => x.CreatedAt);
     }
 }

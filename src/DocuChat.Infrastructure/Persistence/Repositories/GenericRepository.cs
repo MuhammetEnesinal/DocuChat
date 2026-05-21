@@ -20,6 +20,14 @@ public class GenericRepository<T> : IRepository<T> where T : BaseEntity
     public async Task<T?> GetByIdAsync(Guid id, CancellationToken ct = default)
         => await _set.FindAsync(new object[] { id }, ct);
 
+    public async Task<IReadOnlyList<T>> GetByIdsAsync(
+        IEnumerable<Guid> ids, CancellationToken ct = default)
+    {
+        var idList = ids.ToList();
+        if (idList.Count == 0) return Array.Empty<T>();
+        return await _set.Where(e => idList.Contains(e.Id)).ToListAsync(ct);
+    }
+
     public async Task<IReadOnlyList<T>> GetAllAsync(CancellationToken ct = default)
         => await _set.ToListAsync(ct);
 

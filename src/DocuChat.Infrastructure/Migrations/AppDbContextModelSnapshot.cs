@@ -93,6 +93,9 @@ namespace DocuChat.Infrastructure.Migrations
                     b.Property<int>("ChunkCount")
                         .HasColumnType("integer");
 
+                    b.Property<string>("ContentHash")
+                        .HasColumnType("text");
+
                     b.Property<string>("ContentType")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -119,6 +122,9 @@ namespace DocuChat.Infrastructure.Migrations
                         .HasColumnType("integer");
 
                     b.Property<string>("StoragePath")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Summary")
                         .HasColumnType("text");
 
                     b.Property<DateTime?>("UpdatedAt")
@@ -196,6 +202,9 @@ namespace DocuChat.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DocumentContentHashes")
+                        .HasColumnType("text");
+
                     b.Property<string>("DocumentIds")
                         .HasColumnType("text");
 
@@ -207,7 +216,7 @@ namespace DocuChat.Infrastructure.Migrations
                     b.Property<string>("ImagesJson")
                         .HasColumnType("text");
 
-                    b.Property<DateTime>("LastHitAt")
+                    b.Property<DateTime?>("LastHitAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("QuestionText")
@@ -222,6 +231,8 @@ namespace DocuChat.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
 
                     b.HasIndex("LastHitAt");
 

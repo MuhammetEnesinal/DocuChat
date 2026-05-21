@@ -1,4 +1,4 @@
-﻿// DocuChat.Application/Mappings/MappingConfig.cs
+// DocuChat.Application/Mappings/MappingConfig.cs
 using Mapster;
 using DocuChat.Domain.Entities;
 using DocuChat.Application.DTOs.Document;
@@ -32,9 +32,9 @@ public static class MappingConfig
             .Map(dest => dest.Title, src => src.Title)
             .Map(dest => dest.CreatedAt, src => src.CreatedAt);
 
-        // ─── DocumentChunk → DocumentChunkDto ──────────────────────────────
+        // ─── DocumentChunk → DocumentChunkResponseDto ──────────────────────────────
         // Explicit mapping excluding Embedding (should not expose raw vectors to client)
-        TypeAdapterConfig<DocumentChunk, DocumentChunkDto>
+        TypeAdapterConfig<DocumentChunk, DocumentChunkResponseDto>
             .NewConfig()
             .Map(dest => dest.Id, src => src.Id)
             .Map(dest => dest.ChunkIndex, src => src.ChunkIndex)

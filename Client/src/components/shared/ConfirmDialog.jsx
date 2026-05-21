@@ -11,7 +11,7 @@ export default function ConfirmDialog({ title, message, confirmLabel = 'Sil', co
         <div
             onClick={onCancel}
             style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
-            <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '16px', padding: '24px', maxWidth: '400px', width: '100%' }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface-solid)', border: '1px solid var(--border-strong)', borderRadius: '16px', padding: '24px', maxWidth: '400px', width: '100%', boxShadow: '0 24px 64px -16px rgba(0,0,0,0.6)' }}>
                 <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 8px' }}>{title}</h3>
                 <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: '0 0 24px' }}>{message}</p>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>

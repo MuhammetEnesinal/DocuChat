@@ -17,10 +17,12 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
     (res) => res,
     (err) => {
-        // 401 gelince sadece token varsa yönlendir
+        // 401 gelince sadece token varsa yönlendir.
+        // sessionStorage flag'i Login.jsx'te "Oturum sona erdi" toast'u tetikler.
         if (err.response?.status === 401 && localStorage.getItem('token')) {
             localStorage.removeItem('token');
             localStorage.removeItem('user');
+            sessionStorage.setItem('session_expired', '1');
             window.location.href = '/login';
         }
         return Promise.reject(err);
@@ -32,9 +34,6 @@ export default api;
 // ── Auth ──────────────────────────────────────────────────────────────────
 export const login = (email, password) =>
     api.post('/auth/login', { email, password });
-
-export const register = (fullName, email, password) =>
-    api.post('/auth/register', { fullName, email, password });
 
 export const forgotPassword = (email) =>
     api.post('/auth/forgot-password', { email });
@@ -92,6 +91,10 @@ export const uploadDocument = (file, onProgress) => {
 export const deleteDocument = (id) =>
     api.delete(`/documents/${id}`);
 
+// Preview endpoint'ini blob olarak çek → indirme için
+export const downloadDocument = (id) =>
+    api.get(`/documents/${id}/preview`, { responseType: 'blob' });
+
 export const deleteDocumentsBatch = (ids) =>
     api.post('/documents/batch-delete', { ids });
 
@@ -113,9 +116,3 @@ export const adminUpdateUser = (id, fullName, email, password) =>
 
 export const adminDeleteUser = (id) =>
     api.delete(`/admin/users/${id}`);
-
-export const adminDeleteDocumentsBatch = (ids) =>
-    api.post('/admin/documents/batch-delete', { ids });
-
-export const adminDeleteSessionsBatch = (ids) =>
-    api.post('/admin/sessions/batch-delete', { ids });

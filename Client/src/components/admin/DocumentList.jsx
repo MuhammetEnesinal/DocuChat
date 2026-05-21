@@ -4,6 +4,7 @@ import { formatDate, formatSize } from '../../utils/format';
 import SearchInput from '../shared/SearchInput';
 import { DocumentSkeleton } from '../shared/Skeleton';
 import { useToast } from '../shared/Toast';
+import { showApiError } from '../../utils/format';
 import Spinner from '../shared/Spinner';
 import IconButton from '../shared/IconButton';
 import DocumentPreviewModal from './DocumentPreviewModal';
@@ -29,10 +30,56 @@ function fileIcon(contentType, fileName) {
     return { color: 'var(--text-muted)', bg: 'rgba(148,163,184,0.1)' };
 }
 
-export default function DocumentList({ documents, loading, search, onSearchChange, onViewChunks, onDelete, deletingDocId, onReprocessStart, onReprocess }) {
+export default function DocumentList({
+    documents, loading, search, onSearchChange,
+    onViewChunks, onDelete, onBatchDelete,
+    onBatchDownload, onBatchReprocess,
+    deletingDocId, onReprocessStart, onReprocess,
+}) {
     const [previewDoc, setPreviewDoc] = useState(null);
     const [reprocessingIds, setReprocessingIds] = useState(new Set());
+    const [selectMode, setSelectMode] = useState(false);
+    const [selectedIds, setSelectedIds] = useState(new Set());
     const toast = useToast();
+
+    const selectableDocs = documents.filter(d => d.status !== 'Processing' && d.status !== 'Pending');
+    const allSelected = selectableDocs.length > 0 && selectableDocs.every(d => selectedIds.has(d.id));
+
+    const toggleSelect = useCallback((id) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    }, []);
+
+    const toggleSelectAll = useCallback(() => {
+        setSelectedIds(prev => {
+            if (selectableDocs.every(d => prev.has(d.id))) return new Set();
+            return new Set(selectableDocs.map(d => d.id));
+        });
+    }, [selectableDocs]);
+
+    const exitSelectMode = useCallback(() => {
+        setSelectMode(false);
+        setSelectedIds(new Set());
+    }, []);
+
+    const handleBatchDelete = useCallback(() => {
+        if (selectedIds.size === 0) return;
+        onBatchDelete?.(Array.from(selectedIds), exitSelectMode);
+    }, [selectedIds, onBatchDelete, exitSelectMode]);
+
+    const handleBatchDownload = useCallback(() => {
+        if (selectedIds.size === 0) return;
+        const docs = documents.filter(d => selectedIds.has(d.id));
+        onBatchDownload?.(docs);  // exit mode'a düşürme — download'tan sonra liste açık kalsın
+    }, [selectedIds, documents, onBatchDownload]);
+
+    const handleBatchReprocess = useCallback(() => {
+        if (selectedIds.size === 0) return;
+        onBatchReprocess?.(Array.from(selectedIds), exitSelectMode);
+    }, [selectedIds, onBatchReprocess, exitSelectMode]);
 
     const handleReprocess = useCallback(async (doc) => {
         if (reprocessingIds.has(doc.id)) return;
@@ -43,7 +90,7 @@ export default function DocumentList({ documents, loading, search, onSearchChang
             onReprocess?.();
         } catch (e) {
             console.error('Yeniden işleme hatası:', e);
-            toast.error('Yeniden işleme başlatılamadı. Lütfen tekrar deneyin.');
+            showApiError(toast, e, 'Yeniden işleme başlatılamadı. Lütfen tekrar deneyin.');
             onReprocess?.();
         } finally {
             setReprocessingIds(prev => { const s = new Set(prev); s.delete(doc.id); return s; });
@@ -61,8 +108,53 @@ export default function DocumentList({ documents, loading, search, onSearchChang
                         <h2 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Yüklü Belgeler</h2>
                         <span style={{ fontSize: '13px', color: 'var(--gray-light)' }}>{documents.length} belge</span>
                     </div>
-                    <div className="admin-search" style={{ maxWidth: '260px', width: '100%' }}>
-                        <SearchInput value={search} onChange={onSearchChange} placeholder="Belge ara..." />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flex: '1 1 auto', justifyContent: 'flex-end', minWidth: 0 }}>
+                        {selectMode ? (
+                            <>
+                                <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{selectedIds.size} seçili</span>
+                                <button onClick={toggleSelectAll} className="btn btn-ghost btn-sm" disabled={selectableDocs.length === 0}>
+                                    {allSelected ? 'Seçimi Kaldır' : 'Tümünü Seç'}
+                                </button>
+                                {/* İndir */}
+                                <button onClick={handleBatchDownload} disabled={selectedIds.size === 0}
+                                    title="Seçili belgeleri indir"
+                                    style={{ padding: '6px 14px', borderRadius: '8px', fontSize: '13px', fontWeight: 600, background: selectedIds.size === 0 ? 'rgba(167,139,250,0.1)' : 'rgba(167,139,250,0.2)', color: '#c4b5fd', border: '1px solid rgba(167,139,250,0.3)', cursor: selectedIds.size === 0 ? 'not-allowed' : 'pointer', opacity: selectedIds.size === 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+                                    </svg>
+                                    İndir
+                                </button>
+                                {/* Yeniden İşle */}
+                                <button onClick={handleBatchReprocess} disabled={selectedIds.size === 0}
+                                    title="Seçili belgeleri yeniden işle"
+                                    style={{ padding: '6px 14px', borderRadius: '8px', fontSize: '13px', fontWeight: 600, background: selectedIds.size === 0 ? 'rgba(251,191,36,0.1)' : 'rgba(251,191,36,0.2)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)', cursor: selectedIds.size === 0 ? 'not-allowed' : 'pointer', opacity: selectedIds.size === 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                                    </svg>
+                                    Yeniden İşle
+                                </button>
+                                {/* Sil */}
+                                <button onClick={handleBatchDelete} disabled={selectedIds.size === 0}
+                                    style={{ padding: '6px 14px', borderRadius: '8px', fontSize: '13px', fontWeight: 600, background: selectedIds.size === 0 ? 'rgba(248,113,113,0.1)' : 'rgba(248,113,113,0.2)', color: '#f87171', border: '1px solid rgba(248,113,113,0.3)', cursor: selectedIds.size === 0 ? 'not-allowed' : 'pointer', opacity: selectedIds.size === 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
+                                    Sil ({selectedIds.size})
+                                </button>
+                                <button onClick={exitSelectMode} className="btn btn-ghost btn-sm">Vazgeç</button>
+                            </>
+                        ) : (
+                            <>
+                                <button onClick={() => setSelectMode(true)} className="btn btn-ghost btn-sm" disabled={documents.length === 0}>
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px' }}>
+                                        <rect x="2" y="2" width="14" height="14" rx="2" />
+                                        <path d="M8 22h12a2 2 0 0 0 2-2V8" />
+                                    </svg>
+                                    Çoklu Seç
+                                </button>
+                                <div className="admin-search" style={{ flex: '1 1 180px', maxWidth: '260px', minWidth: 0 }}>
+                                    <SearchInput value={search} onChange={onSearchChange} placeholder="Belge ara..." />
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
 
@@ -78,10 +170,20 @@ export default function DocumentList({ documents, loading, search, onSearchChang
                     const fi = fileIcon(doc.contentType, doc.fileName);
                     const isProcessing = doc.status === 'Processing' || doc.status === 'Pending';
                     return (
-                        <div key={doc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid var(--border)', transition: 'background 0.15s' }}
-                            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface2)'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                        <div key={doc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid var(--border)', transition: 'background 0.15s', background: selectMode && selectedIds.has(doc.id) ? 'rgba(139,92,246,0.08)' : 'transparent' }}
+                            onMouseEnter={(e) => { if (!(selectMode && selectedIds.has(doc.id))) e.currentTarget.style.background = 'var(--surface2)'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = selectMode && selectedIds.has(doc.id) ? 'rgba(139,92,246,0.08)' : 'transparent'; }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                                {selectMode && (
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedIds.has(doc.id)}
+                                        onChange={() => toggleSelect(doc.id)}
+                                        disabled={isProcessing}
+                                        title={isProcessing ? 'İşlenen belgeler seçilemez' : ''}
+                                        style={{ width: '16px', height: '16px', cursor: isProcessing ? 'not-allowed' : 'pointer', accentColor: '#a78bfa', flexShrink: 0 }}
+                                    />
+                                )}
                                 <div style={{ width: '36px', height: '36px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, background: fi.bg }}>
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={fi.color} strokeWidth="2">
                                         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
@@ -102,7 +204,15 @@ export default function DocumentList({ documents, loading, search, onSearchChang
                                 </div>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: '12px' }}>
-                                <span style={{ fontSize: '12px', padding: '3px 10px', borderRadius: '8px', fontWeight: 500, background: st.bg, color: st.color }}>{st.label}</span>
+                                <span style={{
+                                    fontSize: '12px', padding: '3px 10px', borderRadius: '8px', fontWeight: 500,
+                                    background: st.bg, color: st.color,
+                                    display: 'inline-flex', alignItems: 'center', gap: '6px',
+                                    animation: isProcessing ? 'docStatusPulse 1.5s ease-in-out infinite' : 'none'
+                                }}>
+                                    {isProcessing && <Spinner size={10} />}
+                                    {st.label}
+                                </span>
                                 <IconButton onClick={() => handlePreview(doc)} title="Önizle" hoverColor="#a78bfa" hoverBg="rgba(167,139,250,0.1)">
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
                                 </IconButton>
@@ -113,14 +223,11 @@ export default function DocumentList({ documents, loading, search, onSearchChang
                                 )}
                                 <IconButton
                                     onClick={() => handleReprocess(doc)}
-                                    title="Yeniden İşle"
+                                    title={isProcessing ? 'Belge zaten işleniyor' : 'Yeniden İşle'}
                                     hoverColor="#fbbf24"
                                     hoverBg="rgba(251,191,36,0.1)"
-                                    disabled={reprocessingIds.has(doc.id)}>
-                                    {reprocessingIds.has(doc.id)
-                                        ? <Spinner size={15} />
-                                        : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
-                                    }
+                                    disabled={isProcessing}>
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
                                 </IconButton>
                                 <IconButton
                                     onClick={() => !isProcessing && deletingDocId !== doc.id && onDelete(doc.id, doc.fileName)}

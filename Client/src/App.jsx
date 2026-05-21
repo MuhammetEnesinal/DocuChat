@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import useThemeStore from './store/useTheme';
 import { ToastProvider, useToast } from './components/shared/Toast';
 import { useAuth } from './hooks/useAuth';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
@@ -42,13 +41,12 @@ function OfflineDetector() {
             window.removeEventListener('offline', handleOffline);
             window.removeEventListener('online', handleOnline);
         };
-    }, []);
+    }, [toast]);
 
     return null;
 }
 
 export default function App() {
-    useThemeStore();
     return (
         <ToastProvider>
             <ErrorBoundary>

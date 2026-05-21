@@ -49,12 +49,12 @@ export default function ChatInput({ value, onChange, onSend, loading, onAbort, i
                     )}
                 </button>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
-                <p className="source-hint" style={{ fontSize: '12px', color: 'var(--gray-light)', margin: 0 }}>
+            <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center', marginTop: '8px' }}>
+                <p className="source-hint" style={{ fontSize: '12px', color: 'var(--gray-light)', margin: 0, textAlign: 'center' }}>
                     Enter ile gönder · Shift+Enter yeni satır
                 </p>
                 {value.length > 1800 && (
-                    <span style={{ fontSize: '11px', color: value.length >= 2000 ? '#ef4444' : '#f59e0b' }}>
+                    <span style={{ position: 'absolute', right: 0, fontSize: '11px', color: value.length >= 2000 ? '#ef4444' : '#f59e0b' }}>
                         {2000 - value.length}
                     </span>
                 )}

@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using DocuChat.Application.Common;
-using DocuChat.Application.Interfaces.Services;
+using DocuChat.Application.Interfaces.UseCases;
 using DocuChat.Application.DTOs.Chat;
 using DocuChat.API.Extensions;
 
@@ -14,18 +14,18 @@ namespace DocuChat.API.Controllers;
 [Authorize]
 public class ChatController : ControllerBase
 {
-    private readonly IChatService _chatService;
+    private readonly IChatUseCase _chat;
     private readonly IValidator<AskRequest> _askValidator;
     private readonly IValidator<RenameSessionRequest> _renameValidator;
     private readonly IValidator<BatchDeleteRequest> _batchDeleteValidator;
 
     public ChatController(
-        IChatService chatService,
+        IChatUseCase chat,
         IValidator<AskRequest> askValidator,
         IValidator<RenameSessionRequest> renameValidator,
         IValidator<BatchDeleteRequest> batchDeleteValidator)
     {
-        _chatService = chatService;
+        _chat = chat;
         _askValidator = askValidator;
         _renameValidator = renameValidator;
         _batchDeleteValidator = batchDeleteValidator;
@@ -43,12 +43,11 @@ public class ChatController : ControllerBase
         if (!validation.IsValid)
             return validation.Errors.Select(e => e.ErrorMessage).ToValidationResult<AskResponseDto>();
 
-        var result = await _chatService.AskAsync(req, ct);
+        var result = await _chat.AskAsync(req, ct);
         return result.ToActionResult();
     }
 
     [HttpGet("sessions")]
-    [EnableRateLimiting("read-ops")]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<ChatSessionResponseDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetMySessions(
@@ -67,20 +66,19 @@ public class ChatController : ControllerBase
 
             if (hasFilter)
             {
-                var filtered = await _chatService.GetMySessionsFilteredAsync(
+                var filtered = await _chat.GetMySessionsFilteredAsync(
                     page.Value, pageSize, dateFrom, dateTo, sortBy, ascending, ct);
                 return filtered.ToActionResult();
             }
 
-            var paged = await _chatService.GetMySessionsPagedAsync(page.Value, pageSize, ct);
+            var paged = await _chat.GetMySessionsPagedAsync(page.Value, pageSize, ct);
             return paged.ToActionResult();
         }
-        var result = await _chatService.GetMySessionsAsync(ct);
+        var result = await _chat.GetMySessionsAsync(ct);
         return result.ToActionResult();
     }
 
     [HttpGet("sessions/{sessionId:guid}/messages")]
-    [EnableRateLimiting("read-ops")]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<ChatMessageResponseDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -89,10 +87,10 @@ public class ChatController : ControllerBase
     {
         if (page.HasValue)
         {
-            var paged = await _chatService.GetMessagesPagedAsync(sessionId, page.Value, pageSize, ct);
+            var paged = await _chat.GetMessagesPagedAsync(sessionId, page.Value, pageSize, ct);
             return paged.ToActionResult();
         }
-        var result = await _chatService.GetMessagesAsync(sessionId, ct);
+        var result = await _chat.GetMessagesAsync(sessionId, ct);
         return result.ToActionResult();
     }
 
@@ -108,7 +106,7 @@ public class ChatController : ControllerBase
         if (!validation.IsValid)
             return validation.Errors.Select(e => e.ErrorMessage).ToValidationResult<bool>();
 
-        var result = await _chatService.RenameSessionAsync(sessionId, req.Title, ct);
+        var result = await _chat.RenameSessionAsync(sessionId, req.Title, ct);
         return result.ToActionResult();
     }
 
@@ -118,7 +116,7 @@ public class ChatController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> DeleteSession(Guid sessionId, CancellationToken ct)
     {
-        var result = await _chatService.DeleteSessionAsync(sessionId, ct);
+        var result = await _chat.DeleteSessionAsync(sessionId, ct);
         return result.ToNoContentResult();
     }
 
@@ -133,18 +131,17 @@ public class ChatController : ControllerBase
         if (!validation.IsValid)
             return validation.Errors.Select(e => e.ErrorMessage).ToValidationResult<int>();
 
-        var result = await _chatService.DeleteSessionsBatchAsync(req.Ids, ct);
+        var result = await _chat.DeleteSessionsBatchAsync(req.Ids, ct);
         return result.ToActionResult();
     }
 
     [HttpGet("popular-questions")]
-    [EnableRateLimiting("read-ops")]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<string>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetPopularQuestions(
         [FromQuery] int limit = 6, CancellationToken ct = default)
     {
-        var result = await _chatService.GetPopularQuestionsAsync(limit, ct);
+        var result = await _chat.GetPopularQuestionsAsync(limit, ct);
         return result.ToActionResult();
     }
 }

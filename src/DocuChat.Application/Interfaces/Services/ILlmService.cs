@@ -1,4 +1,6 @@
-﻿namespace DocuChat.Application.Interfaces.Services;
+﻿using DocuChat.Application.Common;
+
+namespace DocuChat.Application.Interfaces.Services;
 
 public interface ILlmService
 {
@@ -11,7 +13,7 @@ public interface ILlmService
     Task<List<string>> DetectRelevantDocumentsAsync(
         string question,
         IEnumerable<(string Role, string Content)> history,
-        IEnumerable<string> availableDocuments,
+        IEnumerable<(string FileName, string? Summary)> availableDocuments,
         CancellationToken ct = default);
 
     Task<bool> IsCacheableAsync(
@@ -55,5 +57,25 @@ public interface ILlmService
         string cachedQuestion,
         string cachedAnswer,
         IEnumerable<(string Role, string Content)>? history = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Bir belgenin ilk birkaç chunk içeriğinden 1-2 cümlelik konu özeti üretir.
+    /// DetectRelevantDocs'a yardımcı (dosya adı yetersiz olduğunda).
+    /// Hata olursa null döner — best-effort.
+    /// </summary>
+    Task<string?> GenerateDocumentSummaryAsync(
+        string sampleContent,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Üretilen final cevabı denetler: relevance, groundedness, entity tutarlılığı, eksiksizlik.
+    /// Score < 0.7 → cevap "şüpheli" sayılır; cache'e yazılmaz, kullanıcıya uyarı eklenir.
+    /// LLM çağrısı başarısız olursa fail-open: Good() döner.
+    /// </summary>
+    Task<AnswerQualityResult> ValidateAnswerQualityAsync(
+        string question,
+        IEnumerable<ChunkResult> chunks,
+        string answer,
         CancellationToken ct = default);
 }

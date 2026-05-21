@@ -9,6 +9,7 @@ import UserList from '../components/admin/UserList';
 import UserModal from '../components/admin/UserModal';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import { useToast } from '../components/shared/Toast';
+import { showApiError } from '../utils/format';
 import { useDocuments } from '../hooks/useDocuments';
 import { useUsers } from '../hooks/useUsers';
 
@@ -16,6 +17,9 @@ export default function Admin() {
     const [tab, setTab] = useState('documents');
     const [confirmDoc, setConfirmDoc] = useState(null);
     const [confirmUser, setConfirmUser] = useState(null);
+    const [confirmBatchDocs, setConfirmBatchDocs] = useState(null);
+    const [confirmBatchReprocess, setConfirmBatchReprocess] = useState(null);
+    const [confirmBatchUsers, setConfirmBatchUsers] = useState(null);
     const [deletingDocId, setDeletingDocId] = useState(null);
     const [deletingUserId, setDeletingUserId] = useState(null);
 
@@ -35,6 +39,9 @@ export default function Admin() {
         showChunksModal, setShowChunksModal,
         fetchDocs,
         deleteDoc,
+        batchDeleteDocs,
+        batchReprocessDocs,
+        batchDownloadDocs,
         handleViewChunks,
         processFiles,
     } = useDocuments();
@@ -55,6 +62,7 @@ export default function Admin() {
         closeUserModal,
         handleSubmitUser,
         deleteUser,
+        batchDeleteUsers,
     } = useUsers();
 
     useEffect(() => { fetchDocs(); fetchUsers(); }, []);
@@ -70,11 +78,57 @@ export default function Admin() {
         try {
             await deleteDoc(id);
             toast.success(`"${name}" silindi.`);
-        } catch {
-            toast.error('Belge silinemedi.');
+        } catch (err) {
+            showApiError(toast, err, 'Belge silinemedi.');
         } finally {
             setDeletingDocId(null);
         }
+    };
+
+    const handleBatchDeleteDocs = (ids, exitSelectMode) => {
+        setConfirmBatchDocs({ ids, exitSelectMode });
+    };
+
+    const confirmBatchDocsDelete = async () => {
+        const { ids, exitSelectMode } = confirmBatchDocs;
+        setConfirmBatchDocs(null);
+        try {
+            await batchDeleteDocs(ids);
+            exitSelectMode?.();
+        } catch { /* toast hook'ta atıldı */ }
+    };
+
+    // İndirme onaysız — direkt başlat
+    const handleBatchDownloadDocs = (docs) => {
+        batchDownloadDocs(docs);
+    };
+
+    // Yeniden işleme onaylı — geri alınamaz, kaynak yoğun
+    const handleBatchReprocessDocs = (ids, exitSelectMode) => {
+        setConfirmBatchReprocess({ ids, exitSelectMode });
+    };
+
+    const confirmBatchReprocessDocs = async () => {
+        const { ids, exitSelectMode } = confirmBatchReprocess;
+        setConfirmBatchReprocess(null);
+        try {
+            await batchReprocessDocs(ids);
+            exitSelectMode?.();
+        } catch { /* toast hook'ta atıldı */ }
+    };
+
+    // Çoklu kullanıcı silme — onaylı
+    const handleBatchDeleteUsers = (ids, exitSelectMode) => {
+        setConfirmBatchUsers({ ids, exitSelectMode });
+    };
+
+    const confirmBatchUsersDelete = async () => {
+        const { ids, exitSelectMode } = confirmBatchUsers;
+        setConfirmBatchUsers(null);
+        try {
+            await batchDeleteUsers(ids);
+            exitSelectMode?.();
+        } catch { /* toast hook'ta atıldı */ }
     };
 
     const handleDeleteUser = (id, name) => {
@@ -89,7 +143,7 @@ export default function Admin() {
             await deleteUser(id);
             toast.success(`"${name}" silindi.`);
         } catch (err) {
-            toast.error(err?.response?.data?.error?.message || 'Kullanıcı silinemedi.');
+            showApiError(toast, err, 'Kullanıcı silinemedi.');
         } finally {
             setDeletingUserId(null);
         }
@@ -152,6 +206,9 @@ export default function Admin() {
                             onSearchChange={setDocSearch}
                             onViewChunks={handleViewChunks}
                             onDelete={handleDeleteDoc}
+                            onBatchDelete={handleBatchDeleteDocs}
+                            onBatchDownload={handleBatchDownloadDocs}
+                            onBatchReprocess={handleBatchReprocessDocs}
                             deletingDocId={deletingDocId}
                             onReprocessStart={(id) =>
                                 setDocuments(prev => prev.map(d =>
@@ -172,6 +229,7 @@ export default function Admin() {
                         onAdd={openAddModal}
                         onEdit={openEditModal}
                         onDelete={handleDeleteUser}
+                        onBatchDelete={handleBatchDeleteUsers}
                         deletingUserId={deletingUserId}
                     />
                 )}
@@ -251,6 +309,36 @@ export default function Admin() {
                     confirmLabel="Sil"
                     onConfirm={confirmDeleteUser}
                     onCancel={() => setConfirmUser(null)}
+                />
+            )}
+
+            {confirmBatchDocs && (
+                <ConfirmDialog
+                    title="Belgeleri Sil"
+                    message={`${confirmBatchDocs.ids.length} belge kalıcı olarak silinecek. Emin misiniz?`}
+                    confirmLabel="Sil"
+                    onConfirm={confirmBatchDocsDelete}
+                    onCancel={() => setConfirmBatchDocs(null)}
+                />
+            )}
+
+            {confirmBatchReprocess && (
+                <ConfirmDialog
+                    title="Belgeleri Yeniden İşle"
+                    message={`${confirmBatchReprocess.ids.length} belge yeniden işlenecek. Mevcut chunk'lar ve cache silinip baştan üretilecek. Sürebilir.`}
+                    confirmLabel="Yeniden İşle"
+                    onConfirm={confirmBatchReprocessDocs}
+                    onCancel={() => setConfirmBatchReprocess(null)}
+                />
+            )}
+
+            {confirmBatchUsers && (
+                <ConfirmDialog
+                    title="Kullanıcıları Sil"
+                    message={`${confirmBatchUsers.ids.length} kullanıcı kalıcı olarak silinecek. Emin misiniz?`}
+                    confirmLabel="Sil"
+                    onConfirm={confirmBatchUsersDelete}
+                    onCancel={() => setConfirmBatchUsers(null)}
                 />
             )}
         </div>

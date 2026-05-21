@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { login } from '../services/api';
+import { showApiError, getApiErrorMessage } from '../utils/format';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/shared/Toast';
 import AuthCard from '../components/auth/AuthCard';
@@ -19,6 +20,13 @@ export default function Login() {
     const navigate = useNavigate();
     const toast = useToast();
 
+    useEffect(() => {
+        if (sessionStorage.getItem('session_expired')) {
+            sessionStorage.removeItem('session_expired');
+            toast.warning('Oturumunuz sona erdi. Lütfen tekrar giriş yapın.');
+        }
+    }, [toast]);
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
@@ -30,10 +38,9 @@ export default function Login() {
             toast.success(`Hoş geldiniz, ${user.fullName}!`);
             navigate(user.roles?.includes('Admin') ? '/admin' : '/chat');
         } catch (err) {
-            const data = err.response?.data;
-            const msg = data?.error?.message || 'Giriş başarısız.';
+            const msg = getApiErrorMessage(err, 'Giriş başarısız.');
             setError(msg);
-            toast.error(msg);
+            showApiError(toast, err, msg);
         } finally {
             setLoading(false);
         }
