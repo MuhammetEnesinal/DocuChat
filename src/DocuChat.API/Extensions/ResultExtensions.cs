@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using DocuChat.Application.Common;
+using DocuChat.API.Common;
 
 namespace DocuChat.API.Extensions;
 

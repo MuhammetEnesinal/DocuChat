@@ -27,19 +27,6 @@ public class DocumentRepository : GenericRepository<Document>, IDocumentReposito
         return rows.Select(x => (x.Id, x.FileName, x.Summary)).ToList();
     }
 
-    public async Task<IReadOnlyList<(Guid Id, string? ContentHash)>> GetDocumentContentHashesAsync(
-        IEnumerable<Guid> docIds, CancellationToken ct = default)
-    {
-        var idList = docIds.ToList();
-        if (idList.Count == 0) return Array.Empty<(Guid, string?)>();
-
-        var rows = await _set
-            .Where(d => idList.Contains(d.Id))
-            .Select(d => new { d.Id, d.ContentHash })
-            .ToListAsync(ct);
-        return rows.Select(x => (x.Id, x.ContentHash)).ToList();
-    }
-
     public async Task<PaginatedResult<Document>> GetPagedAsync(
         int page, int pageSize, string? search, CancellationToken ct = default)
     {

@@ -17,9 +17,6 @@ public class LocalFileStorage : IFileStorage
         Directory.CreateDirectory(_basePath);
     }
 
-    /// <summary>
-    /// Belge yüklemede kullanılır. Guid prefix eklenerek isim çakışması önlenir.
-    /// </summary>
     public async Task<string> SaveAsync(
         Stream stream, string fileName, CancellationToken ct = default)
     {
@@ -27,9 +24,6 @@ public class LocalFileStorage : IFileStorage
         return await WriteAsync(stream, uniqueName, ct);
     }
 
-    /// <summary>
-    /// Parser'ın ürettiği resimler için — isim olduğu gibi kaydedilir, çift Guid olmaz.
-    /// </summary>
     public async Task<string> SaveRawAsync(
         Stream stream, string exactFileName, CancellationToken ct = default)
     {
@@ -53,7 +47,6 @@ public class LocalFileStorage : IFileStorage
         return File.OpenRead(fullPath);
     }
 
-    // ── ortak yazma mantığı ───────────────────────────────────────────────
     private async Task<string> WriteAsync(
         Stream stream, string fileName, CancellationToken ct)
     {

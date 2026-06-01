@@ -1,5 +1,6 @@
 ﻿// DocuChat.Infrastructure/Services/AuthService.cs
-using DocuChat.Infrastructure.Identity;
+using Mapster;
+using DocuChat.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -34,7 +35,7 @@ public class AuthService : IAuthService
     }
 
     public async Task<Result<AuthResponseDto>> RegisterAsync(
-        RegisterRequest req, CancellationToken ct)
+        RegisterRequestDto req, CancellationToken ct)
     {
         if (await _userManager.FindByEmailAsync(req.Email) is not null)
             return Result<AuthResponseDto>.Failure(
@@ -60,13 +61,17 @@ public class AuthService : IAuthService
 
         _ = SendWelcomeEmailAsync(user, req.Password, ct);
 
-        return Result<AuthResponseDto>.Success(new AuthResponseDto(
-            token, user.Id, user.Email ?? string.Empty, user.FullName ?? string.Empty,
-            DateTime.UtcNow.AddHours(24), roles));
+        var dto = user.Adapt<AuthResponseDto>() with
+        {
+            Token = token,
+            ExpiresAt = DateTime.UtcNow.AddHours(24),
+            Roles = roles
+        };
+        return Result<AuthResponseDto>.Success(dto);
     }
 
     public async Task<Result<AuthResponseDto>> LoginAsync(
-        LoginRequest req, CancellationToken ct)
+        LoginRequestDto req, CancellationToken ct)
     {
         var user = await _userManager.FindByEmailAsync(req.Email);
         if (user is null || !await _userManager.CheckPasswordAsync(user, req.Password))
@@ -76,9 +81,13 @@ public class AuthService : IAuthService
         var roles = await _userManager.GetRolesAsync(user);
         var token = _jwtService.Generate(user, roles);
 
-        return Result<AuthResponseDto>.Success(new AuthResponseDto(
-            token, user.Id, user.Email ?? string.Empty, user.FullName ?? string.Empty,
-            DateTime.UtcNow.AddHours(24), roles));
+        var dto = user.Adapt<AuthResponseDto>() with
+        {
+            Token = token,
+            ExpiresAt = DateTime.UtcNow.AddHours(24),
+            Roles = roles
+        };
+        return Result<AuthResponseDto>.Success(dto);
     }
 
     public async Task<Result<IReadOnlyList<UserSummaryResponseDto>>> GetAllUsersAsync(
@@ -92,9 +101,7 @@ public class AuthService : IAuthService
         foreach (var user in users)
         {
             var roles = await _userManager.GetRolesAsync(user);
-            dtos.Add(new UserSummaryResponseDto(
-                user.Id, user.Email ?? string.Empty, user.FullName ?? string.Empty,
-                user.CreatedAt, roles));
+            dtos.Add(user.Adapt<UserSummaryResponseDto>() with { Roles = roles });
         }
 
         return Result<IReadOnlyList<UserSummaryResponseDto>>.Success(dtos);
@@ -121,7 +128,7 @@ public class AuthService : IAuthService
     }
 
     public async Task<Result<UserSummaryResponseDto>> UpdateUserAsync(
-        string userId, UpdateUserRequest req, CancellationToken ct)
+        string userId, UpdateUserRequestDto req, CancellationToken ct)
     {
         var user = await _userManager.FindByIdAsync(userId);
         if (user is null)
@@ -174,7 +181,6 @@ public class AuthService : IAuthService
 
         _logger.LogInformation("Kullanıcı güncellendi. UserId: {UserId}", userId);
 
-        // ── Bildirim mail'leri (best-effort — mail çökerse update geçerli kalır) ──
         if (emailChanged)
         {
             await SendEmailChangedNoticeAsync(oldEmail, req.Email, user.FullName ?? req.FullName, ct);
@@ -186,9 +192,8 @@ public class AuthService : IAuthService
         }
 
         var updatedRoles = await _userManager.GetRolesAsync(user);
-        return Result<UserSummaryResponseDto>.Success(new UserSummaryResponseDto(
-            user.Id, user.Email ?? string.Empty, user.FullName ?? string.Empty,
-            user.CreatedAt, updatedRoles));
+        return Result<UserSummaryResponseDto>.Success(
+            user.Adapt<UserSummaryResponseDto>() with { Roles = updatedRoles });
     }
 
     public async Task<Result<bool>> ForgotPasswordAsync(string email, CancellationToken ct)
@@ -230,7 +235,6 @@ public class AuthService : IAuthService
         return Result<bool>.Success(true);
     }
 
-    // ── Admin email değişikliği — ESKİ adrese güvenlik uyarısı ─────────────
     private async Task SendEmailChangedNoticeAsync(
         string oldEmail, string newEmail, string fullName, CancellationToken ct)
     {
@@ -269,7 +273,6 @@ public class AuthService : IAuthService
         }
     }
 
-    // ── Admin email değişikliği — YENİ adrese hoş geldin/onay ──────────────
     private async Task SendEmailChangedConfirmationAsync(
         string newEmail, string fullName, string oldEmail, CancellationToken ct)
     {
@@ -306,7 +309,6 @@ public class AuthService : IAuthService
         }
     }
 
-    // ── Admin şifre sıfırladı — kullanıcıya yeni şifre ─────────────────────
     private async Task SendPasswordChangedByAdminAsync(
         string email, string fullName, string newPassword, CancellationToken ct)
     {
@@ -404,12 +406,8 @@ public class AuthService : IAuthService
             return Result<UserSummaryResponseDto>.Failure(Error.NotFound("Kullanıcı bulunamadı."));
 
         var roles = await _userManager.GetRolesAsync(user);
-        return Result<UserSummaryResponseDto>.Success(new UserSummaryResponseDto(
-            user.Id,
-            user.Email ?? string.Empty,
-            user.FullName ?? string.Empty,
-            user.CreatedAt,
-            roles));
+        return Result<UserSummaryResponseDto>.Success(
+            user.Adapt<UserSummaryResponseDto>() with { Roles = roles });
     }
 
     public async Task<Result<bool>> ChangePasswordAsync(string userId, string currentPassword, string newPassword, CancellationToken ct)

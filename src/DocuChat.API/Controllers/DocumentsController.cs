@@ -7,14 +7,11 @@ using DocuChat.Application.Common;
 using DocuChat.Application.Interfaces.UseCases;
 using DocuChat.Application.DTOs.Document;
 using DocuChat.API.Extensions;
+using DocuChat.API.Common;
+using DocuChat.API.Models;
 using DocuChat.Domain.Enums;
 
 namespace DocuChat.API.Controllers;
-
-public class UploadFileRequest
-{
-    public IFormFile File { get; set; } = null!;
-}
 
 [ApiController]
 [Route("api/documents")]
@@ -22,13 +19,13 @@ public class UploadFileRequest
 public class DocumentsController : ControllerBase
 {
     private readonly IDocumentUseCase _document;
-    private readonly IValidator<UploadDocumentRequest> _uploadValidator;
-    private readonly IValidator<BatchDocumentDeleteRequest> _batchDeleteValidator;
+    private readonly IValidator<UploadDocumentRequestDto> _uploadValidator;
+    private readonly IValidator<BatchDocumentDeleteRequestDto> _batchDeleteValidator;
 
     public DocumentsController(
         IDocumentUseCase document,
-        IValidator<UploadDocumentRequest> uploadValidator,
-        IValidator<BatchDocumentDeleteRequest> batchDeleteValidator)
+        IValidator<UploadDocumentRequestDto> uploadValidator,
+        IValidator<BatchDocumentDeleteRequestDto> batchDeleteValidator)
     {
         _document = document;
         _uploadValidator = uploadValidator;
@@ -59,15 +56,17 @@ public class DocumentsController : ControllerBase
     }
 
     [HttpPost("upload")]
+    [EnableRateLimiting("upload")]
     [Consumes("multipart/form-data")]
     [ProducesResponseType(typeof(ApiResponse<DocumentResponseDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> Upload(
         [FromForm] UploadFileRequest request, CancellationToken ct)
     {
         var file = request.File;
-        var req = new UploadDocumentRequest(
+        var req = new UploadDocumentRequestDto(
             file.FileName, file.ContentType, file.Length, file.OpenReadStream());
 
         var validation = await _uploadValidator.ValidateAsync(req, ct);
@@ -117,7 +116,7 @@ public class DocumentsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> DeleteBatch(
-        [FromBody] BatchDocumentDeleteRequest req, CancellationToken ct)
+        [FromBody] BatchDocumentDeleteRequestDto req, CancellationToken ct)
     {
         var validation = await _batchDeleteValidator.ValidateAsync(req, ct);
         if (!validation.IsValid)

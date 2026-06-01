@@ -1,4 +1,5 @@
 ﻿using DocuChat.Domain.Enums;
+using DocuChat.Application.ServiceContracts;
 
 namespace DocuChat.Application.Interfaces.Services;
 

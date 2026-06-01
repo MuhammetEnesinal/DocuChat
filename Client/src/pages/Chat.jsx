@@ -9,11 +9,9 @@ import { useSessions } from '../hooks/useSessions';
 import { useChatMessages } from '../hooks/useChatMessages';
 import ChatSidebar from '../components/chat/ChatSidebar';
 import MessageBubble from '../components/chat/MessageBubble';
-import SourcePanel from '../components/chat/SourcePanel';
 import EmptyState from '../components/chat/EmptyState';
 import NewChatHero from '../components/chat/NewChatHero';
 import ChatInput from '../components/chat/ChatInput';
-import TypingIndicator from '../components/chat/TypingIndicator';
 import { MessageSkeleton } from '../components/shared/Skeleton';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 
@@ -68,7 +66,6 @@ export default function Chat() {
         hasMoreMessages,
         loadingMore,
         chunks, setChunks,
-        showChunks, setShowChunks,
         copiedId,
         clearMessages,
         loadMessages,
@@ -127,7 +124,26 @@ export default function Chat() {
         }, skip);
     };
 
-    const onClarificationSelect = (opt) => onSend(opt, true);
+    const onClarificationSelect = (opt) => {
+        // Belirsiz soru + clarification balonunu HEMEN kaldır (cevabı bekleme); yerine
+        // seçilen TAM soru tek kullanıcı balonu olarak gönderilir. Böylece eski belirsiz
+        // soru ekranda kalmaz, çift balon olmaz.
+        setMessages(prev => {
+            const idx = prev.findIndex(m => m.isClarification);
+            if (idx === -1) return prev;
+            const precedingId = idx > 0 ? prev[idx - 1].id : null;
+            return prev.filter(m => m.id !== prev[idx].id && m.id !== precedingId);
+        });
+        onSend(opt, true);
+    };
+
+    // Follow-up sorusu zaten tam/bağımsız bir cümle → clarification atlanır.
+    // Tıklanınca o mesajın chip'leri HEMEN kaldırılır (basınca kaybolsun).
+    const onFollowUpSelect = (q, msgId) => {
+        if (msgId != null)
+            setMessages(prev => prev.map(m => m.id === msgId ? { ...m, followUpQuestions: undefined } : m));
+        onSend(q, true);
+    };
 
     const onClarificationDismiss = (clarificationMsgId) => {
         setMessages(prev => {
@@ -186,7 +202,7 @@ export default function Chat() {
 
         return (
             <div style={{ padding: '0 0 24px 0' }}>
-                <MessageBubble msg={item.msg} copiedId={copiedId} onCopy={handleCopy} onRetry={onSend} onClarificationSelect={onClarificationSelect} onClarificationDismiss={onClarificationDismiss} />
+                <MessageBubble msg={item.msg} copiedId={copiedId} onCopy={handleCopy} onRetry={onSend} onClarificationSelect={onClarificationSelect} onClarificationDismiss={onClarificationDismiss} onFollowUpSelect={onFollowUpSelect} />
             </div>
         );
     };
@@ -223,16 +239,7 @@ export default function Chat() {
                             {activeSession?.title || 'Yeni Sohbet'}
                         </h1>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: '12px' }}>
-                        {chunks.length > 0 && (
-                            <button onClick={() => setShowChunks(!showChunks)} className={`btn btn-sm ${showChunks ? 'btn-primary' : 'btn-secondary'}`}>
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
-                                </svg>
-                                Kaynaklar ({chunks.length})
-                            </button>
-                        )}
-                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: '12px' }} />
                     <div className="gradient-beam" style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }} />
                 </div>
 
@@ -261,7 +268,7 @@ export default function Chat() {
                                 <Virtuoso
                                     ref={virtuosoRef}
                                     style={{ height: '100%' }}
-                                    totalCount={virtualItems.length + (loading ? 1 : 0)}
+                                    totalCount={virtualItems.length}
                                     initialTopMostItemIndex={virtualItems.length - 1}
                                     followOutput="smooth"
                                     startReached={hasMoreMessages ? () => loadMoreMessages(activeSession?.id) : undefined}
@@ -282,16 +289,11 @@ export default function Chat() {
                                             </div>
                                         ) : undefined,
                                     }}
-                                    itemContent={(index) => {
-                                        if (loading && index === virtualItems.length) {
-                                            return <div style={{ padding: '0 24px 24px' }}><TypingIndicator /></div>;
-                                        }
-                                        return (
-                                            <div style={{ padding: '0 24px' }}>
-                                                {renderVirtualItem(index)}
-                                            </div>
-                                        );
-                                    }}
+                                    itemContent={(index) => (
+                                        <div style={{ padding: '0 24px' }}>
+                                            {renderVirtualItem(index)}
+                                        </div>
+                                    )}
                                 />
                             )}
                         </div>
@@ -308,7 +310,6 @@ export default function Chat() {
                         )}
                     </div>
 
-                    {showChunks && chunks.length > 0 && <SourcePanel chunks={chunks} />}
                 </div>
             </div>
 

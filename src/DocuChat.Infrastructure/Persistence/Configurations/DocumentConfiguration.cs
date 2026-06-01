@@ -1,7 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using DocuChat.Domain.Entities;
-using DocuChat.Infrastructure.Identity;
+using DocuChat.Infrastructure.Persistence.Identity;
 
 namespace DocuChat.Infrastructure.Persistence.Configurations;
 
@@ -29,5 +29,9 @@ public class DocumentConfiguration : IEntityTypeConfiguration<Document>
         builder.HasIndex(d => d.UserId);
         builder.HasIndex(d => d.Status);
         builder.HasIndex(d => d.CreatedAt);
+
+        // Aynı kullanıcı + aynı dosya adı eşzamanlı upload race koruması.
+        // App-level ExistsByUserAndNameAsync check ile birlikte ikinci savunma katmanı.
+        builder.HasIndex(d => new { d.UserId, d.FileName }).IsUnique();
     }
 }

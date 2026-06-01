@@ -1,4 +1,6 @@
-﻿public enum FileType
+﻿namespace DocuChat.Domain.Enums;
+
+public enum FileType
 {
     Pdf = 0,
     Docx = 1,

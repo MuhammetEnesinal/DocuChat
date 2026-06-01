@@ -1,19 +1,16 @@
-﻿using DocuChat.Application.Common;
+using DocuChat.Application.Common;
+using DocuChat.Application.ServiceContracts;
 
 namespace DocuChat.Application.Interfaces.Services;
 
 public interface ILlmService
 {
-    Task<string> AskAsync(
+    // Streaming variant — token delta'larını üretir. Provider streaming desteklemiyorsa
+    // (Anthropic/Gemini) tam cevap tek delta olarak dönebilir.
+    IAsyncEnumerable<string> AskStreamAsync(
         string question,
         IEnumerable<ChunkResult> contextChunks,
         IEnumerable<(string Role, string Content)>? history = null,
-        CancellationToken ct = default);
-
-    Task<List<string>> DetectRelevantDocumentsAsync(
-        string question,
-        IEnumerable<(string Role, string Content)> history,
-        IEnumerable<(string FileName, string? Summary)> availableDocuments,
         CancellationToken ct = default);
 
     Task<bool> IsCacheableAsync(
@@ -21,37 +18,24 @@ public interface ILlmService
         IEnumerable<(string Role, string Content)>? history = null,
         CancellationToken ct = default);
 
-    /// <summary>
-    /// Belirsiz soru için 2-3 olası yorum seçeneği üret. Soru açıksa boş liste döner.
-    /// </summary>
     Task<List<string>> GenerateClarificationsAsync(
         string question,
         IEnumerable<(string Role, string Content)> history,
         IEnumerable<string>? availableDocuments = null,
         CancellationToken ct = default);
 
-    /// <summary>Soruyu belge araması için optimize et: kısaltma açma, yazım düzeltme, zamir netleştirme.</summary>
-    Task<string> RewriteQueryAsync(
-        string question,
-        IEnumerable<(string Role, string Content)> history,
-        CancellationToken ct = default);
-
-    /// <summary>Soruyu cevaplayan varsayımsal belge metni üret (HyDE için).</summary>
     Task<string> GenerateHypotheticalDocumentAsync(
         string question,
         CancellationToken ct = default);
 
-    /// <summary>Chunk'ları relevans sırasına göre LLM ile rerank et. 0-indexed sıra döner.</summary>
-    Task<IReadOnlyList<int>> RerankChunksAsync(
+    // Bağlama bağımlı soruyu konuşma geçmişinden yararlanarak standalone arama metnine çevirir.
+    // SADECE retrieval (embedding/BM25) için kullanılır — gösterilen ve cache'lenen soru ham kalır.
+    // Hata olursa null döner, sistem ham soruya geri düşer.
+    Task<string?> BuildContextualSearchQueryAsync(
         string question,
-        IReadOnlyList<string> chunkContents,
-        int topK,
+        IEnumerable<(string Role, string Content)> history,
         CancellationToken ct = default);
 
-    /// <summary>
-    /// Cache'ten gelen cevabın soruya hâlâ geçerli olup olmadığını kontrol eder.
-    /// Geçerliyse cached cevabı döndürür, değilse null döndürür.
-    /// </summary>
     Task<string?> ValidateCachedAnswerAsync(
         string question,
         string cachedQuestion,
@@ -59,23 +43,33 @@ public interface ILlmService
         IEnumerable<(string Role, string Content)>? history = null,
         CancellationToken ct = default);
 
-    /// <summary>
-    /// Bir belgenin ilk birkaç chunk içeriğinden 1-2 cümlelik konu özeti üretir.
-    /// DetectRelevantDocs'a yardımcı (dosya adı yetersiz olduğunda).
-    /// Hata olursa null döner — best-effort.
-    /// </summary>
+    // sectionHeader: chunk'ın ait olduğu başlık zinciri (parse'da çıkarıldı), null/boş olabilir.
+    // documentSummary arka plan referansı — sectionHeader ve chunkContent öncelik kazanır.
+    Task<string> GenerateChunkContextAsync(
+        string documentSummary,
+        string? sectionHeader,
+        string chunkContent,
+        CancellationToken ct = default);
+
     Task<string?> GenerateDocumentSummaryAsync(
         string sampleContent,
         CancellationToken ct = default);
 
-    /// <summary>
-    /// Üretilen final cevabı denetler: relevance, groundedness, entity tutarlılığı, eksiksizlik.
-    /// Score < 0.7 → cevap "şüpheli" sayılır; cache'e yazılmaz, kullanıcıya uyarı eklenir.
-    /// LLM çağrısı başarısız olursa fail-open: Good() döner.
-    /// </summary>
     Task<AnswerQualityResult> ValidateAnswerQualityAsync(
         string question,
         IEnumerable<ChunkResult> chunks,
         string answer,
+        CancellationToken ct = default);
+
+    Task<List<string>> GenerateFollowUpQuestionsAsync(
+        string question,
+        string answer,
+        IEnumerable<ChunkResult> chunks,
+        CancellationToken ct = default);
+
+    Task<string?> GenerateImageCaptionAsync(
+        byte[] imageBytes,
+        string mimeType,
+        string context,
         CancellationToken ct = default);
 }

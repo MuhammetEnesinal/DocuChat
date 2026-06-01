@@ -2,24 +2,21 @@ using DocuChat.Domain.Entities;
 
 namespace DocuChat.Application.Interfaces.Repositories;
 
+public record CacheMatch(QuestionCache Cache, double Similarity);
+
 public interface IQuestionCacheRepository
 {
-    Task<QuestionCache?> FindSimilarAsync(
+    // Similarity skorunu da döner — caller yüksek-sim hit'lerde ekstra validation atlayabilir.
+    Task<CacheMatch?> FindSimilarAsync(
         float[] queryVector,
         double threshold,
-        string? documentIds = null,
-        string? documentContentHashes = null,
         CancellationToken ct = default);
 
     Task AddAsync(QuestionCache entry, CancellationToken ct = default);
     Task IncrementHitAsync(Guid id, CancellationToken ct = default);
+
+    /// Tüm cache'i temizler. Belge içeriği değişiminde (upload/reprocess/delete) çağrılır —
     Task ClearAllAsync(CancellationToken ct = default);
-
-    /// Belirtilen belge ID'sini içeren cache kayıtlarını siler.
-    Task ClearByDocumentIdAsync(Guid docId, CancellationToken ct = default);
-
-    /// Belirtilen belge ID'lerinden herhangi birini içeren cache kayıtlarını siler.
-    Task ClearByDocumentIdsAsync(IEnumerable<Guid> docIds, CancellationToken ct = default);
 
     Task<IReadOnlyList<string>> GetTopByHitCountAsync(int limit, CancellationToken ct = default);
 

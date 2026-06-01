@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using DocuChat.Application.Common;
+using DocuChat.Application.Common.Specifications;
 using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Domain.Entities;
 
@@ -25,37 +26,28 @@ public class ChatSessionRepository : GenericRepository<ChatSession>, IChatSessio
         return new PaginatedResult<ChatSession>(items, total, page, pageSize);
     }
 
-    public async Task<PaginatedResult<ChatSession>> GetByUserIdFilteredAsync(
-        string userId,
-        int page,
-        int pageSize,
-        DateTime? dateFrom = null,
-        DateTime? dateTo = null,
-        string sortBy = "createdAt",
-        bool ascending = false,
-        CancellationToken ct = default)
+    public async Task<PaginatedResult<ChatSession>> ListAsync(
+        ChatSessionFilterSpec spec, CancellationToken ct = default)
     {
-        var query = _set.Where(s => s.UserId == userId);
+        var query = _set.Where(s => s.UserId == spec.UserId);
 
-        if (dateFrom.HasValue)
-            query = query.Where(s => s.CreatedAt >= dateFrom.Value);
+        if (spec.DateFrom.HasValue)
+            query = query.Where(s => s.CreatedAt >= spec.DateFrom.Value);
 
-        if (dateTo.HasValue)
-            query = query.Where(s => s.CreatedAt <= dateTo.Value.AddDays(1));
+        if (spec.DateTo.HasValue)
+            query = query.Where(s => s.CreatedAt <= spec.DateTo.Value.AddDays(1));
 
-        IOrderedQueryable<ChatSession> ordered = sortBy.ToLowerInvariant() switch
+        IOrderedQueryable<ChatSession> ordered = (spec.SortBy, spec.Ascending) switch
         {
-            "title" => ascending
-                ? query.OrderBy(s => s.Title)
-                : query.OrderByDescending(s => s.Title),
-            _ => ascending
-                ? query.OrderBy(s => s.CreatedAt)
-                : query.OrderByDescending(s => s.CreatedAt),
+            (ChatSessionSortBy.Title, true)  => query.OrderBy(s => s.Title),
+            (ChatSessionSortBy.Title, false) => query.OrderByDescending(s => s.Title),
+            (_, true)                        => query.OrderBy(s => s.CreatedAt),
+            (_, false)                       => query.OrderByDescending(s => s.CreatedAt),
         };
 
         var total = await ordered.CountAsync(ct);
-        var items = await ordered.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
-        return new PaginatedResult<ChatSession>(items, total, page, pageSize);
+        var items = await ordered.Skip((spec.Page - 1) * spec.PageSize).Take(spec.PageSize).ToListAsync(ct);
+        return new PaginatedResult<ChatSession>(items, total, spec.Page, spec.PageSize);
     }
 
     public async Task<ChatSession?> GetWithMessagesAsync(

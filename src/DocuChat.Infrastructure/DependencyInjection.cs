@@ -8,14 +8,18 @@ using DocuChat.Application.Interfaces.UseCases;
 using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Application.Mappings;
 using DocuChat.Application.UseCases;
-using DocuChat.Infrastructure.Identity;
+using DocuChat.Infrastructure.Persistence.Identity;
 using DocuChat.Infrastructure.Persistence;
 using DocuChat.Infrastructure.Persistence.Repositories;
-using DocuChat.Infrastructure.Services.Ai;
+using DocuChat.Infrastructure.Services.Ai.Embedding;
+using DocuChat.Infrastructure.Services.Ai.Llm;
+using DocuChat.Infrastructure.Services.Ai.Reranker;
+using DocuChat.Infrastructure.Services.Ai.Retrieval;
 using DocuChat.Infrastructure.Services.Auth;
 using DocuChat.Infrastructure.Services.BackgroundJobs;
 using DocuChat.Infrastructure.Services.Email;
 using DocuChat.Infrastructure.Services.Storage;
+using DocuChat.Infrastructure.Services.Documents;
 
 namespace DocuChat.Infrastructure;
 
@@ -44,6 +48,9 @@ public static class DependencyInjection
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IQuestionCacheRepository, QuestionCacheRepository>();
 
+        // Token sayacı (tiktoken) — chunk + chat history bütçeleme
+        services.AddSingleton<ITokenCounter, Services.Documents.Parsing.Chunking.TokenCounter>();
+
         // Application Use Cases
         services.AddScoped<IDocumentUseCase, DocumentUseCase>();
         services.AddScoped<IChatUseCase, ChatUseCase>();
@@ -53,16 +60,17 @@ public static class DependencyInjection
         services.AddScoped<IEmailService, SmtpEmailService>();
         services.AddScoped<IDocumentParser, DocumentParserService>();
         services.AddScoped<IVectorSearch, VectorSearchService>();
+        services.AddScoped<IRetrievalPipeline, RetrievalPipelineService>();
         services.AddScoped<IFileStorage, LocalFileStorage>();
         services.AddScoped<JwtTokenService>();
 
         // HttpClient — Embedding
-        // BaseAddress ve ApiKey burada set edilir — EmbeddingService constructor'da tekrar yapılmaz
         services.AddHttpClient<IEmbeddingService, EmbeddingService>(client =>
         {
             client.BaseAddress = new Uri(cfg["Embedding:BaseUrl"]
                 ?? throw new InvalidOperationException("Embedding:BaseUrl config eksik."));
-            client.Timeout = TimeSpan.FromMinutes(5);
+            var embeddingTimeout = cfg.GetValue<int>("Embedding:TimeoutSeconds", 300);
+            client.Timeout = TimeSpan.FromSeconds(embeddingTimeout);
 
             var embeddingApiKey = cfg["Embedding:ApiKey"];
             if (!string.IsNullOrEmpty(embeddingApiKey))
@@ -71,7 +79,6 @@ public static class DependencyInjection
         });
 
         // HttpClient — LLM
-        // Provider'a göre header set edilir — LlmService constructor'da tekrar yapılmaz
         services.AddHttpClient<ILlmService, LlmService>(client =>
         {
             var provider = cfg["Llm:Provider"] ?? "OpenAI";
@@ -99,6 +106,14 @@ public static class DependencyInjection
             // Gemini kendi URL'ini kullanıyor — header burada set edilmez
         });
 
+        // HttpClient — BGE Reranker sidecar (Python FastAPI, port 8085)
+        services.AddHttpClient<IRerankerService, BgeRerankerService>(client =>
+        {
+            client.BaseAddress = new Uri(cfg["Reranker:BaseUrl"] ?? "http://127.0.0.1:8085");
+            var timeout = cfg.GetValue<int>("Reranker:TimeoutSeconds", 60);
+            client.Timeout = TimeSpan.FromSeconds(timeout);
+        });
+
         // Memory cache
         services.AddMemoryCache();
 
@@ -122,6 +137,7 @@ public static class DependencyInjection
 
         // Mapster
         MappingConfig.Register();
+        IdentityMappingConfig.Register();
 
         return services;
     }

@@ -5,6 +5,7 @@ using DocuChat.API.Filters;
 using DocuChat.API.Middleware;
 using DocuChat.Infrastructure;
 using DocuChat.Infrastructure.Persistence;
+using DocuChat.Infrastructure.Persistence.Seed;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.FileProviders;
@@ -12,6 +13,11 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
 using Serilog;
+
+// Windows console varsayılan CP-1252 ile gelir; Serilog UTF-8 yazıyor → Türkçe bozuluyor.
+// Hem giriş hem çıkışı UTF-8'e sabitle (log dosyaları zaten UTF-8).
+Console.OutputEncoding = Encoding.UTF8;
+Console.InputEncoding = Encoding.UTF8;
 
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(new ConfigurationBuilder()
@@ -129,12 +135,17 @@ try
                 PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
-        // NOT: Diğer endpoint'lerde rate limit yok (admin operasyonları, read, upload, mutation).
-        // Global limit de yok — admin sınırsız iş yapabilir, sıradan saldırı yüzeyi düşük.
+        // upload (gevşek — toplu yükleme için bol, abuse'a karşı disk/OCR maliyet koruması)
+        options.AddPolicy("upload", ctx =>
+            RateLimitPartition.GetFixedWindowLimiter(GetIp(ctx), _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
+            }));
+
+        // NOT: Diğer endpoint'lerde rate limit yok (admin operasyonları, read, mutation).
     });
 
     // AddInfrastructure calls AddIdentity<> which sets cookie as default scheme.
-    // AddAuthentication (JWT) must come AFTER so it overrides those defaults.
     builder.Services.AddInfrastructure(builder.Configuration);
 
     builder.Services.AddAuthentication(options =>

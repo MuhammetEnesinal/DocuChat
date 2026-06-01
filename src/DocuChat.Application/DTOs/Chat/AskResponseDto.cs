@@ -1,12 +1,9 @@
-﻿
-using DocuChat.Application.Interfaces.Services;
-using DocuChat.Application.Interfaces.Repositories;
-
 namespace DocuChat.Application.DTOs.Chat;
 
 public record AskResponseDto(
     Guid SessionId,
     string Answer,
-    IEnumerable<ChunkResult> SourceChunks,
+    IEnumerable<ChunkResponseDto> SourceChunks,
     List<string>? Images = null,
-    List<string>? ClarificationOptions = null);
+    List<string>? ClarificationOptions = null,
+    List<string>? FollowUpQuestions = null);

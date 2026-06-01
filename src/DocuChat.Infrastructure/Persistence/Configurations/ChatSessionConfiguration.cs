@@ -1,7 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using DocuChat.Domain.Entities;
-using DocuChat.Infrastructure.Identity;
+using DocuChat.Infrastructure.Persistence.Identity;
 
 namespace DocuChat.Infrastructure.Persistence.Configurations;
 
@@ -17,7 +17,5 @@ public class ChatSessionConfiguration : IEntityTypeConfiguration<ChatSession>
                .WithMany()
                .HasForeignKey(s => s.UserId)
                .OnDelete(DeleteBehavior.Cascade);
-
-        // DocumentId FK kaldırıldı — oturum artık belgeye bağlı değil
     }
 }

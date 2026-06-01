@@ -15,20 +15,19 @@ namespace DocuChat.API.Controllers;
 public class AdminController : ControllerBase
 {
     private readonly IAuthService _authService;
-    private readonly IValidator<RegisterRequest> _registerValidator;
-    private readonly IValidator<UpdateUserRequest> _updateUserValidator;
+    private readonly IValidator<RegisterRequestDto> _registerValidator;
+    private readonly IValidator<UpdateUserRequestDto> _updateUserValidator;
 
     public AdminController(
         IAuthService authService,
-        IValidator<RegisterRequest> registerValidator,
-        IValidator<UpdateUserRequest> updateUserValidator)
+        IValidator<RegisterRequestDto> registerValidator,
+        IValidator<UpdateUserRequestDto> updateUserValidator)
     {
         _authService = authService;
         _registerValidator = registerValidator;
         _updateUserValidator = updateUserValidator;
     }
 
-    // ───── KULLANICILAR ─────
 
     [HttpGet("users")]
     public async Task<IActionResult> GetAllUsers(CancellationToken ct)
@@ -38,7 +37,7 @@ public class AdminController : ControllerBase
     }
 
     [HttpPost("users")]
-    public async Task<IActionResult> CreateUser([FromBody] RegisterRequest req, CancellationToken ct)
+    public async Task<IActionResult> CreateUser([FromBody] RegisterRequestDto req, CancellationToken ct)
     {
         var validation = await _registerValidator.ValidateAsync(req, ct);
         if (!validation.IsValid)
@@ -51,7 +50,7 @@ public class AdminController : ControllerBase
     }
 
     [HttpPut("users/{id}")]
-    public async Task<IActionResult> UpdateUser(string id, [FromBody] UpdateUserRequest req, CancellationToken ct)
+    public async Task<IActionResult> UpdateUser(string id, [FromBody] UpdateUserRequestDto req, CancellationToken ct)
     {
         var validation = await _updateUserValidator.ValidateAsync(req, ct);
         if (!validation.IsValid)

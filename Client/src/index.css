@@ -612,3 +612,8 @@ input::-webkit-textfield-decoration-container {
         display: none;
     }
 }
+
+@keyframes streamingPulse {
+    0%, 60%, 100% { opacity: 0.7; }
+    30% { opacity: 0.15; }
+}

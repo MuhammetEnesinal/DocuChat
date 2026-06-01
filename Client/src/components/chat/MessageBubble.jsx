@@ -91,7 +91,7 @@ function ClarificationBubble({ msg, onClarificationSelect, onClarificationDismis
     );
 }
 
-export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarificationSelect, onClarificationDismiss }) {
+export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarificationSelect, onClarificationDismiss, onFollowUpSelect }) {
     const isUser = msg.role === 'User';
     const images = msg.images || [];
     const [modalSrc, setModalSrc] = useState(null);
@@ -217,11 +217,46 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
                             : '0 8px 24px -10px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04) inset',
                     }}>
                         {!isUser ? (
-                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-                                {msg.content}
-                            </ReactMarkdown>
+                            <>
+                                {msg.content ? (
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+                                        {msg.content}
+                                    </ReactMarkdown>
+                                ) : null}
+                                {msg.isStreaming && (
+                                    <span
+                                        aria-label="cevap akıyor"
+                                        style={{
+                                            display: 'inline-block',
+                                            width: '8px',
+                                            height: '14px',
+                                            background: 'currentColor',
+                                            opacity: 0.7,
+                                            marginLeft: '2px',
+                                            verticalAlign: 'baseline',
+                                            animation: 'streamingPulse 1s infinite',
+                                            borderRadius: '1px',
+                                        }}
+                                    />
+                                )}
+                            </>
                         ) : msg.content}
                     </div>
+
+                    {!isUser && msg.badge && !msg.isStreaming && (
+                        <div style={{
+                            marginTop: '8px',
+                            padding: '8px 12px',
+                            borderRadius: '10px',
+                            background: 'rgba(251, 191, 36, 0.08)',
+                            border: '1px solid rgba(251, 191, 36, 0.18)',
+                            color: 'rgba(252, 211, 77, 0.95)',
+                            fontSize: '12.5px',
+                            lineHeight: 1.5,
+                        }}>
+                            {msg.badge}
+                        </div>
+                    )}
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px', justifyContent: isUser ? 'flex-end' : 'flex-start', flexWrap: 'wrap' }}>
                         <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.55)', fontWeight: 500 }}>{formatTime(msg.createdAt)}</span>
@@ -245,6 +280,22 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
                             </button>
                         )}
                     </div>
+
+                    {!isUser && msg.followUpQuestions?.length > 0 && onFollowUpSelect && (
+                        <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>İlgili sorular</span>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '7px' }}>
+                                {msg.followUpQuestions.map((q, i) => (
+                                    <button key={i} onClick={() => onFollowUpSelect(q, msg.id)}
+                                        style={{ textAlign: 'left', padding: '7px 12px', borderRadius: '14px', background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.25)', color: '#c4b5fd', cursor: 'pointer', fontSize: '12.5px', transition: 'all 0.15s' }}
+                                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(167,139,250,0.18)'; e.currentTarget.style.borderColor = 'rgba(167,139,250,0.5)'; e.currentTarget.style.color = '#fff'; }}
+                                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(167,139,250,0.08)'; e.currentTarget.style.borderColor = 'rgba(167,139,250,0.25)'; e.currentTarget.style.color = '#c4b5fd'; }}>
+                                        {q}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
         </>

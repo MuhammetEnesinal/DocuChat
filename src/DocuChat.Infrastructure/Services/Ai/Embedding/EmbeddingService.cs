@@ -8,7 +8,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using DocuChat.Application.Interfaces.Services;
 
-namespace DocuChat.Infrastructure.Services.Ai;
+namespace DocuChat.Infrastructure.Services.Ai.Embedding;
 
 public class EmbeddingService : IEmbeddingService
 {
@@ -20,8 +20,6 @@ public class EmbeddingService : IEmbeddingService
     private static readonly MemoryCacheEntryOptions CacheOptions = new()
     {
         // Aynı sorgu tekrar gelirse Ollama'ya gitmeden çözülür.
-        // Sliding: hareketli pencere — eski ama hâlâ sorulan girişler kalır.
-        // Absolute: en geç 2 saatte yenilenir (model değişirse stale dönmesin).
         SlidingExpiration = TimeSpan.FromMinutes(30),
         AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(2),
         Size = 1,

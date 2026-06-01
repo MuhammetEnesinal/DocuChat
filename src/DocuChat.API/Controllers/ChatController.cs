@@ -1,11 +1,14 @@
+using System.Text.Json;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using DocuChat.Application.Common;
 using DocuChat.Application.Interfaces.UseCases;
 using DocuChat.Application.DTOs.Chat;
 using DocuChat.API.Extensions;
+using DocuChat.API.Common;
 
 namespace DocuChat.API.Controllers;
 
@@ -15,15 +18,15 @@ namespace DocuChat.API.Controllers;
 public class ChatController : ControllerBase
 {
     private readonly IChatUseCase _chat;
-    private readonly IValidator<AskRequest> _askValidator;
-    private readonly IValidator<RenameSessionRequest> _renameValidator;
-    private readonly IValidator<BatchDeleteRequest> _batchDeleteValidator;
+    private readonly IValidator<AskRequestDto> _askValidator;
+    private readonly IValidator<RenameSessionRequestDto> _renameValidator;
+    private readonly IValidator<BatchSessionDeleteRequestDto> _batchDeleteValidator;
 
     public ChatController(
         IChatUseCase chat,
-        IValidator<AskRequest> askValidator,
-        IValidator<RenameSessionRequest> renameValidator,
-        IValidator<BatchDeleteRequest> batchDeleteValidator)
+        IValidator<AskRequestDto> askValidator,
+        IValidator<RenameSessionRequestDto> renameValidator,
+        IValidator<BatchSessionDeleteRequestDto> batchDeleteValidator)
     {
         _chat = chat;
         _askValidator = askValidator;
@@ -31,21 +34,69 @@ public class ChatController : ControllerBase
         _batchDeleteValidator = batchDeleteValidator;
     }
 
-    [HttpPost("ask")]
+    // Streaming variant — Server-Sent Events (SSE). Her event "data: <json>\n\n" formatında.
+    // Frontend EventSource yerine fetch + ReadableStream kullanır (POST body için).
+    [HttpPost("ask-stream")]
     [EnableRateLimiting("chat-ask")]
-    [ProducesResponseType(typeof(ApiResponse<AskResponseDto>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
-    public async Task<IActionResult> Ask([FromBody] AskRequest req, CancellationToken ct)
+    public async Task AskStream([FromBody] AskRequestDto req, CancellationToken ct)
     {
+        var response = Response;
+        response.ContentType = "text/event-stream";
+        response.Headers.CacheControl = "no-cache, no-transform";
+        response.Headers["X-Accel-Buffering"] = "no";  // nginx/proxy buffering kapat
+        response.StatusCode = StatusCodes.Status200OK;
+
+        // KRİTİK: ASP.NET response buffer'ı kapat — yoksa FlushAsync etkisiz, tüm response
+        // bir kerede gelir (streaming olmaz).
+        HttpContext.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
+
+        // Validation: hata varsa "error" event olarak gönder ve kapat
         var validation = await _askValidator.ValidateAsync(req, ct);
         if (!validation.IsValid)
-            return validation.Errors.Select(e => e.ErrorMessage).ToValidationResult<AskResponseDto>();
+        {
+            var firstError = validation.Errors.FirstOrDefault()?.ErrorMessage ?? "Geçersiz istek";
+            await WriteSseAsync(response, new { type = "error", message = firstError }, ct);
+            await WriteSseAsync(response, new { type = "done" }, ct);
+            return;
+        }
 
-        var result = await _chat.AskAsync(req, ct);
-        return result.ToActionResult();
+        try
+        {
+            await foreach (var evt in _chat.AskStreamAsync(req, ct))
+            {
+                await WriteSseAsync(response, evt, ct);
+                if (ct.IsCancellationRequested) break;
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // İstemci bağlantıyı kapattı — normal akış
+        }
+        catch (Exception ex)
+        {
+            // Beklenmedik hata → "error" event gönder, normal kapat
+            try
+            {
+                await WriteSseAsync(response, new { type = "error", message = ex.Message }, CancellationToken.None);
+                await WriteSseAsync(response, new { type = "done" }, CancellationToken.None);
+            }
+            catch { /* response zaten kapalı olabilir */ }
+        }
     }
+
+    private static async Task WriteSseAsync(HttpResponse response, object payload, CancellationToken ct)
+    {
+        var json = JsonSerializer.Serialize(payload, _sseJsonOptions);
+        // SSE format: "data: <json>\n\n"
+        await response.WriteAsync($"data: {json}\n\n", ct);
+        await response.Body.FlushAsync(ct);
+    }
+
+    private static readonly JsonSerializerOptions _sseJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
 
     [HttpGet("sessions")]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<ChatSessionResponseDto>>), StatusCodes.Status200OK)]
@@ -100,7 +151,7 @@ public class ChatController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> RenameSession(
-        Guid sessionId, [FromBody] RenameSessionRequest req, CancellationToken ct)
+        Guid sessionId, [FromBody] RenameSessionRequestDto req, CancellationToken ct)
     {
         var validation = await _renameValidator.ValidateAsync(req, ct);
         if (!validation.IsValid)
@@ -125,7 +176,7 @@ public class ChatController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> DeleteSessionsBatch(
-        [FromBody] BatchDeleteRequest req, CancellationToken ct)
+        [FromBody] BatchSessionDeleteRequestDto req, CancellationToken ct)
     {
         var validation = await _batchDeleteValidator.ValidateAsync(req, ct);
         if (!validation.IsValid)

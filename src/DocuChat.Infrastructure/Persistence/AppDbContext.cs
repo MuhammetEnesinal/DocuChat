@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using DocuChat.Domain.Entities;
-using DocuChat.Infrastructure.Identity;
+using DocuChat.Infrastructure.Persistence.Identity;
 
 namespace DocuChat.Infrastructure.Persistence;
 

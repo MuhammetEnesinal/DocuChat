@@ -236,7 +236,7 @@ namespace DocuChat.Infrastructure.Migrations
                     b.ToTable("QuestionCaches");
                 });
 
-            modelBuilder.Entity("DocuChat.Infrastructure.Identity.AppRole", b =>
+            modelBuilder.Entity("DocuChat.Infrastructure.Persistence.Identity.AppRole", b =>
                 {
                     b.Property<string>("Id")
                         .HasColumnType("text");
@@ -265,7 +265,7 @@ namespace DocuChat.Infrastructure.Migrations
                     b.ToTable("AspNetRoles", (string)null);
                 });
 
-            modelBuilder.Entity("DocuChat.Infrastructure.Identity.AppUser", b =>
+            modelBuilder.Entity("DocuChat.Infrastructure.Persistence.Identity.AppUser", b =>
                 {
                     b.Property<string>("Id")
                         .HasColumnType("text");
@@ -454,7 +454,7 @@ namespace DocuChat.Infrastructure.Migrations
 
             modelBuilder.Entity("DocuChat.Domain.Entities.ChatSession", b =>
                 {
-                    b.HasOne("DocuChat.Infrastructure.Identity.AppUser", null)
+                    b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -463,7 +463,7 @@ namespace DocuChat.Infrastructure.Migrations
 
             modelBuilder.Entity("DocuChat.Domain.Entities.Document", b =>
                 {
-                    b.HasOne("DocuChat.Infrastructure.Identity.AppUser", null)
+                    b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -483,7 +483,7 @@ namespace DocuChat.Infrastructure.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
                 {
-                    b.HasOne("DocuChat.Infrastructure.Identity.AppRole", null)
+                    b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppRole", null)
                         .WithMany()
                         .HasForeignKey("RoleId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -492,7 +492,7 @@ namespace DocuChat.Infrastructure.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
                 {
-                    b.HasOne("DocuChat.Infrastructure.Identity.AppUser", null)
+                    b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -501,7 +501,7 @@ namespace DocuChat.Infrastructure.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
                 {
-                    b.HasOne("DocuChat.Infrastructure.Identity.AppUser", null)
+                    b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -510,13 +510,13 @@ namespace DocuChat.Infrastructure.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
                 {
-                    b.HasOne("DocuChat.Infrastructure.Identity.AppRole", null)
+                    b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppRole", null)
                         .WithMany()
                         .HasForeignKey("RoleId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("DocuChat.Infrastructure.Identity.AppUser", null)
+                    b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -525,7 +525,7 @@ namespace DocuChat.Infrastructure.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
                 {
-                    b.HasOne("DocuChat.Infrastructure.Identity.AppUser", null)
+                    b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)

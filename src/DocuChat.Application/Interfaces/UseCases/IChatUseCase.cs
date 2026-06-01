@@ -5,7 +5,16 @@ namespace DocuChat.Application.Interfaces.UseCases;
 
 public interface IChatUseCase
 {
-    Task<Result<AskResponseDto>> AskAsync(AskRequest request, CancellationToken ct = default);
+    // Streaming variant — SSE event'leri için object yield eder (her event JSON serialize edilir).
+    // Event tipleri (payload'da "type" field'ı):
+    //   start          : {sessionId}
+    //   cache_hit      : {answer, images, followUps}
+    //   clarification  : {options}
+    //   token          : {delta}        — birden çok kez gelir
+    //   complete       : {chunks, images, followUps, quality?, badge?}
+    //   error          : {message}
+    //   done           : {}             — son event
+    IAsyncEnumerable<object> AskStreamAsync(AskRequestDto request, CancellationToken ct = default);
 
     Task<Result<IReadOnlyList<ChatSessionResponseDto>>> GetMySessionsAsync(CancellationToken ct = default);
 

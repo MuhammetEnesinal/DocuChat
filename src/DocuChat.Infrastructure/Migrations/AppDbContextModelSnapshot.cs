@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using NpgsqlTypes;
 using Pgvector;
 
 #nullable disable
@@ -142,6 +143,9 @@ namespace DocuChat.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
+                    b.HasIndex("UserId", "FileName")
+                        .IsUnique();
+
                     b.ToTable("Documents");
                 });
 
@@ -154,8 +158,14 @@ namespace DocuChat.Infrastructure.Migrations
                     b.Property<int>("ChunkIndex")
                         .HasColumnType("integer");
 
+                    b.Property<string>("CleanContent")
+                        .HasColumnType("text");
+
                     b.Property<string>("Content")
                         .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ContentHash")
                         .HasColumnType("text");
 
                     b.Property<DateTime>("CreatedAt")
@@ -174,10 +184,35 @@ namespace DocuChat.Infrastructure.Migrations
                     b.Property<string>("ImagePath")
                         .HasColumnType("text");
 
+                    b.Property<Guid?>("NextChunkId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("PageNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("PrevChunkId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("StructuredTableJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Summary")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("TokenCount")
+                        .HasColumnType("integer");
+
+                    b.Property<NpgsqlTsVector>("TsVector")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("tsvector")
+                        .HasColumnName("TsVector");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ContentHash");
 
                     b.HasIndex("DocumentId");
 
@@ -185,6 +220,8 @@ namespace DocuChat.Infrastructure.Migrations
 
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Embedding"), "hnsw");
                     NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Embedding"), new[] { "vector_cosine_ops" });
+
+                    b.HasIndex("DocumentId", "PageNumber");
 
                     b.ToTable("DocumentChunks");
                 });
@@ -201,12 +238,6 @@ namespace DocuChat.Infrastructure.Migrations
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("DocumentContentHashes")
-                        .HasColumnType("text");
-
-                    b.Property<string>("DocumentIds")
-                        .HasColumnType("text");
 
                     b.Property<int>("HitCount")
                         .ValueGeneratedOnAdd()
@@ -244,7 +275,7 @@ namespace DocuChat.Infrastructure.Migrations
                     b.ToTable("QuestionCaches");
                 });
 
-            modelBuilder.Entity("DocuChat.Infrastructure.Identity.AppRole", b =>
+            modelBuilder.Entity("DocuChat.Infrastructure.Persistence.Identity.AppRole", b =>
                 {
                     b.Property<string>("Id")
                         .HasColumnType("text");
@@ -273,7 +304,7 @@ namespace DocuChat.Infrastructure.Migrations
                     b.ToTable("AspNetRoles", (string)null);
                 });
 
-            modelBuilder.Entity("DocuChat.Infrastructure.Identity.AppUser", b =>
+            modelBuilder.Entity("DocuChat.Infrastructure.Persistence.Identity.AppUser", b =>
                 {
                     b.Property<string>("Id")
                         .HasColumnType("text");
@@ -462,7 +493,7 @@ namespace DocuChat.Infrastructure.Migrations
 
             modelBuilder.Entity("DocuChat.Domain.Entities.ChatSession", b =>
                 {
-                    b.HasOne("DocuChat.Infrastructure.Identity.AppUser", null)
+                    b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -471,7 +502,7 @@ namespace DocuChat.Infrastructure.Migrations
 
             modelBuilder.Entity("DocuChat.Domain.Entities.Document", b =>
                 {
-                    b.HasOne("DocuChat.Infrastructure.Identity.AppUser", null)
+                    b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -491,7 +522,7 @@ namespace DocuChat.Infrastructure.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
                 {
-                    b.HasOne("DocuChat.Infrastructure.Identity.AppRole", null)
+                    b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppRole", null)
                         .WithMany()
                         .HasForeignKey("RoleId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -500,7 +531,7 @@ namespace DocuChat.Infrastructure.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
                 {
-                    b.HasOne("DocuChat.Infrastructure.Identity.AppUser", null)
+                    b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -509,7 +540,7 @@ namespace DocuChat.Infrastructure.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
                 {
-                    b.HasOne("DocuChat.Infrastructure.Identity.AppUser", null)
+                    b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -518,13 +549,13 @@ namespace DocuChat.Infrastructure.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
                 {
-                    b.HasOne("DocuChat.Infrastructure.Identity.AppRole", null)
+                    b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppRole", null)
                         .WithMany()
                         .HasForeignKey("RoleId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("DocuChat.Infrastructure.Identity.AppUser", null)
+                    b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -533,7 +564,7 @@ namespace DocuChat.Infrastructure.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
                 {
-                    b.HasOne("DocuChat.Infrastructure.Identity.AppUser", null)
+                    b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)

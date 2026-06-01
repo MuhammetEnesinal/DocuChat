@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import axios from 'axios';
-import { askQuestion, getMessages } from '../services/api';
+import { askQuestionStream, getMessages } from '../services/api';
 import { getRateLimitMessage, showApiError } from '../utils/format';
 import { useToast } from '../components/shared/Toast';
 import { broadcastSessionCreated } from '../lib/sessionsChannel';
@@ -27,7 +27,6 @@ export function useChatMessages(virtuosoRef) {
     const [messagesPage, setMessagesPage] = useState(1);
     const [loadingMore, setLoadingMore] = useState(false);
     const [chunks, setChunks] = useState([]);
-    const [showChunks, setShowChunks] = useState(false);
     const [copiedId, setCopiedId] = useState(null);
     const abortRef = useRef(null);
     const toast = useToast();
@@ -35,7 +34,6 @@ export function useChatMessages(virtuosoRef) {
     const clearMessages = useCallback(() => {
         setMessages([]);
         setChunks([]);
-        setShowChunks(false);
         setHasMoreMessages(false);
         setMessagesPage(1);
     }, []);
@@ -82,60 +80,148 @@ export function useChatMessages(virtuosoRef) {
         if (!q || loading) return;
         setLoading(true);
 
-        const optimisticId = nextMsgId();
-        setMessages(prev => [...prev, {
-            role: 'User', content: q, id: optimisticId,
-            createdAt: new Date().toISOString(), isOptimistic: true,
-        }]);
+        // Optimistik mesajlar: hemen kullanıcı + boş asistan (streaming için)
+        const userMsgId = nextMsgId();
+        const assistantMsgId = nextMsgId();
+        setMessages(prev => [
+            ...prev.filter(m => !m.isClarification),
+            { role: 'User', content: q, id: userMsgId, createdAt: new Date().toISOString() },
+            { role: 'Assistant', content: '', id: assistantMsgId, createdAt: new Date().toISOString(), isStreaming: true },
+        ]);
 
         abortRef.current = new AbortController();
 
-        try {
-            const res = await askQuestion(q, activeSession?.id || null, abortRef.current.signal, skipClarification);
-            const { sessionId, answer, sourceChunks, clarificationOptions, images: respImages } = res.data.data;
+        let receivedAnyToken = false;
+        let receivedComplete = false;
 
-            if (!activeSession) {
-                const newSession = { id: sessionId, title: q.slice(0, 60), createdAt: new Date().toISOString() };
-                onNewSession?.(newSession);
-                broadcastSessionCreated(newSession);
+        const onEvent = (evt) => {
+            switch (evt.type) {
+                case 'start': {
+                    if (!activeSession && evt.sessionId) {
+                        const newSession = { id: evt.sessionId, title: q.slice(0, 60), createdAt: new Date().toISOString() };
+                        onNewSession?.(newSession);
+                        broadcastSessionCreated(newSession);
+                    }
+                    break;
+                }
+                case 'cache_hit': {
+                    receivedAnyToken = true;
+                    receivedComplete = true;
+                    setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+                        ...m,
+                        content: evt.answer || '',
+                        images: evt.images && evt.images.length > 0 ? evt.images : undefined,
+                        followUpQuestions: evt.followUps && evt.followUps.length > 0 ? evt.followUps : undefined,
+                        isStreaming: false,
+                    } : m));
+                    break;
+                }
+                case 'clarification': {
+                    // Asistan placeholder'ını clarification kartına dönüştür
+                    setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+                        ...m,
+                        content: '',
+                        isClarification: true,
+                        clarificationOptions: evt.options || [],
+                        isStreaming: false,
+                    } : m));
+                    break;
+                }
+                case 'token': {
+                    receivedAnyToken = true;
+                    if (evt.delta) {
+                        setMessages(prev => prev.map(m => m.id === assistantMsgId
+                            ? { ...m, content: (m.content || '') + evt.delta }
+                            : m));
+                    }
+                    break;
+                }
+                case 'complete': {
+                    receivedComplete = true;
+                    setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+                        ...m,
+                        images: evt.images && evt.images.length > 0 ? evt.images : undefined,
+                        followUpQuestions: evt.followUps && evt.followUps.length > 0 ? evt.followUps : undefined,
+                        badge: evt.badge || undefined,
+                        isStreaming: false,
+                    } : m));
+                    if (evt.chunks) setChunks(evt.chunks);
+                    break;
+                }
+                case 'error': {
+                    setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+                        ...m,
+                        content: m.content || 'Bir hata oluştu. Lütfen tekrar deneyin.',
+                        isError: true,
+                        retryQuestion: q,
+                        isStreaming: false,
+                    } : m));
+                    toast.error(evt.message || 'Bir hata oluştu');
+                    break;
+                }
+                case 'done': {
+                    // İletim bitti; setLoading finally bloğunda yapılıyor
+                    break;
+                }
+                default: break;
             }
+        };
 
-            if (clarificationOptions?.length >= 2) {
-                setMessages(prev => [
-                    ...prev.filter(m => m.id !== optimisticId),
-                    { role: 'User', content: q, id: nextMsgId(), createdAt: new Date().toISOString() },
-                    { role: 'Assistant', content: '', id: nextMsgId(), createdAt: new Date().toISOString(), isClarification: true, clarificationOptions },
-                ]);
+        try {
+            const result = await askQuestionStream(
+                { question: q, sessionId: activeSession?.id || null, skipClarification },
+                onEvent,
+                abortRef.current.signal
+            );
+
+            if (result.aborted) {
+                // Kullanıcı iptal etti — boş kalan placeholder'ı sil veya partial content'i koru
+                setMessages(prev => prev.map(m => m.id === assistantMsgId
+                    ? { ...m, isStreaming: false, isAborted: !receivedAnyToken }
+                    : m));
+                return;
+            }
+            if (!result.ok) {
+                const msg = result.error || 'Bir hata oluştu';
+                const is429 = msg.includes('429');
+                toast.error(is429 ? '⏳ Sunucu meşgul. Birkaç saniye sonra tekrar deneyin.' : 'Bir hata oluştu');
+                setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+                    ...m,
+                    content: is429
+                        ? '⏳ Sunucu meşgul. Lütfen birkaç saniye bekleyip tekrar deneyin.'
+                        : 'Bir hata oluştu. Lütfen tekrar deneyin.',
+                    isError: true,
+                    retryQuestion: q,
+                    isStreaming: false,
+                } : m));
                 return;
             }
 
-            const images = respImages || res.data.data.images || [];
-            setMessages(prev => [
-                ...prev.filter(m => m.id !== optimisticId && !m.isClarification),
-                { role: 'User', content: q, id: nextMsgId(), createdAt: new Date().toISOString() },
-                { role: 'Assistant', content: answer, id: nextMsgId(), createdAt: new Date().toISOString(), images: images.length > 0 ? images : undefined },
-            ]);
-            setChunks(sourceChunks || []);
+            // İletim bitti ama complete event hiç gelmedi (kısa cevap veya cache_hit)
+            if (!receivedComplete) {
+                setMessages(prev => prev.map(m => m.id === assistantMsgId
+                    ? { ...m, isStreaming: false }
+                    : m));
+            }
 
             setTimeout(() => {
                 virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
             }, 50);
         } catch (err) {
-            if (axios.isCancel(err) || err?.code === 'ERR_CANCELED') {
-                return;  // finally bloğu setLoading(false) yapacak
+            if (axios.isCancel(err) || err?.code === 'ERR_CANCELED' || err?.name === 'AbortError') {
+                setMessages(prev => prev.map(m => m.id === assistantMsgId
+                    ? { ...m, isStreaming: false, isAborted: !receivedAnyToken }
+                    : m));
+                return;
             }
-            // showApiError 429'da warning, diğerlerinde error toast atar
             showApiError(toast, err, getRateLimitMessage(err));
-            setMessages(prev => [...prev, {
-                role: 'Assistant',
-                content: err?.response?.status === 429
-                    ? '⏳ Sunucu meşgul. Lütfen birkaç saniye bekleyip tekrar deneyin.'
-                    : 'Bir hata oluştu. Lütfen tekrar deneyin.',
-                id: nextMsgId(),
-                createdAt: new Date().toISOString(),
+            setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
+                ...m,
+                content: 'Bir hata oluştu. Lütfen tekrar deneyin.',
                 isError: true,
                 retryQuestion: q,
-            }]);
+                isStreaming: false,
+            } : m));
         } finally { setLoading(false); }
     }, [loading, toast, virtuosoRef]);
 
@@ -155,7 +241,6 @@ export function useChatMessages(virtuosoRef) {
         messagesPage,
         loadingMore,
         chunks, setChunks,
-        showChunks, setShowChunks,
         copiedId,
         clearMessages,
         loadMessages,

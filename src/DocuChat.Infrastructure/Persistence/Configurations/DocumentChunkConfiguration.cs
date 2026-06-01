@@ -1,7 +1,9 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using NpgsqlTypes;
 using Pgvector;
 using DocuChat.Domain.Entities;
 
@@ -28,6 +30,23 @@ public class DocumentChunkConfiguration : IEntityTypeConfiguration<DocumentChunk
                .Metadata.SetValueComparer(comparer);
 
         builder.HasIndex(c => c.DocumentId);
+
+        // TsVector — DB'de GENERATED STORED column. Shadow property: Domain entity'sinde yok,
+        builder.Property<NpgsqlTsVector>("TsVector")
+               .HasColumnName("TsVector")
+               .HasColumnType("tsvector")
+               .ValueGeneratedOnAddOrUpdate();
+        var tsv = builder.Metadata.FindProperty("TsVector");
+        if (tsv != null)
+        {
+            tsv.SetBeforeSaveBehavior(PropertySaveBehavior.Ignore);
+            tsv.SetAfterSaveBehavior(PropertySaveBehavior.Ignore);
+        }
+
+        builder.Property(c => c.StructuredTableJson).HasColumnType("jsonb");
+
+        builder.HasIndex(c => c.ContentHash);
+        builder.HasIndex(c => new { c.DocumentId, c.PageNumber });
 
         builder.HasIndex(c => c.Embedding)
                .HasMethod("hnsw")

@@ -48,8 +48,83 @@ export const changePassword = (currentPassword, newPassword) =>
 
 
 // ── Chat ──────────────────────────────────────────────────────────────────
-export const askQuestion = (question, sessionId = null, signal = null, skipClarification = false) =>
-    api.post('/chat/ask', { question, sessionId, skipClarification }, { signal });
+// SSE streaming — backend'in tek chat endpoint'i artık /api/chat/ask-stream.
+// onEvent her event'te çağrılır.
+// Event tipleri: start | cache_hit | clarification | token | complete | done | error
+// Dönüş: {ok: true} normal bitti, {ok: false, error} hata, {aborted: true} iptal.
+export const askQuestionStream = async (
+    { question, sessionId = null, skipClarification = false },
+    onEvent,
+    signal = null
+) => {
+    try {
+        const response = await fetch(`${API_BASE}/api/chat/ask-stream`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Accept': 'text/event-stream',
+            },
+            body: JSON.stringify({ question, sessionId, skipClarification }),
+            signal,
+        });
+
+        if (response.status === 401) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            sessionStorage.setItem('session_expired', '1');
+            window.location.href = '/login';
+            return { ok: false, error: 'Oturum süresi doldu' };
+        }
+
+        if (!response.ok) {
+            const errText = await response.text().catch(() => '');
+            return { ok: false, error: `HTTP ${response.status}: ${errText || response.statusText}` };
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+
+            // SSE parsing: "data: <json>\n\n" formatı
+            let sepIdx;
+            while ((sepIdx = buffer.indexOf('\n\n')) !== -1) {
+                const rawEvent = buffer.slice(0, sepIdx);
+                buffer = buffer.slice(sepIdx + 2);
+
+                // Her satır "data:" ile başlamalı; payload'ı birleştir
+                const dataLines = rawEvent
+                    .split('\n')
+                    .filter(l => l.startsWith('data:'))
+                    .map(l => l.slice(5).replace(/^ /, ''));
+                if (dataLines.length === 0) continue;
+
+                const payloadStr = dataLines.join('\n');
+                let payload;
+                try { payload = JSON.parse(payloadStr); }
+                catch { continue; }
+
+                // Debug: streaming sorunlarını teşhis için. Production'da kaldırılabilir.
+                if (import.meta.env.DEV) {
+                    console.log('[SSE]', payload?.type, payload);
+                }
+                onEvent(payload);
+                if (payload?.type === 'done') return { ok: true };
+            }
+        }
+        return { ok: true };
+    } catch (err) {
+        if (err.name === 'AbortError') return { aborted: true };
+        console.error('[SSE] Stream error:', err);
+        return { ok: false, error: err.message || String(err) };
+    }
+};
 
 export const getSessions = (params = {}) =>
     api.get('/chat/sessions', { params });

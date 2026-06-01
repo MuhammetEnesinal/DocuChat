@@ -6,6 +6,7 @@ using DocuChat.Application.Common;
 using DocuChat.Application.Interfaces.Services;
 using DocuChat.Application.DTOs.Auth;
 using DocuChat.API.Extensions;
+using DocuChat.API.Common;
 
 namespace DocuChat.API.Controllers;
 
@@ -15,18 +16,18 @@ public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
     private readonly ICurrentUser _currentUser;
-    private readonly IValidator<LoginRequest> _loginValidator;
-    private readonly IValidator<ForgotPasswordRequest> _forgotPasswordValidator;
-    private readonly IValidator<ResetPasswordRequest> _resetPasswordValidator;
-    private readonly IValidator<ChangePasswordRequest> _changePasswordValidator;
+    private readonly IValidator<LoginRequestDto> _loginValidator;
+    private readonly IValidator<ForgotPasswordRequestDto> _forgotPasswordValidator;
+    private readonly IValidator<ResetPasswordRequestDto> _resetPasswordValidator;
+    private readonly IValidator<ChangePasswordRequestDto> _changePasswordValidator;
 
     public AuthController(
         IAuthService authService,
         ICurrentUser currentUser,
-        IValidator<LoginRequest> loginValidator,
-        IValidator<ForgotPasswordRequest> forgotPasswordValidator,
-        IValidator<ResetPasswordRequest> resetPasswordValidator,
-        IValidator<ChangePasswordRequest> changePasswordValidator)
+        IValidator<LoginRequestDto> loginValidator,
+        IValidator<ForgotPasswordRequestDto> forgotPasswordValidator,
+        IValidator<ResetPasswordRequestDto> resetPasswordValidator,
+        IValidator<ChangePasswordRequestDto> changePasswordValidator)
     {
         _authService = authService;
         _currentUser = currentUser;
@@ -41,7 +42,7 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<AuthResponseDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
-    public async Task<IActionResult> Login([FromBody] LoginRequest req, CancellationToken ct)
+    public async Task<IActionResult> Login([FromBody] LoginRequestDto req, CancellationToken ct)
     {
         var validation = await _loginValidator.ValidateAsync(req, ct);
         if (!validation.IsValid)
@@ -58,7 +59,7 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
-    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest req, CancellationToken ct)
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequestDto req, CancellationToken ct)
     {
         var validation = await _forgotPasswordValidator.ValidateAsync(req, ct);
         if (!validation.IsValid)
@@ -75,7 +76,7 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
-    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest req, CancellationToken ct)
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequestDto req, CancellationToken ct)
     {
         var validation = await _resetPasswordValidator.ValidateAsync(req, ct);
         if (!validation.IsValid)
@@ -102,7 +103,7 @@ public class AuthController : ControllerBase
     [EnableRateLimiting("login")]
     [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
-    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest req, CancellationToken ct)
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequestDto req, CancellationToken ct)
     {
         var validation = await _changePasswordValidator.ValidateAsync(req, ct);
         if (!validation.IsValid)

@@ -14,44 +14,56 @@ public class QuestionCacheRepository : IQuestionCacheRepository
 
     public QuestionCacheRepository(AppDbContext db) => _db = db;
 
-    public async Task<QuestionCache?> FindSimilarAsync(
+    public async Task<CacheMatch?> FindSimilarAsync(
         float[] queryVector,
         double threshold,
-        string? documentIds = null,
-        string? documentContentHashes = null,
         CancellationToken ct = default)
     {
         var vector = new Vector(queryVector);
 
+        // Arama global → cache global. Belge filtresi yok; içerik değişiminde tüm cache temizlenir.
         var query = _db.QuestionCaches
             .Where(q => 1 - q.QuestionVector.CosineDistance(vector) >= threshold);
 
-        if (!string.IsNullOrWhiteSpace(documentIds))
-            query = query.Where(q => q.DocumentIds == documentIds);
-        else
-            query = query.Where(q => q.DocumentIds == null);
+        // En yakın 3 adayı çek (debug için), en yüksek skoru döndür.
+        var candidates = await query
+            .Select(q => new
+            {
+                Cache = q,
+                Sim = 1 - q.QuestionVector.CosineDistance(vector)
+            })
+            .OrderByDescending(x => x.Sim)
+            .Take(3)
+            .ToListAsync(ct);
 
-        // 1C: belge ContentHash'leri verilmişse → cache satırı aynı hash setine sahip olmalı.
-        // Reprocess sonrası belgenin hash'i değişir → eski cache mismatch'le elenir.
-        if (!string.IsNullOrWhiteSpace(documentContentHashes))
-            query = query.Where(q => q.DocumentContentHashes == documentContentHashes);
+        if (candidates.Count == 0)
+        {
+            // Eşik altı veya hiç entry yok — debug için en yakını da göster
+            var nearest = await _db.QuestionCaches
+                .Select(q => new
+                {
+                    Q = q.QuestionText,
+                    Sim = 1 - q.QuestionVector.CosineDistance(vector)
+                })
+                .OrderByDescending(x => x.Sim)
+                .Take(1)
+                .FirstOrDefaultAsync(ct);
 
-        return await query
-            .OrderByDescending(q => 1 - q.QuestionVector.CosineDistance(vector))
-            .FirstOrDefaultAsync(ct);
+            if (nearest != null)
+                Console.WriteLine($"[CacheDebug] MISS — threshold={threshold:F3}, en yakın aday sim={nearest.Sim:F3} q='{nearest.Q}'");
+            return null;
+        }
+
+        var best = candidates[0];
+        Console.WriteLine($"[CacheDebug] HIT — threshold={threshold:F3}, sim={best.Sim:F3} q='{best.Cache.QuestionText}'");
+        return new CacheMatch(best.Cache, best.Sim);
     }
 
-    /// <summary>
-    /// Aynı (normalize edilmiş QuestionText, DocumentIds) çifti varsa yeni satır eklemek yerine
-    /// mevcut satırı tazeler (Answer/ImagesJson/Vector + HitCount++) — yarış koşulu veya
-    /// embedding eşiği altı tekrarlarda çoğalmayı engeller.
-    /// </summary>
     public async Task AddAsync(QuestionCache entry, CancellationToken ct = default)
     {
         var normalized = (entry.QuestionText ?? string.Empty).Trim().ToLower();
         var existing = await _db.QuestionCaches
-            .Where(q => q.DocumentIds == entry.DocumentIds
-                     && q.QuestionText.ToLower() == normalized)
+            .Where(q => q.QuestionText.ToLower() == normalized)
             .FirstOrDefaultAsync(ct);
 
         if (existing is not null)
@@ -80,24 +92,6 @@ public class QuestionCacheRepository : IQuestionCacheRepository
     public async Task ClearAllAsync(CancellationToken ct = default)
     {
         await _db.QuestionCaches.ExecuteDeleteAsync(ct);
-    }
-
-    public async Task ClearByDocumentIdAsync(Guid docId, CancellationToken ct = default)
-    {
-        // DocumentIds formatı: ",<guid>,<guid>," (önce ve sonra virgül) — alt-string çakışması yok.
-        var token = $",{docId},";
-        await _db.QuestionCaches
-            .Where(q => q.DocumentIds != null && q.DocumentIds.Contains(token))
-            .ExecuteDeleteAsync(ct);
-    }
-
-    public async Task ClearByDocumentIdsAsync(IEnumerable<Guid> docIds, CancellationToken ct = default)
-    {
-        var tokens = docIds.Select(id => $",{id},").ToList();
-        if (tokens.Count == 0) return;
-        await _db.QuestionCaches
-            .Where(q => q.DocumentIds != null && tokens.Any(t => q.DocumentIds.Contains(t)))
-            .ExecuteDeleteAsync(ct);
     }
 
     public async Task<IReadOnlyList<string>> GetTopByHitCountAsync(int limit, CancellationToken ct = default)

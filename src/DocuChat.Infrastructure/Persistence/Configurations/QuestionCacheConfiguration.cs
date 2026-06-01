@@ -15,8 +15,6 @@ public class QuestionCacheConfiguration : IEntityTypeConfiguration<QuestionCache
         builder.Property(x => x.QuestionText).IsRequired();
         builder.Property(x => x.Answer).IsRequired();
         builder.Property(x => x.HitCount).HasDefaultValue(0);
-        builder.Property(x => x.DocumentIds).IsRequired(false);
-        builder.Property(x => x.DocumentContentHashes).IsRequired(false);
 
         var converter = new ValueConverter<float[], Vector>(
             v => new Vector(v),

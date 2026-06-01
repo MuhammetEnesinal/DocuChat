@@ -1,4 +1,4 @@
-﻿using DocuChat.Infrastructure.Identity;
+﻿using DocuChat.Infrastructure.Persistence.Identity;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;

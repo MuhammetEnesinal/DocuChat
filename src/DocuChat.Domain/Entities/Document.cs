@@ -1,4 +1,4 @@
-﻿using DocuChat.Domain.Enums;
+using DocuChat.Domain.Enums;
 
 namespace DocuChat.Domain.Entities;
 
@@ -15,10 +15,10 @@ public class Document : BaseEntity
     public DocumentStatus Status { get; set; } = DocumentStatus.Pending;
     public FileType FileType { get; set; } = FileType.Pdf;
 
-    // 1C: chunks içeriğinin SHA256 hash'i. Reprocess'te değişir → cache mismatch tetiklenir.
+    // chunks içeriğinin SHA256 hash'i — değişince reprocess cache invalidation tetiklenir.
     public string? ContentHash { get; set; }
 
-    // 4A: LLM ile üretilmiş 1-2 cümlelik konu özeti (DetectRelevantDocs için).
+    // LLM ile üretilmiş 1-2 cümlelik konu özeti.
     public string? Summary { get; set; }
 
     public List<DocumentChunk> Chunks { get; set; } = new();
