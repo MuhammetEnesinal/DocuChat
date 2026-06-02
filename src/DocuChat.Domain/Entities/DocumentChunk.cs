@@ -6,7 +6,6 @@ public class DocumentChunk : BaseEntity
     public string Content { get; set; } = string.Empty;
     public int ChunkIndex { get; set; }
     public float[] Embedding { get; set; } = Array.Empty<float>();
-    public string? ImagePath { get; set; }
     public string? Header { get; set; }
 
     public string? Summary { get; set; }
@@ -20,4 +19,5 @@ public class DocumentChunk : BaseEntity
     public string? ContentHash { get; set; }           // değişince reprocess cache invalidation tetiklenir
 
     public Document? Document { get; set; }
+    public List<ChunkImage> ImageLinks { get; set; } = new();
 }

@@ -11,6 +11,8 @@ public class UnitOfWork : IUnitOfWork
 
     public IDocumentRepository Documents { get; }
     public IDocumentChunkRepository Chunks { get; }
+    public IDocumentImageRepository Images { get; }
+    public IChunkImageRepository ChunkImages { get; }
     public IChatSessionRepository Sessions { get; }
     public IChatMessageRepository Messages { get; }
     public IQuestionCacheRepository QuestionCache { get; }
@@ -20,6 +22,8 @@ public class UnitOfWork : IUnitOfWork
         _db = db;
         Documents = new DocumentRepository(db);
         Chunks = new DocumentChunkRepository(db);
+        Images = new DocumentImageRepository(db);
+        ChunkImages = new ChunkImageRepository(db);
         Sessions = new ChatSessionRepository(db);
         Messages = new ChatMessageRepository(db);
         QuestionCache = new QuestionCacheRepository(db);

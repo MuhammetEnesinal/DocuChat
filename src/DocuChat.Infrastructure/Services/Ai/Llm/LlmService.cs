@@ -70,7 +70,13 @@ public class LlmService : ILlmService
         }
     }
 
-    // Chunk içeriklerini KAYNAK bloklarına çevirir + global resim listesi + [IMG_REF:n] → [IMG:N] map.
+    // Chunk içeriklerini KAYNAK bloklarına çevirir + LLM'e standart MARKDOWN IMAGE syntax verir.
+    // [IMG:N — caption] (chunk-local) → ![caption](/uploads/path) (markdown).
+    // LLM eğitim verisinde milyonlarca markdown image örneği gördüğü için DOĞAL davranır;
+    // frontend ReactMarkdown standart <img> render eder, URL kullanıcıya görünmez.
+    private static readonly System.Text.RegularExpressions.Regex ImgMarkerRegex =
+        new(@"\[IMG:(\d+)([^\]]*)\]", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     private (string Context, List<string> ImageUrls) BuildContextAndImages(IReadOnlyList<ChunkResult> chunkList)
     {
         var chunkImageLists = chunkList.Select(c =>
@@ -87,7 +93,6 @@ public class LlmService : ILlmService
         var seenUrls = new HashSet<string>(StringComparer.Ordinal);
         var allUniqueImages = chunkImageLists.SelectMany(x => x).Where(p => seenUrls.Add(p)).ToList();
         var sentImageUrls = allUniqueImages.Take(_client.MaxImages).ToList();
-        var pathToGlobalIdx = sentImageUrls.Select((p, i) => (p, i)).ToDictionary(x => x.p, x => x.i + 1);
 
         var contextParts = new List<string>();
         for (var ci = 0; ci < chunkList.Count; ci++)
@@ -101,34 +106,44 @@ public class LlmService : ILlmService
             string chunkText;
             if (paths.Count > 0)
             {
-                var resolvedContent = System.Text.RegularExpressions.Regex.Replace(
-                    cleanContent,
-                    @"\[IMG_REF:(\d+)\]",
-                    m =>
-                    {
-                        if (int.TryParse(m.Groups[1].Value, out var localIdx)
-                            && localIdx < paths.Count
-                            && pathToGlobalIdx.TryGetValue(paths[localIdx], out var gIdx))
-                            return $"[IMG:{gIdx}]";
-                        return "";
-                    });
-
-                if (!resolvedContent.Contains("[IMG:"))
+                // [IMG:N — caption] → ![alt](/uploads/path)
+                // - alt: inline caption varsa kullanılır (Pixtral üretimi), yoksa "görsel"
+                // - src: /uploads/{filename} — static file serving
+                var resolvedContent = ImgMarkerRegex.Replace(cleanContent, m =>
                 {
-                    var sentFromChunk = paths.Where(p => pathToGlobalIdx.ContainsKey(p)).ToList();
-                    if (sentFromChunk.Count > 0)
-                    {
-                        var nums = string.Join(", ", sentFromChunk.Select(p => $"[IMG:{pathToGlobalIdx[p]}]"));
-                        resolvedContent = $"[GORSELLER: {sentFromChunk.Count} adet - {nums}]\n\n{resolvedContent}";
-                    }
-                }
+                    if (!int.TryParse(m.Groups[1].Value, out var local1Based)) return m.Value;
+                    var localIdx = local1Based - 1;
+                    if (localIdx < 0 || localIdx >= paths.Count) return m.Value;
+
+                    var path = paths[localIdx];
+                    // Group 2 = " — caption" veya boş. Trim '—', '–', '-' ve boşluklar.
+                    var captionRaw = m.Groups[2].Value.Trim();
+                    var alt = string.IsNullOrEmpty(captionRaw)
+                        ? "gorsel"
+                        : captionRaw.TrimStart(' ', '—', '–', '-', ':').Trim();
+                    // Markdown alt text içinde ] olmamalı, parantez kaçır
+                    alt = alt.Replace("[", "(").Replace("]", ")");
+                    if (alt.Length > 200) alt = alt[..200].TrimEnd() + "...";
+
+                    return $"![{alt}](/uploads/{path})";
+                });
+
+                // LLM'e "bu kaynağın görselleri" ipucu — kullanılabilecek path listesi
+                var availableImgs = paths
+                    .Select((p, i) => $"![{(i + 1)}](/uploads/{p})")
+                    .ToList();
+                var imgHint = availableImgs.Count > 0
+                    ? $"[BU KAYNAĞIN KULLANILABİLİR GÖRSELLERİ: {string.Join(" ", availableImgs)}]\n\n"
+                    : "";
 
                 var headerSuffix = !string.IsNullOrWhiteSpace(c.Header) ? $" | {c.Header}" : "";
-                _logger.LogDebug("[LLM Context] Parca {Index} | {FileName} - {ImageCount} gorsel", ci + 1, c.FileName, paths.Count);
+                _logger.LogInformation("[LLM Context] KAYNAK [{Index}] | {FileName} - {Count} markdown img",
+                    ci + 1, c.FileName, paths.Count);
                 chunkText = $"═══════════════════════════════════════════════════════════\n" +
                             $"  KAYNAK [{ci + 1}]  •  Belge: {c.FileName}{headerSuffix}\n" +
                             $"═══════════════════════════════════════════════════════════\n\n" +
-                            $"{resolvedContent}";
+                            imgHint +
+                            resolvedContent;
             }
             else
             {
@@ -136,7 +151,7 @@ public class LlmService : ILlmService
                 chunkText = $"═══════════════════════════════════════════════════════════\n" +
                             $"  KAYNAK [{ci + 1}]  •  Belge: {c.FileName}{headerSuffix}\n" +
                             $"═══════════════════════════════════════════════════════════\n\n" +
-                            $"{cleanContent}";
+                            cleanContent;
             }
 
             contextParts.Add(chunkText);
@@ -418,6 +433,65 @@ public class LlmService : ILlmService
         {
             _logger.LogDebug(ex, "[ChunkContext] üretilemedi — chunk orijinaliyle indexlenecek");
             return string.Empty;
+        }
+    }
+
+    public async Task<IReadOnlyList<string>> GenerateChunkContextsBatchAsync(
+        string documentSummary,
+        IReadOnlyList<(string? Header, string Content)> chunks,
+        CancellationToken ct = default)
+    {
+        if (chunks.Count == 0) return Array.Empty<string>();
+
+        var results = new string[chunks.Count];
+        var payload = HelperPayload(
+            LlmPrompts.ChunkContextBatch.System,
+            LlmPrompts.ChunkContextBatch.User(documentSummary, chunks),
+            maxTokens: Math.Min(1500, chunks.Count * 100),
+            temperature: 0.1f);
+
+        try
+        {
+            var response = await _client.PostHelperAsync(payload, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("[BatchCtx] Helper HTTP {S} — fallback empty",
+                    (int)response.StatusCode);
+                return results;
+            }
+
+            var raw = (await ReadContentAsync(response, ct) ?? "").Trim();
+            if (string.IsNullOrEmpty(raw)) return results;
+
+            raw = System.Text.RegularExpressions.Regex.Replace(raw, @"^```(?:json)?\s*|\s*```$", "");
+
+            using var doc = JsonDocument.Parse(raw);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return results;
+
+            var idx = 0;
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                if (idx >= chunks.Count) break;
+                string? v = null;
+                if (item.ValueKind == JsonValueKind.Object
+                    && item.TryGetProperty("context", out var ctxEl)
+                    && ctxEl.ValueKind == JsonValueKind.String)
+                    v = ctxEl.GetString();
+                else if (item.ValueKind == JsonValueKind.String)
+                    v = item.GetString();
+
+                if (!string.IsNullOrWhiteSpace(v))
+                    results[idx] = v.Length > 300 ? v[..300] : v;
+                idx++;
+            }
+
+            _logger.LogInformation("[BatchCtx] {N} chunk için context üretildi", chunks.Count);
+            return results;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[BatchCtx] Hata — boş array");
+            return results;
         }
     }
 

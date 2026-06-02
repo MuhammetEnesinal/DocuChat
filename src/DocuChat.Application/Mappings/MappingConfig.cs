@@ -36,7 +36,11 @@ public static class MappingConfig
             .Map(dest => dest.Id, src => src.Id)
             .Map(dest => dest.ChunkIndex, src => src.ChunkIndex)
             .Map(dest => dest.Content, src => src.Content)
-            .Map(dest => dest.ImagePath, src => src.ImagePath);
+            .Map(dest => dest.ImagePaths, src =>
+                src.ImageLinks
+                   .OrderBy(il => il.PositionInChunk)
+                   .Select(il => il.Image!.Path)
+                   .ToList());
 
         // Aynı şekil; tip ayrımı API yüzeyini internal model'den izole eder.
         TypeAdapterConfig<ChunkResult, ChunkResponseDto>.NewConfig();

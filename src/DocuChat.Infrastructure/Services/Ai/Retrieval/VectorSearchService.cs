@@ -72,22 +72,23 @@ public class VectorSearchService : IVectorSearch
             ? FuseRrf(denseRanked, bm25Ranked, _rerankCandidates)
             : denseRanked.Select(d => d.Id).ToList();
 
-        // Top RRF aday'larını DB'den çek (chunk + doc metadata)
+        // Top RRF aday'larını DB'den çek (chunk + doc metadata + image join'leri)
+        // Görsel kaynağı: ChunkImages → DocumentImages join (artık chunk.ImagePath JSON DEĞİL).
         var candidates = await _db.DocumentChunks
             .Where(c => fusedIds.Contains(c.Id))
-            .Join(_db.Documents,
-                  chunk => chunk.DocumentId,
-                  doc => doc.Id,
-                  (chunk, doc) => new
-                  {
-                      chunk.Id,
-                      doc.FileName,
-                      chunk.Content,
-                      chunk.ChunkIndex,
-                      chunk.ImagePath,
-                      chunk.Header,
-                      chunk.PageNumber
-                  })
+            .Select(c => new
+            {
+                c.Id,
+                FileName = c.Document!.FileName,
+                c.Content,
+                c.ChunkIndex,
+                c.Header,
+                c.PageNumber,
+                ImagePaths = c.ImageLinks
+                    .OrderBy(il => il.PositionInChunk)
+                    .Select(il => il.Image!.Path)
+                    .ToList()
+            })
             .ToListAsync(ct);
 
         // RRF sırasını koru
@@ -117,7 +118,11 @@ public class VectorSearchService : IVectorSearch
                 })
                 .Where(x => x.Score >= 0)  // negative skor = istenmeyen
                 .OrderByDescending(x => x.Score)
-                .Select(x => new ChunkResult(x.Chunk.FileName, x.Chunk.Content, x.Chunk.ImagePath, x.Chunk.Header))
+                .Select(x => new ChunkResult(
+                    x.Chunk.FileName,
+                    x.Chunk.Content,
+                    SerializeImagePaths(x.Chunk.ImagePaths),
+                    x.Chunk.Header))
                 .ToList();
 
             // Doc dağılımını logla — debug için
@@ -131,12 +136,18 @@ public class VectorSearchService : IVectorSearch
         {
             ordered = candidates
                 .Take(topK)
-                .Select(c => new ChunkResult(c.FileName, c.Content, c.ImagePath, c.Header))
+                .Select(c => new ChunkResult(
+                    c.FileName, c.Content, SerializeImagePaths(c.ImagePaths), c.Header))
                 .ToList();
         }
 
         return ordered;
     }
+
+    // ChunkResult.ImagePath JSON string formatını korur — LlmService.BuildContextAndImages
+    // bu formatı parse edip [IMG:N] markerlarını çözer.
+    private static string? SerializeImagePaths(List<string> paths) =>
+        paths.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(paths);
 
     private static int GetDynamicTopK(int candidateCount)
     {

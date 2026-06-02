@@ -298,6 +298,7 @@ public class ChatUseCase : IChatUseCase
         var quality = await SafeValidateAsync(searchQuestion, chunks, answer, ct);
         var llmRejected = LooksLikeRejection(answer);
         answer = StripNoAnswerMarker(answer);
+        answer = StripKaynakReferences(answer);
 
         string? badge = null;
         if (quality.Score < 0.4)
@@ -406,6 +407,15 @@ public class ChatUseCase : IChatUseCase
         if (string.IsNullOrWhiteSpace(answer)) return true;
         return answer.TrimStart().StartsWith(NoAnswerMarker, StringComparison.Ordinal);
     }
+
+    // LLM bazen prompt'a rağmen "(KAYNAK [N])" referansları sızdırıyor → post-process strip.
+    // Hem "(KAYNAK [1])" hem "(KAYNAK 1)" hem "KAYNAK [1]" yakalanır.
+    private static readonly System.Text.RegularExpressions.Regex KaynakRefRegex =
+        new(@"\s*\(?\s*KAYNAK\s*\[?\s*\d+\s*\]?\s*\)?",
+            System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    private static string StripKaynakReferences(string answer) =>
+        string.IsNullOrEmpty(answer) ? answer : KaynakRefRegex.Replace(answer, "");
 
     private static string StripNoAnswerMarker(string answer)
     {

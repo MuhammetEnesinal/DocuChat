@@ -51,6 +51,16 @@ public interface ILlmService
         string chunkContent,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Toplu ChunkContext üretimi. N chunk için TEK LLM call, JSON array döner.
+    /// DocumentUseCase batch'leri PARALEL çağırır → 50 chunk = 5 batch × paralel = ~1 call süresi.
+    /// Fail-open: hata/eksik sonuçta boş string ile doldurur.
+    /// </summary>
+    Task<IReadOnlyList<string>> GenerateChunkContextsBatchAsync(
+        string documentSummary,
+        IReadOnlyList<(string? Header, string Content)> chunks,
+        CancellationToken ct = default);
+
     Task<string?> GenerateDocumentSummaryAsync(
         string sampleContent,
         CancellationToken ct = default);

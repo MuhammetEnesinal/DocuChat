@@ -15,6 +15,10 @@ public sealed class SemanticChunker
     private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = false };
     private static readonly Regex ImgPathRegex = new(@"\[IMG_PATH:([^\]]+)\]", RegexOptions.Compiled);
 
+    // Atomik block'lar (Table/Code) bu eşiği aşarsa parçalanır.
+    // Tablo: satır-bazlı + header tekrarı. Kod: satır-bazlı.
+    private const int MaxAtomicTokens = 1500;
+
     public SemanticChunker(ITokenCounter tokens, IMarkdownRenderer renderer, SemanticSplitter splitter)
     {
         _tokens = tokens;
@@ -67,8 +71,9 @@ public sealed class SemanticChunker
 
         foreach (var block in group)
         {
-            // Table → atomik
-            if (block.Type == BlockType.Table)
+            // Table & Code → atomik (yapı/sözcük dağarcığı korunur).
+            // Hard limit: > MaxAtomicTokens (1500) ise yapısal bölünme uygulanır.
+            if (block.Type == BlockType.Table || block.Type == BlockType.Code)
             {
                 if (pending.Count > 0)
                 {
@@ -76,7 +81,16 @@ public sealed class SemanticChunker
                     pending.Clear();
                     pendingTokens = 0;
                 }
-                output.Add(BuildChunk(new List<SemanticBlock> { block }, header));
+
+                var atomicTokens = _tokens.Count(_renderer.ToCleanText(block));
+                if (atomicTokens > MaxAtomicTokens)
+                {
+                    SplitOversizedAtomic(block, header, output);
+                }
+                else
+                {
+                    output.Add(BuildChunk(new List<SemanticBlock> { block }, header));
+                }
                 continue;
             }
 
@@ -146,6 +160,89 @@ public sealed class SemanticChunker
             if (i == pieces.Count - 1) piece.Images.AddRange(block.Images);
             output.Add(BuildChunk(new List<SemanticBlock> { piece }, header));
         }
+    }
+
+    // Dev atomik block bölücüsü — Table/Code için yapısal split (semantic split kullanmaz).
+    // Table: row-based, her parça header satırını taşır (LLM context kaybetmez).
+    // Code: line-based, semantik üst-yapı yok.
+    private void SplitOversizedAtomic(SemanticBlock block, string header, List<PipelineChunk> output)
+    {
+        if (block.Type == BlockType.Table && block.Table is { Headers.Count: > 0 })
+        {
+            var headers = block.Table.Headers.ToList();
+            var rows = block.Table.Rows.ToList();
+            if (rows.Count == 0)
+            {
+                output.Add(BuildChunk(new List<SemanticBlock> { block }, header));
+                return;
+            }
+
+            var headerRowApprox = _tokens.Count(string.Join(" ", headers));
+            var pending = new List<IReadOnlyDictionary<string, string>>();
+            var pendingTokens = headerRowApprox;
+            foreach (var row in rows)
+            {
+                var rowTokens = _tokens.Count(string.Join(" ", row.Values));
+                if (pending.Count > 0 && pendingTokens + rowTokens > MaxAtomicTokens)
+                {
+                    EmitTablePiece(block, header, headers, pending, output);
+                    pending.Clear();
+                    pendingTokens = headerRowApprox;
+                }
+                pending.Add(row);
+                pendingTokens += rowTokens;
+            }
+            if (pending.Count > 0)
+                EmitTablePiece(block, header, headers, pending, output);
+            return;
+        }
+
+        if (block.Type == BlockType.Code && !string.IsNullOrEmpty(block.TextContent))
+        {
+            var lines = block.TextContent.Split('\n');
+            var pending = new List<string>();
+            var pendingTokens = 0;
+            foreach (var line in lines)
+            {
+                var t = _tokens.Count(line);
+                if (pending.Count > 0 && pendingTokens + t > MaxAtomicTokens)
+                {
+                    EmitCodePiece(block, header, pending, output);
+                    pending.Clear();
+                    pendingTokens = 0;
+                }
+                pending.Add(line);
+                pendingTokens += t;
+            }
+            if (pending.Count > 0)
+                EmitCodePiece(block, header, pending, output);
+            return;
+        }
+
+        // Fallback: tek chunk bırak (BGE-M3 8K context yutar)
+        output.Add(BuildChunk(new List<SemanticBlock> { block }, header));
+    }
+
+    private void EmitTablePiece(SemanticBlock orig, string header,
+        IReadOnlyList<string> headers,
+        List<IReadOnlyDictionary<string, string>> rows,
+        List<PipelineChunk> output)
+    {
+        var piece = new SemanticBlock(orig.Index, orig.PageNumber, BlockType.Table, orig.Headers)
+        {
+            Table = new Models.StructuredTable(headers, rows.ToList())
+        };
+        output.Add(BuildChunk(new List<SemanticBlock> { piece }, header));
+    }
+
+    private void EmitCodePiece(SemanticBlock orig, string header,
+        List<string> lines, List<PipelineChunk> output)
+    {
+        var piece = new SemanticBlock(orig.Index, orig.PageNumber, BlockType.Code, orig.Headers)
+        {
+            TextContent = string.Join("\n", lines)
+        };
+        output.Add(BuildChunk(new List<SemanticBlock> { piece }, header));
     }
 
     private static SemanticBlock MakeListPiece(SemanticBlock original, List<string> items)

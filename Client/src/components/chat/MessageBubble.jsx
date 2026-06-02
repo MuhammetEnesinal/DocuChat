@@ -10,6 +10,23 @@ function formatTime(dateStr) {
     return new Date(dateStr).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 }
 
+/**
+ * Streaming sırasında YARIM markdown image syntax'ı gizler:
+ *   ![alt](url... → (henüz `)` gelmedi) → kullanıcı çirkin text görmesin
+ *
+ * Mantık: stream içinde son yarım kalmış `![...]( ...` parçasını cevabın sonundan kırp.
+ * Stream bittikten sonra TÜM cevap zaten tamamlanmış olur, normal render edilir.
+ * Tamamlanmış görseller (kapanış `)` olan) etkilenmez — onlar normal render olur.
+ */
+function sanitizeStreamingMarkdown(content, isStreaming) {
+    if (!content) return content;
+    if (!isStreaming) return content;
+    // Sondaki açık alt ya da açık url parçasını kes
+    // Örn: "metin ![alt](/uploads/img_..."  → "metin "
+    //      "metin ![partial"                → "metin "
+    return content.replace(/!\[[^\]]*(?:\][^()]*(?:\([^)]*)?)?$/, '');
+}
+
 function ImageModal({ src, onClose }) {
     return (
         <div
@@ -98,41 +115,46 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
 
     if (msg.isClarification) return <ClarificationBubble msg={msg} onClarificationSelect={onClarificationSelect} onClarificationDismiss={onClarificationDismiss} />;
 
-    const resolveImgMarker = (text) => {
-        const match = text?.match(/^\[IMG:(\d+)\]$/);
-        if (!match) return null;
-        const idx = parseInt(match[1], 10) - 1;
-        return idx >= 0 && idx < images.length ? images[idx] : null;
-    };
+    // Backend artık standart markdown image syntax üretiyor: ![alt](/uploads/img_xyz.jpg)
+    // Frontend ReactMarkdown bunu doğal olarak <img> tag'ine çevirir; custom 'img' component
+    // ile ClickableImage olarak render edilir. Kullanıcı URL'yi GÖRMEZ — sadece görseli.
+    //
+    // resolveImgMarker / [IMG:N] kodu kaldırıldı. Eski mesajlar [IMG:N] içeriyorsa text olarak
+    // görünecek — bunlar arşivde küçük bir kalıntı, yeni sorgu sorduğunda doğru render olur.
 
-    const ClickableImage = ({ src, inTable = false }) => (
-        <img
-            src={src}
-            alt="görsel"
-            onClick={() => setModalSrc(src)}
-            onError={(e) => { e.currentTarget.style.display = 'none'; }}
-            style={{
-                display: 'block',
-                width: inTable ? '120px' : 'auto',
-                height: inTable ? '120px' : 'auto',
-                maxWidth: inTable ? '120px' : '360px',
-                maxHeight: inTable ? '120px' : '280px',
-                objectFit: 'contain',
-                borderRadius: inTable ? '6px' : '10px',
-                border: '1px solid var(--border)',
-                cursor: 'zoom-in',
-                transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-            }}
-            onMouseEnter={e => {
-                e.currentTarget.style.transform = 'scale(1.02)';
-                e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.25)';
-            }}
-            onMouseLeave={e => {
-                e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.boxShadow = 'none';
-            }}
-        />
-    );
+    const ClickableImage = ({ src, alt = 'görsel', inTable = false }) => {
+        // Relative path geldiyse API_BASE prefix ekle (örn. /uploads/img.jpg → http://localhost/uploads/img.jpg)
+        const fullSrc = src?.startsWith('http') ? src : `${API_BASE}${src}`;
+        return (
+            <img
+                src={fullSrc}
+                alt={alt}
+                onClick={() => setModalSrc(fullSrc)}
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                style={{
+                    display: 'block',
+                    width: inTable ? '120px' : 'auto',
+                    height: inTable ? '120px' : 'auto',
+                    maxWidth: inTable ? '120px' : '360px',
+                    maxHeight: inTable ? '120px' : '280px',
+                    objectFit: 'contain',
+                    borderRadius: inTable ? '6px' : '10px',
+                    border: '1px solid var(--border)',
+                    cursor: 'zoom-in',
+                    transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+                    margin: inTable ? '0' : '8px 0',
+                }}
+                onMouseEnter={e => {
+                    e.currentTarget.style.transform = 'scale(1.02)';
+                    e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.25)';
+                }}
+                onMouseLeave={e => {
+                    e.currentTarget.style.transform = 'scale(1)';
+                    e.currentTarget.style.boxShadow = 'none';
+                }}
+            />
+        );
+    };
 
     const components = {
         code({ className, children }) {
@@ -151,37 +173,17 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
         table: ({ node, ...props }) => (
             <div className="table-wrapper"><table {...props} /></div>
         ),
-        p: ({ node, children, ...props }) => {
-            const arr = Array.isArray(children) ? children : [children];
-            const processed = arr.flatMap((child, ci) => {
-                if (typeof child !== 'string') return [child];
-                const parts = child.split(/(\[IMG:\d+\])/g);
-                if (parts.length === 1) return [child];
-                return parts.map((part, j) => {
-                    const imgPath = resolveImgMarker(part.trim());
-                    if (imgPath) {
-                        const fullSrc = `${API_BASE}/uploads/${imgPath}`;
-                        return (
-                            <span key={`${ci}-${j}`} style={{ display: 'block', margin: '8px 0' }}>
-                                <ClickableImage src={fullSrc} inTable={false} />
-                            </span>
-                        );
-                    }
-                    return part;
-                });
-            });
-            return <p {...props}>{processed}</p>;
-        },
+        // Standart markdown image → ClickableImage (modal + hover efekti)
+        img: ({ src, alt }) => <ClickableImage src={src} alt={alt} inTable={false} />,
+        // Tablo hücresinde sadece img varsa → small inTable görseli
         td: ({ node, children, ...props }) => {
-            const extractText = (nodes) => (nodes || [])
-                .map(n => n.type === 'text' ? n.value : extractText(n.children))
-                .flat().join('');
-            const text = extractText(node.children);
-            const imgPath = resolveImgMarker(text.trim());
-            if (imgPath) {
+            // Eğer td'nin tek child'ı bir img ise inTable=true ile render et
+            const isJustImage = node?.children?.length === 1 && node.children[0]?.tagName === 'img';
+            if (isJustImage) {
+                const imgNode = node.children[0];
                 return (
                     <td {...props}>
-                        <ClickableImage src={`${API_BASE}/uploads/${imgPath}`} inTable={true} />
+                        <ClickableImage src={imgNode.properties?.src} alt={imgNode.properties?.alt} inTable={true} />
                     </td>
                 );
             }
@@ -220,7 +222,7 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
                             <>
                                 {msg.content ? (
                                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-                                        {msg.content}
+                                        {sanitizeStreamingMarkdown(msg.content, msg.isStreaming)}
                                     </ReactMarkdown>
                                 ) : null}
                                 {msg.isStreaming && (

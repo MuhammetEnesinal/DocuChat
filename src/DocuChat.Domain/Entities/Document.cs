@@ -22,4 +22,5 @@ public class Document : BaseEntity
     public string? Summary { get; set; }
 
     public List<DocumentChunk> Chunks { get; set; } = new();
+    public List<DocumentImage> Images { get; set; } = new();
 }
