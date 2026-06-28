@@ -3,4 +3,8 @@
 public record ChatSessionResponseDto(
     Guid Id,
     string Title,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    bool IsArchived = false,
+    DateTime? ArchivedAt = null,
+    bool IsPinned = false,
+    DateTime? PinnedAt = null);

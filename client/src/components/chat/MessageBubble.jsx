@@ -12,6 +12,33 @@ function formatTime(dateStr) {
 }
 
 /**
+ * LLM bazen image syntax'ını bozuk üretir — markdown parser parse edemez, raw `![alt](` ve `)`
+ * ekranda görünür. İki tipik bozulma:
+ *   1. Nested:     ![alt]( ![alt](/uploads/img.png) )       → outer wrap atılır
+ *   2. Multi-line: ![alt](\n /uploads/img.png \n)            → URL içindeki whitespace temizlenir
+ *   3. URL'de boşluk:  ![alt]( /uploads/img.png )            → trim
+ * Sıra önemli: nested önce, sonra whitespace.
+ */
+function normalizeImageMarkdown(content) {
+    if (!content) return content;
+    let out = content;
+    // [1] Nested image wrap: outer ![..]( <inner image> ) → sadece inner
+    // Iteratif uygula — birden fazla katman olabilir.
+    const nestedRe = /!\[[^\]]*\]\(\s*(!\[[^\]]*\]\([^)]+\))\s*\)/g;
+    let safety = 5;
+    while (nestedRe.test(out) && safety-- > 0) {
+        out = out.replace(nestedRe, '$1');
+    }
+    // [2] URL içindeki whitespace/newline'ı temizle: ![alt](  url  ) → ![alt](url)
+    // Sadece kapanış parantezi ile aynı satırda olmasa bile yakalar (s flag ile newline match).
+    out = out.replace(
+        /!\[([^\]]*)\]\(\s*([^)]+?)\s*\)/gs,
+        (_m, alt, url) => `![${alt}](${url.replace(/\s+/g, '')})`
+    );
+    return out;
+}
+
+/**
  * Streaming sırasında YARIM markdown image syntax'ı gizler:
  *   ![alt](url... → (henüz `)` gelmedi) → kullanıcı çirkin text görmesin
  *
@@ -21,11 +48,11 @@ function formatTime(dateStr) {
  */
 function sanitizeStreamingMarkdown(content, isStreaming) {
     if (!content) return content;
-    if (!isStreaming) return content;
+    // Önce LLM bozulmalarını düzelt (her durumda — streaming dahil)
+    let out = normalizeImageMarkdown(content);
+    if (!isStreaming) return out;
     // Sondaki açık alt ya da açık url parçasını kes
-    // Örn: "metin ![alt](/uploads/img_..."  → "metin "
-    //      "metin ![partial"                → "metin "
-    return content.replace(/!\[[^\]]*(?:\][^()]*(?:\([^)]*)?)?$/, '');
+    return out.replace(/!\[[^\]]*(?:\][^()]*(?:\([^)]*)?)?$/, '');
 }
 
 function ImageModal({ src, onClose }) {
@@ -346,8 +373,14 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
                                     onMouseEnter={e => { if (msg.feedbackGiven == null && !feedbackSending) { e.currentTarget.style.background = 'rgba(34,197,94,0.14)'; e.currentTarget.style.borderColor = 'rgba(34,197,94,0.3)'; e.currentTarget.style.color = '#86efac'; } }}
                                     onMouseLeave={e => { if (msg.feedbackGiven == null && !feedbackSending) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'rgba(255,255,255,0.7)'; } }}
                                 >
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 10v12" /><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H7V10l4-9c1.66 0 3 1.34 3 3v1.88Z" /></svg>
-                                    {msg.feedbackGiven === 1 ? 'Beğenildi' : 'Beğen'}
+                                    {feedbackSending && msg.feedbackGiven == null ? (
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+                                    ) : (
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 10v12" /><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H7V10l4-9c1.66 0 3 1.34 3 3v1.88Z" /></svg>
+                                    )}
+                                    {feedbackSending && msg.feedbackGiven == null
+                                        ? 'Gönderiliyor…'
+                                        : (msg.feedbackGiven === 1 ? 'Beğenildi' : 'Beğen')}
                                 </button>
 
                                 <button

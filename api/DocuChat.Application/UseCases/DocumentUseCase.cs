@@ -1,7 +1,9 @@
 ﻿
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using Mapster;
 using Microsoft.Extensions.Configuration;
@@ -11,6 +13,7 @@ using Microsoft.Extensions.Logging;
 using DocuChat.Application.Interfaces.UseCases;
 using DocuChat.Application.Interfaces.Services;
 using DocuChat.Application.Interfaces.Repositories;
+using DocuChat.Application.Common.Imaging;
 using DocuChat.Application.Common.Results;
 using DocuChat.Application.DTOs.Document;
 using DocuChat.Domain.Entities;
@@ -21,6 +24,12 @@ namespace DocuChat.Application.UseCases;
 
 public class DocumentUseCase : IDocumentUseCase
 {
+    // Hot-path regex'ler — JIT-compiled, cached. Chunk başına call edilir.
+    private static readonly Regex ImgMarkerWithSuffixRegex =
+        new(@"\[IMG:(\d+)([^\]]*)\]", RegexOptions.Compiled);
+    private static readonly Regex ImgMarkerOnlyRegex =
+        new(@"\[IMG:(\d+)\]", RegexOptions.Compiled);
+
     private readonly IUnitOfWork _uow;
     private readonly IDocumentParser _parser;
     private readonly IEmbeddingService _embedder;
@@ -31,6 +40,7 @@ public class DocumentUseCase : IDocumentUseCase
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IHostApplicationLifetime _lifetime;
     private readonly IDocumentProcessingScheduler _scheduler;
+    private readonly IDbExceptionInspector _dbExceptionInspector;
     private readonly ILogger<DocumentUseCase> _logger;
     private readonly bool _captionEnabled;
     private readonly int _captionMaxPerDoc;
@@ -38,6 +48,7 @@ public class DocumentUseCase : IDocumentUseCase
     private readonly int _maxParallelChunks;
     private readonly int _commitBatchSize;
     private readonly int _chunkContextBatchTokenBudget;
+    private readonly int _chunkContextMaxParallel;
 
     public DocumentUseCase(
         IUnitOfWork uow,
@@ -50,6 +61,7 @@ public class DocumentUseCase : IDocumentUseCase
         IServiceScopeFactory scopeFactory,
         IHostApplicationLifetime lifetime,
         IDocumentProcessingScheduler scheduler,
+        IDbExceptionInspector dbExceptionInspector,
         IConfiguration cfg,
         ILogger<DocumentUseCase> logger)
     {
@@ -63,6 +75,7 @@ public class DocumentUseCase : IDocumentUseCase
         _scopeFactory = scopeFactory;
         _lifetime = lifetime;
         _scheduler = scheduler;
+        _dbExceptionInspector = dbExceptionInspector;
         _logger = logger;
         _captionEnabled = cfg.GetValue<bool>("Caption:Enabled", false);
         _captionMaxPerDoc = cfg.GetValue<int>("Caption:MaxImagesPerDocument", 30);
@@ -71,6 +84,8 @@ public class DocumentUseCase : IDocumentUseCase
         _commitBatchSize = cfg.GetValue<int>("Chunking:CommitBatchSize", 50);
         // Mistral Small 32K context'in güvenli yarısı (output + prompt overhead için pay).
         _chunkContextBatchTokenBudget = cfg.GetValue<int>("ChunkContext:BatchTokenBudget", 18000);
+        // Mistral Small rate-limit'ine karşı çoklu batch için paralelizm tavanı (config'te değiştirilebilir).
+        _chunkContextMaxParallel = Math.Max(1, cfg.GetValue<int>("ChunkContext:MaxParallelBatches", 5));
     }
 
     // 🆕 Bounded Channel Queue üzerinden — DocumentProcessingConsumer paralel max N işler.
@@ -78,8 +93,20 @@ public class DocumentUseCase : IDocumentUseCase
     // Persistence: DocumentRecoveryService startup'ta Pending/Processing'i tekrar enqueue eder.
     private async ValueTask ScheduleBackgroundProcessingAsync(Guid documentId, CancellationToken ct = default)
     {
-        await _scheduler.ScheduleAsync(documentId, ct);
-        _logger.LogDebug("[BgProcess] {DocId} processing queue'sune eklendi", documentId);
+        // Upload HTTP path'inde timeout-aware enqueue → browser timeout'a kalmadan vazgeç.
+        // Queue dolup 10s içinde slot açılmazsa: belge DB'de Pending kalır, DocumentRecoveryService
+        // bir sonraki turda kendi alır → kullanıcı için kayıp yok, sadece processing gecikir.
+        var enqueued = await _scheduler.TryScheduleAsync(documentId, TimeSpan.FromSeconds(10), ct);
+        if (enqueued)
+        {
+            _logger.LogDebug("[BgProcess] {DocId} processing queue'sune eklendi", documentId);
+        }
+        else
+        {
+            _logger.LogWarning(
+                "[BgProcess] {DocId} queue 10s timeout (dolu) — belge Pending'de bırakıldı, recovery service alacak",
+                documentId);
+        }
     }
 
     // ChunkContext PARALEL BATCH üretimi — DYNAMIC token-budget batching.
@@ -94,7 +121,7 @@ public class DocumentUseCase : IDocumentUseCase
         string earlySummary,
         CancellationToken ct)
     {
-        const int MaxParallelBatches = 5;  // Mistral Small rate-limit koruması
+        var maxParallelBatches = _chunkContextMaxParallel;
         var tokenBudget = _chunkContextBatchTokenBudget;
 
         var results = new string[parsedList.Count];
@@ -126,24 +153,54 @@ public class DocumentUseCase : IDocumentUseCase
 
         _logger.LogInformation(
             "[BatchCtx] {Total} chunk → {Batches} batch (token-budget {Budget}, max paralel {Par})",
-            parsedList.Count, batchInputs.Count, tokenBudget, MaxParallelBatches);
+            parsedList.Count, batchInputs.Count, tokenBudget, maxParallelBatches);
 
-        using var batchSem = new SemaphoreSlim(MaxParallelBatches);
+        using var batchSem = new SemaphoreSlim(maxParallelBatches);
         var batchTasks = batchInputs.Select(async batch =>
         {
             await batchSem.WaitAsync(ct);
             try
             {
                 var inputs = batch.Items.Select(p => ((string?)p.Header, p.Content)).ToList();
-                var contexts = await _llm.GenerateChunkContextsBatchAsync(earlySummary, inputs, ct);
-                for (var j = 0; j < batch.Items.Count; j++)
-                    results[batch.Start + j] = j < contexts.Count ? (contexts[j] ?? "") : "";
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[BatchCtx] Batch start={S} hatası — boş context", batch.Start);
-                for (var j = 0; j < batch.Items.Count; j++)
-                    results[batch.Start + j] = "";
+                // Geçici hatalara (429, 5xx) karşı 2 retry + exponential backoff (1s, 2s).
+                // Sessiz boş-context'e düşmek yerine kısa direnç → chunk context kalitesi korunur.
+                IReadOnlyList<string> contexts = Array.Empty<string>();
+                Exception? lastEx = null;
+                for (var attempt = 1; attempt <= 3; attempt++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    try
+                    {
+                        contexts = await _llm.GenerateChunkContextsBatchAsync(earlySummary, inputs, ct);
+                        lastEx = null;
+                        break;
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                    catch (Exception ex) when (attempt < 3)
+                    {
+                        lastEx = ex;
+                        _logger.LogWarning("[BatchCtx] Batch start={S} retry {N}/3: {T} {M}",
+                            batch.Start, attempt, ex.GetType().Name, ex.Message);
+                        await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt - 1)), ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        lastEx = ex;
+                        break;
+                    }
+                }
+
+                if (lastEx != null)
+                {
+                    _logger.LogWarning(lastEx, "[BatchCtx] Batch start={S} 3 deneme sonrası başarısız — boş context", batch.Start);
+                    for (var j = 0; j < batch.Items.Count; j++)
+                        results[batch.Start + j] = "";
+                }
+                else
+                {
+                    for (var j = 0; j < batch.Items.Count; j++)
+                        results[batch.Start + j] = j < contexts.Count ? (contexts[j] ?? "") : "";
+                }
             }
             finally { batchSem.Release(); }
         });
@@ -161,6 +218,7 @@ public class DocumentUseCase : IDocumentUseCase
         PreComputeImageCaptionsAsync(
         IReadOnlyList<ParsedChunk> parsedList,
         string globalContext,
+        List<string> processingNotes,
         CancellationToken ct)
     {
         var result = new Dictionary<string, string?>(StringComparer.Ordinal);
@@ -192,21 +250,30 @@ public class DocumentUseCase : IDocumentUseCase
             : allPaths.ToList();
         if (quotaExceeded)
         {
+            var skipped = allPaths.Count - _captionMaxPerDoc;
             _logger.LogWarning(
                 "[Caption][Quota] Belgede {Total} benzersiz görsel — quota {Limit} → {Skipped} görsel caption ALMAYACAK (chunk content'inde [IMG:N] marker'ları kalır, alt text boş gösterilir)",
-                allPaths.Count, _captionMaxPerDoc, allPaths.Count - _captionMaxPerDoc);
+                allPaths.Count, _captionMaxPerDoc, skipped);
+            processingNotes.Add(
+                $"Görsel quota aşıldı: {allPaths.Count} benzersiz görselden {skipped} tanesi otomatik açıklama almadı (quota: {_captionMaxPerDoc}).");
         }
 
-        // [3] Path → hash hesapla (paralel max 8 disk read)
-        var pathToHash = new Dictionary<string, string?>(StringComparer.Ordinal);
-        var hashSem = new SemaphoreSlim(8);
+        // [3] Path → bytes + hash: HER GÖRSEL DİSKTEN BİR KEZ OKUNUR. Bytes cache'lenir
+        // (Pixtral çağrısı disk'e ikinci kez gitmez). SHA256 cache'lenmiş byte'tan hesaplanır.
+        // ConcurrentDictionary → lock-free yazım, paralel hızı artar.
+        var pathToHash = new ConcurrentDictionary<string, string?>(StringComparer.Ordinal);
+        var pathToBytes = new ConcurrentDictionary<string, byte[]?>(StringComparer.Ordinal);
+        using var hashSem = new SemaphoreSlim(8);
         var hashTasks = limitedPaths.Select(async path =>
         {
             await hashSem.WaitAsync(ct);
             try
             {
-                var hash = await ComputeImageHashAsync(path, ct);
-                lock (pathToHash) pathToHash[path] = hash;
+                var bytes = await ReadImageBytesAsync(path, ct);
+                pathToBytes[path] = bytes;
+                pathToHash[path] = (bytes != null && bytes.Length >= 64)
+                    ? Convert.ToHexString(SHA256.HashData(bytes))
+                    : null;
             }
             finally { hashSem.Release(); }
         });
@@ -233,8 +300,9 @@ public class DocumentUseCase : IDocumentUseCase
             "[Caption] Hash dedup: {Total} görsel → {Unique} benzersiz, {Saved} Pixtral çağrısı atlanacak",
             limitedPaths.Count, uniqueImageCount, pixtralCallsSaved);
 
-        // [5] Her benzersiz görsel için Pixtral çağrısı — paralel max _captionMaxParallel
-        var hashToCaption = new Dictionary<string, string?>(StringComparer.Ordinal);
+        // [5] Her benzersiz görsel için Pixtral çağrısı — cache'den oku, disk'e gitme
+        var hashToCaption = new ConcurrentDictionary<string, string?>(StringComparer.Ordinal);
+        var concurrentResult = new ConcurrentDictionary<string, string?>(StringComparer.Ordinal);
         using var captionSem = new SemaphoreSlim(_captionMaxParallel);
 
         var uniqueWork = hashToRepresentativePath
@@ -246,11 +314,12 @@ public class DocumentUseCase : IDocumentUseCase
             await captionSem.WaitAsync(ct);
             try
             {
-                var caption = await GenerateSingleCaptionAsync(work.Path, globalContext, ct);
+                var bytes = pathToBytes.TryGetValue(work.Path, out var b) ? b : null;
+                var caption = await GenerateCaptionFromBytesAsync(bytes, work.Path, globalContext, ct);
                 if (work.IsHashed)
-                    lock (hashToCaption) hashToCaption[work.Key] = caption;
+                    hashToCaption[work.Key] = caption;
                 else
-                    lock (result) result[work.Path] = caption;
+                    concurrentResult[work.Path] = caption;
             }
             catch (Exception ex)
             {
@@ -260,6 +329,9 @@ public class DocumentUseCase : IDocumentUseCase
         });
         await Task.WhenAll(captionTasks);
 
+        // pathsWithoutHash sonuçlarını result'a kopyala
+        foreach (var kv in concurrentResult) result[kv.Key] = kv.Value;
+
         // [6] path → caption sözlüğü oluştur (hash üzerinden hepsi aynı caption'ı paylaşır)
         foreach (var path in limitedPaths)
         {
@@ -268,29 +340,65 @@ public class DocumentUseCase : IDocumentUseCase
             result[path] = hash != null && hashToCaption.TryGetValue(hash, out var cap) ? cap : null;
         }
 
-        return (result, pathToHash);
+        // pathToHash'i Dictionary<>'e dönüştür (downstream API beklentisi)
+        var pathToHashOut = new Dictionary<string, string?>(pathToHash, StringComparer.Ordinal);
+        return (result, pathToHashOut);
     }
 
-    // Tek bir görseli Pixtral'a gönderip caption al. Hata olursa null döner.
-    private async Task<string?> GenerateSingleCaptionAsync(string path, string context, CancellationToken ct)
+    // BGE-M3 max 8192 token. Aşan input sessiz truncate edilir → sondaki captions kaybolur.
+    // Token-aware binary search ile güvenli bütçeye (7500) kırpıyoruz; üzerine log yansıyor.
+    private const int EmbeddingTokenBudget = 7500;
+
+    private string ClipForEmbedding(string text, int chunkIdx)
+    {
+        var tokenCount = _tokenCounter.Count(text);
+        if (tokenCount <= EmbeddingTokenBudget) return text;
+
+        // Binary search: max length string ki token count <= budget
+        int lo = 0, hi = text.Length;
+        while (lo < hi)
+        {
+            var mid = (lo + hi + 1) / 2;
+            if (_tokenCounter.Count(text[..mid]) <= EmbeddingTokenBudget) lo = mid;
+            else hi = mid - 1;
+        }
+        var clipped = text[..lo];
+        _logger.LogWarning(
+            "[ChunkBuild] Chunk #{Idx} embedText {Orig} token → {Clipped} token (BGE-M3 8K limiti için kırpıldı, {LostChars} char atıldı)",
+            chunkIdx, tokenCount, _tokenCounter.Count(clipped), text.Length - clipped.Length);
+        return clipped;
+    }
+
+    // Disk'ten byte oku (yardımcı). Hatada null.
+    private async Task<byte[]?> ReadImageBytesAsync(string path, CancellationToken ct)
     {
         try
         {
             using var stream = _fileStorage.OpenRead(path);
             using var ms = new MemoryStream();
             await stream.CopyToAsync(ms, ct);
-            var bytes = ms.ToArray();
-            if (bytes.Length < 64) return null;
+            return ms.ToArray();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[Images] {Path} okunamadı", path);
+            return null;
+        }
+    }
 
-            var mime = bytes[0] == 0xFF && bytes[1] == 0xD8 ? "image/jpeg"
-                     : bytes[0] == 0x89 ? "image/png"
-                     : "image/png";
+    // Pre-loaded bytes ile Pixtral caption — disk read yok.
+    private async Task<string?> GenerateCaptionFromBytesAsync(byte[]? bytes, string path, string context, CancellationToken ct)
+    {
+        if (bytes is null || bytes.Length < 64) return null;
+        try
+        {
+            var mime = ImageMagicBytes.DetectMimeType(bytes);
             var caption = await _llm.GenerateImageCaptionAsync(bytes, mime, context, ct);
             return string.IsNullOrWhiteSpace(caption) ? null : caption.Trim();
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "[Caption] {Path} okuma/Pixtral hatası", path);
+            _logger.LogDebug(ex, "[Caption] {Path} Pixtral hatası", path);
             return null;
         }
     }
@@ -351,6 +459,10 @@ public class DocumentUseCase : IDocumentUseCase
                 if (!string.IsNullOrEmpty(chunkCtx)) embedText = chunkCtx + " " + embedText;
                 if (!string.IsNullOrEmpty(captionSummary)) embedText = embedText + " " + captionSummary;
 
+                // BGE-M3 max sequence = 8192 token. Sınırı aşan input SESSİZ truncate edilir,
+                // sondaki captions kaybolur. Burada token-aware ön kırpma yap → uyarı log'la.
+                embedText = ClipForEmbedding(embedText, idx);
+
                 var contentSb = new StringBuilder();
                 if (!string.IsNullOrEmpty(chunkCtx))
                     contentSb.Append("**[Bağlam]:** ").Append(chunkCtx).Append("\n\n");
@@ -362,12 +474,14 @@ public class DocumentUseCase : IDocumentUseCase
                 float[]? vec = null;
                 for (var attempt = 1; attempt <= 3; attempt++)
                 {
+                    ct.ThrowIfCancellationRequested();
                     try
                     {
                         vec = await _embedder.GetEmbeddingAsync(embedText, ct);
                         break;
                     }
-                    catch (Exception ex) when (attempt < 3 && !ct.IsCancellationRequested)
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                    catch (Exception ex) when (attempt < 3)
                     {
                         _logger.LogWarning(ex,
                             "[ChunkBuild] Chunk #{Idx} embedding hatası (attempt {N}/3) — retry",
@@ -512,9 +626,8 @@ public class DocumentUseCase : IDocumentUseCase
         if (dedupPaths.Count == paths.Count) return (content ?? string.Empty, paths);
 
         // Content içinde [IMG:N] markerlarını yeni indexlerle değiştir
-        var newContent = System.Text.RegularExpressions.Regex.Replace(
+        var newContent = ImgMarkerWithSuffixRegex.Replace(
             content ?? string.Empty,
-            @"\[IMG:(\d+)([^\]]*)\]",
             m =>
             {
                 if (!int.TryParse(m.Groups[1].Value, out var oldNum)) return m.Value;
@@ -539,6 +652,7 @@ public class DocumentUseCase : IDocumentUseCase
         IReadOnlyList<DocumentChunk> chunks,
         IReadOnlyList<ParsedChunk> parsedList,
         IReadOnlyList<List<string?>> captionsByChunk,
+        IReadOnlyDictionary<string, string?> precomputedPathToHash,
         CancellationToken ct)
     {
         var pathToImage = new Dictionary<string, DocumentImage>(StringComparer.Ordinal);
@@ -577,8 +691,14 @@ public class DocumentUseCase : IDocumentUseCase
                     continue;
                 }
 
-                // 2. Content hash hesapla
-                var hash = await ComputeImageHashAsync(path, ct);
+                // 2. Content hash — PreComputeImageCaptionsAsync zaten hesapladı (caption pipeline).
+                // Aynı path için ikinci disk read + SHA256 hesaplama yok. Cache miss durumunda
+                // (quota dışı kalan path'ler) fallback olarak disk'ten hesapla.
+                string? hash;
+                if (precomputedPathToHash.TryGetValue(path, out var preHash))
+                    hash = preHash;
+                else
+                    hash = await ComputeImageHashAsync(path, ct);
 
                 // 3. Bu belge içinde aynı hash başka path olarak var mı?
                 if (hash != null && hashToImage.TryGetValue(hash, out var existingByHash))
@@ -676,7 +796,7 @@ public class DocumentUseCase : IDocumentUseCase
     private static string InlineImageCaptions(string content, IReadOnlyList<string?> captions)
     {
         if (string.IsNullOrEmpty(content) || captions.Count == 0) return content;
-        return System.Text.RegularExpressions.Regex.Replace(content, @"\[IMG:(\d+)\]", m =>
+        return ImgMarkerOnlyRegex.Replace(content, m =>
         {
             var n = int.Parse(m.Groups[1].Value);
             var idx = n - 1;
@@ -689,12 +809,14 @@ public class DocumentUseCase : IDocumentUseCase
     // Belgenin BAŞ + ORTA + SON chunk'larından LLM ile 1-2 cümle özet (best-effort).
     // İlk 3 chunk yerine: ilk 2 + orta 2 + son 2 sample → TOC/kapak sayfasında saplanmaz,
     // gerçek içeriği temsil eder. Anthropic Contextual Retrieval için daha iyi globalContext.
-    private async Task<string?> TryGenerateSummaryAsync(IEnumerable<DocumentChunk> chunks, CancellationToken ct)
+    //
+    // contents: chunk içerikleri ChunkIndex sırasında (caller sıralı geçer). Fake DocumentChunk
+    // wrapping'i kaldırıldı — saf string sequence yeterli, allocation tasarrufu.
+    private async Task<string?> TryGenerateSummaryAsync(IReadOnlyList<string> contents, CancellationToken ct)
     {
         try
         {
-            var ordered = chunks.OrderBy(c => c.ChunkIndex).ToList();
-            var sample = BuildSpreadSample(ordered, perRegion: 2);
+            var sample = BuildSpreadSample(contents, perRegion: 2, maxCharsPerChunk: SummarySampleMaxCharsPerChunk);
             return await _llm.GenerateDocumentSummaryAsync(sample, ct);
         }
         catch (Exception ex)
@@ -704,22 +826,35 @@ public class DocumentUseCase : IDocumentUseCase
         }
     }
 
-    /// <summary>
-    /// Belgenin BAŞ/ORTA/SON bölgelerinden N chunk seçip birleştirir.
-    /// Kısa belgelerde (≤ perRegion×3) tüm chunk'lar kullanılır.
-    /// </summary>
-    private static string BuildSpreadSample(IReadOnlyList<DocumentChunk> chunks, int perRegion)
-    {
-        if (chunks.Count == 0) return string.Empty;
-        if (chunks.Count <= perRegion * 3)
-            return string.Join("\n", chunks.Select(c => c.Content));
+    // Her örneklenen chunk için max char (~120 token). 6 chunk × 500 char = ~720 token sample,
+    // ek summary prompt template ile ~1200 token toplam → Mistral Small cost ↓.
+    private const int SummarySampleMaxCharsPerChunk = 500;
 
-        var selected = new List<DocumentChunk>();
-        selected.AddRange(chunks.Take(perRegion));                                   // ilk N
-        var midStart = (chunks.Count - perRegion) / 2;
-        for (var i = 0; i < perRegion; i++) selected.Add(chunks[midStart + i]);     // orta N
-        selected.AddRange(chunks.Skip(chunks.Count - perRegion));                    // son N
-        return string.Join("\n", selected.Select(c => c.Content));
+    /// <summary>
+    /// Belgenin BAŞ/ORTA/SON bölgelerinden N chunk seçip birleştirir, her chunk'tan max char
+    /// keser (token sınırını korumak için). Kısa belgelerde (≤ perRegion×3) tüm chunk'lar.
+    /// </summary>
+    private static string BuildSpreadSample(IReadOnlyList<string> contents, int perRegion, int maxCharsPerChunk)
+    {
+        if (contents.Count == 0) return string.Empty;
+
+        IEnumerable<string> selected;
+        if (contents.Count <= perRegion * 3)
+        {
+            selected = contents;
+        }
+        else
+        {
+            var list = new List<string>(perRegion * 3);
+            list.AddRange(contents.Take(perRegion));                                  // ilk N
+            var midStart = (contents.Count - perRegion) / 2;
+            for (var i = 0; i < perRegion; i++) list.Add(contents[midStart + i]);    // orta N
+            list.AddRange(contents.Skip(contents.Count - perRegion));                 // son N
+            selected = list;
+        }
+
+        return string.Join("\n", selected.Select(c =>
+            c.Length > maxCharsPerChunk ? c[..maxCharsPerChunk] : c));
     }
 
     public async Task<Result<DocumentResponseDto>> UploadAsync(
@@ -734,8 +869,36 @@ public class DocumentUseCase : IDocumentUseCase
                 Error.Conflict($"'{req.FileName}' isimli bir belge zaten yüklü. Önce silin veya farklı isimde yükleyin."));
         }
 
-        req.FileStream.Position = 0;
-        var storagePath = await _fileStorage.SaveAsync(req.FileStream, req.FileName, ct);
+        // Magic byte validation + content hash — tek pass'te. Disk'e yazmadan önce stream'i
+        // okuyarak bellek-içi byte buffer'ı çıkarıyoruz → hem header validation hem SHA256
+        // tek read'le yapılır, sonra MemoryStream'den SaveAsync'e geçirilir.
+        var declared = DetectFileType(req.ContentType);
+        if (req.FileStream.CanSeek) req.FileStream.Position = 0;
+        using var contentMs = new MemoryStream(capacity: (int)Math.Min(req.FileSizeBytes, int.MaxValue));
+        await req.FileStream.CopyToAsync(contentMs, ct);
+        var contentBytes = contentMs.GetBuffer();   // shared buffer; length = contentMs.Length
+        var contentLength = (int)contentMs.Length;
+
+        if (contentLength >= 5 && !DocumentMagicBytes.MatchesDeclaredType(
+                new ReadOnlySpan<byte>(contentBytes, 0, Math.Min(16, contentLength)), declared))
+        {
+            return Result<DocumentResponseDto>.Failure(Error.Validation(
+                $"'{req.FileName}' içerik formatı bildirilen tip ({req.ContentType}) ile eşleşmiyor."));
+        }
+
+        // ContentHash dedup — aynı kullanıcı aynı içeriği farklı isimle yüklerse rejected.
+        var contentHash = Convert.ToHexString(
+            SHA256.HashData(new ReadOnlySpan<byte>(contentBytes, 0, contentLength)));
+        var existingByHash = await _uow.Documents.FindByUserAndContentHashAsync(
+            _currentUser.UserId, contentHash, ct);
+        if (existingByHash is not null)
+        {
+            return Result<DocumentResponseDto>.Failure(Error.Conflict(
+                $"Bu belgenin içeriği daha önce '{existingByHash.FileName}' adıyla yüklenmiş. Aynı içerik tekrar yüklenemez."));
+        }
+
+        contentMs.Position = 0;
+        var storagePath = await _fileStorage.SaveAsync(contentMs, req.FileName, ct);
 
         var doc = new Document
         {
@@ -745,6 +908,7 @@ public class DocumentUseCase : IDocumentUseCase
             FileSizeBytes = req.FileSizeBytes,
             StoragePath = storagePath,
             FileType = DetectFileType(req.ContentType),
+            ContentHash = contentHash,
             Status = DocumentStatus.Pending,
         };
 
@@ -753,7 +917,7 @@ public class DocumentUseCase : IDocumentUseCase
         {
             await _uow.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (IsUniqueConstraintViolation(ex))
+        catch (Exception ex) when (_dbExceptionInspector.IsUniqueConstraintViolation(ex))
         {
             // DB unique index (UserId, FileName) — race koşulunda yakalanır (yukarıdaki check
             // ile aynı anda gelen ikinci istek). Disk'e yazılan dosyayı temizle.
@@ -768,14 +932,6 @@ public class DocumentUseCase : IDocumentUseCase
         _logger.LogInformation("[Upload] {DocId} kabul edildi (Status=Pending), processing queue'sune eklendi", doc.Id);
 
         return Result<DocumentResponseDto>.Success(doc.Adapt<DocumentResponseDto>());
-    }
-
-    // PostgreSQL unique violation = SQLState 23505. EF Core DbUpdateException içine sarar.
-    private static bool IsUniqueConstraintViolation(Exception ex)
-    {
-        var inner = ex.InnerException ?? ex;
-        return inner.GetType().FullName == "Npgsql.PostgresException"
-            && inner.GetType().GetProperty("SqlState")?.GetValue(inner) as string == "23505";
     }
 
     // Scheduler tarafından background scope'tan çağrılır. CT = application lifetime stopping.
@@ -811,15 +967,16 @@ public class DocumentUseCase : IDocumentUseCase
             using var stream = _fileStorage.OpenRead(doc.StoragePath);
             var parsedList = (await _parser.ParseAsync(stream, doc.FileType, ct)).ToList();
 
-            // Contextual Retrieval: BAŞ + ORTA + SON chunk'lardan özet (TOC/kapak sayfasına saplanmaz)
-            var sampleChunks = parsedList
-                .Select((c, idx) => new DocumentChunk { Content = c.Content, ChunkIndex = idx })
-                .ToList();
-            var earlySummary = await TryGenerateSummaryAsync(sampleChunks, ct) ?? string.Empty;
+            // Contextual Retrieval: BAŞ + ORTA + SON chunk'lardan özet (TOC/kapak sayfasına saplanmaz).
+            // parsedList zaten chunk sırasında — fake DocumentChunk wrapping'e gerek yok.
+            var sampleContents = parsedList.Select(c => c.Content).ToList();
+            var earlySummary = await TryGenerateSummaryAsync(sampleContents, ct) ?? string.Empty;
 
             // CAPTION HASH-FIRST: Aynı görsel için Pixtral SADECE BİR KEZ çağrılır.
             // Hem caption hem pathToHash döner — pathToHash chunk-level path dedup için kullanılır.
-            var (captionMap, pathToHash) = await PreComputeImageCaptionsAsync(parsedList, earlySummary, ct);
+            var processingNotes = new List<string>();
+            var (captionMap, pathToHash) = await PreComputeImageCaptionsAsync(
+                parsedList, earlySummary, processingNotes, ct);
 
             // Yeni: per-chunk captions da topla → DocumentImage caption'ları için
             var (newChunks, captionsByChunk) = await BuildChunksAndCollectCaptionsAsync(
@@ -847,7 +1004,7 @@ public class DocumentUseCase : IDocumentUseCase
                 foreach (var old in existingChunks) _uow.Chunks.Delete(old);
                 foreach (var img in existingImages) _uow.Images.Delete(img);
                 foreach (var chunk in newChunks) await _uow.Chunks.AddAsync(chunk, ct);
-                await PersistImagesAndLinksAsync(doc, newChunks, parsedList, captionsByChunk, ct);
+                await PersistImagesAndLinksAsync(doc, newChunks, parsedList, captionsByChunk, pathToHash, ct);
                 _logger.LogInformation(
                     "[Process] Reprocess: {OldC}→{NewC} chunk, {OldI} görsel DB'den silindi (disk cleanup SaveChanges sonrası)",
                     existingChunks.Count, newChunks.Count, existingImages.Count);
@@ -857,13 +1014,18 @@ public class DocumentUseCase : IDocumentUseCase
                 // İlk upload: batch commit (memory efficiency; chat zaten ilk uploadda hiç çalışmıyor)
                 await AddAndCommitInBatchesAsync(newChunks, ct);
                 // Görsel + link'ler ayrıca yazılır (chunks committed, ID'ler var)
-                await PersistImagesAndLinksAsync(doc, newChunks, parsedList, captionsByChunk, ct);
+                await PersistImagesAndLinksAsync(doc, newChunks, parsedList, captionsByChunk, pathToHash, ct);
             }
 
             doc.Status = DocumentStatus.Ready;
             doc.ChunkCount = newChunks.Count;
             doc.UpdatedAt = DateTime.UtcNow;
-            doc.Summary = await TryGenerateSummaryAsync(newChunks, ct);
+            // earlySummary parse sonrasında (ChunkContext üretmeden ÖNCE) zaten oluşturuldu.
+            // İkinci kez Mistral'a gitmek yerine onu tekrar kullanıyoruz → ~50% summary cost ↓.
+            doc.Summary = string.IsNullOrWhiteSpace(earlySummary) ? null : earlySummary;
+            doc.ProcessingNotes = processingNotes.Count > 0
+                ? string.Join(" | ", processingNotes)
+                : null;
 
             // 🆕 ÖNCE DB save — eğer fail ederse disk dosyaları korunur (broken refs YOK)
             await _uow.SaveChangesAsync(ct);
@@ -880,6 +1042,12 @@ public class DocumentUseCase : IDocumentUseCase
                 _logger.LogInformation(
                     "[Process] Reprocess disk cleanup: {DiskN}/{Total} eski görsel silindi",
                     deletedDiskCount, pendingDiskDeletes.Count);
+
+                // Chat geçmişindeki ÖLÜ resim referanslarını temizle — disk'te artık bu path'ler
+                // yok, ChatMessage.ImagesJson içinde dursa frontend 404 alır (onError ile gizler ama
+                // gereksiz network spam ve cosmetic flicker olur). Silme yolundaki cleanup ile aynı.
+                await RemoveDeletedImagesFromChatHistoryAsync(pendingDiskDeletes, ct);
+                await _uow.SaveChangesAsync(ct);
             }
 
             // 🆕 PER-DOCUMENT CACHE INVALIDATION:
@@ -902,7 +1070,10 @@ public class DocumentUseCase : IDocumentUseCase
         catch (Exception ex)
         {
             _logger.LogError(ex, "[Process] Parse/embed başarısız. DocId: {DocId}", doc.Id);
-            doc.Status = DocumentStatus.Failed;
+            // Reprocess fail → eski chunks aktif kalır (Stale), ilk upload fail → Failed.
+            // Bu ayrım UI'da farklı badge gösterimi için kritik: Stale belge için chat hala
+            // çalışıyor, kullanıcı "bozuk" sanmasın.
+            doc.Status = isReprocess ? DocumentStatus.Stale : DocumentStatus.Failed;
             doc.ErrorMessage = ex.Message;
             doc.UpdatedAt = DateTime.UtcNow;
 
@@ -912,11 +1083,11 @@ public class DocumentUseCase : IDocumentUseCase
                 var dirtyChunks = await _uow.Chunks.GetByDocumentIdAsync(doc.Id, CancellationToken.None);
                 foreach (var c in dirtyChunks) _uow.Chunks.Delete(c);
             }
-        }
 
-        // Final state mutlaka yazılmalı — uygulama kapanmak üzere olsa bile.
-        // Aksi halde doc Processing'de kalır, sonraki başlatmada recovery hook Failed yapana kadar bozuk görünür.
-        await SaveFinalStateAsync(doc.Id);
+            // Failed state'i mutlaka kaydet — uygulama kapanmak üzere olsa bile.
+            // (Happy path'te zaten try bloğu içinde SaveChangesAsync ile commit edildi → burada gereksiz round-trip yok.)
+            await SaveFinalStateAsync(doc.Id);
+        }
     }
 
     // CancellationToken.None ile final SaveChanges — Status=Ready/Failed muhakkak kaydedilmeli.
@@ -1062,7 +1233,53 @@ public class DocumentUseCase : IDocumentUseCase
         return Result<DocumentResponseDto>.Success(doc.Adapt<DocumentResponseDto>());
     }
 
-   
+    public async Task<Result<int>> ReprocessBatchAsync(IEnumerable<Guid> ids, CancellationToken ct = default)
+    {
+        var idList = ids.Distinct().ToList();
+        if (idList.Count == 0) return Result<int>.Success(0);
+
+        var queued = 0;
+        var skipped = 0;
+        var notFound = 0;
+
+        // Tek transaction: tüm belgelerin Status'unu Pending yap, eski chunks korunur (atomic swap).
+        // Sonra hepsini queue'ya enqueue et — consumer maxConcurrent ile throttle yapacak,
+        // HTTP rate limit yerine kuyruk doğal backpressure.
+        foreach (var id in idList)
+        {
+            var doc = await _uow.Documents.GetByIdAsync(id, ct);
+            if (doc is null) { notFound++; continue; }
+            if (doc.StoragePath is null) { skipped++; continue; }
+            if (doc.Status == DocumentStatus.Pending || doc.Status == DocumentStatus.Processing)
+            {
+                skipped++;
+                continue;
+            }
+
+            doc.Status = DocumentStatus.Pending;
+            doc.ErrorMessage = null;
+            doc.UpdatedAt = DateTime.UtcNow;
+            queued++;
+        }
+
+        if (queued > 0) await _uow.SaveChangesAsync(ct);
+
+        // Status değişikliği commit edildikten SONRA enqueue — consumer DB'den okurken Pending görsün.
+        foreach (var id in idList)
+        {
+            var doc = await _uow.Documents.GetByIdAsync(id, ct);
+            if (doc is null || doc.Status != DocumentStatus.Pending) continue;
+            await ScheduleBackgroundProcessingAsync(id, ct);
+        }
+
+        _logger.LogInformation(
+            "[Reprocess][Batch] {Queued} belge kuyruğa alındı, {Skipped} atlandı (zaten Pending/Processing), {NotFound} bulunamadı",
+            queued, skipped, notFound);
+
+        return Result<int>.Success(queued);
+    }
+
+
     /// Controller IFileStorage'a dokunmadan dosyayı stream olarak alır.
 
     public async Task<Result<(Stream FileStream, string ContentType, string FileName)>> GetFileStreamAsync(

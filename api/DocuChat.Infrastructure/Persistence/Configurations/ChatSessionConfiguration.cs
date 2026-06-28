@@ -17,5 +17,10 @@ public class ChatSessionConfiguration : IEntityTypeConfiguration<ChatSession>
                .WithMany()
                .HasForeignKey(s => s.UserId)
                .OnDelete(DeleteBehavior.Cascade);
+
+        // Arşivleme & sabitleme — UI sıralaması/filtresi sık kullanır, composite index ile hızlı.
+        builder.Property(s => s.IsArchived).HasDefaultValue(false);
+        builder.Property(s => s.IsPinned).HasDefaultValue(false);
+        builder.HasIndex(s => new { s.UserId, s.IsArchived, s.IsPinned });
     }
 }

@@ -10,7 +10,13 @@ export default function ChatSidebar({
     onNewChat, onLoadSession,
     onStartRename, onCommitRename, onSetEditingTitle, onSetEditingSessionId,
     onDeleteSession, onBatchDeleteSessions, user, onLogout,
+    // Archive / Pin
+    showArchived, archivedCount, busy,
+    onToggleArchived, onArchive, onUnarchive, onPin, onUnpin,
+    onBatchArchiveSessions,
 }) {
+    // Helper: spesifik action için busy mi?
+    const isBusy = (sessionId, action) => busy?.id === sessionId && busy?.action === action;
     const renameInputRef = useRef(null);
     const navigate = useNavigate();
     const [selectMode, setSelectMode] = useState(false);
@@ -42,6 +48,12 @@ export default function ChatSidebar({
         if (selectedIds.size === 0) return;
         onBatchDeleteSessions?.(Array.from(selectedIds), exitSelectMode);
     }, [selectedIds, onBatchDeleteSessions, exitSelectMode]);
+
+    const handleBatchArchive = useCallback(async () => {
+        if (selectedIds.size === 0) return;
+        await onBatchArchiveSessions?.(Array.from(selectedIds));
+        exitSelectMode();
+    }, [selectedIds, onBatchArchiveSessions, exitSelectMode]);
 
     if (collapsed) {
         return (
@@ -113,14 +125,22 @@ export default function ChatSidebar({
                                     {allSelected ? 'Hiçbiri' : 'Tümü'}
                                 </button>
                                 <span style={{ color: '#ffffff', fontSize: '12px', fontWeight: 700 }}>{selectedIds.size} seçili</span>
-                                <div style={{ display: 'flex', gap: '4px' }}>
+                                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                    {/* Arşive taşı — sadece aktif view'da göster (arşivdeyse zaten arşivde) */}
+                                    {!showArchived && (
+                                        <button onClick={handleBatchArchive} disabled={selectedIds.size === 0}
+                                            title={`${selectedIds.size} sohbeti arşive taşı`}
+                                            style={{ background: selectedIds.size === 0 ? 'rgba(251,146,60,0.15)' : 'linear-gradient(135deg, #f97316, #ea580c)', border: '1px solid ' + (selectedIds.size === 0 ? 'rgba(251,146,60,0.5)' : '#f97316'), color: '#ffffff', cursor: selectedIds.size === 0 ? 'not-allowed' : 'pointer', padding: '4px 10px', fontSize: '11px', fontWeight: 700, borderRadius: '6px', opacity: selectedIds.size === 0 ? 0.7 : 1, transition: 'all 0.15s' }}>
+                                            Arşivle
+                                        </button>
+                                    )}
                                     <button onClick={handleBatchDelete} disabled={selectedIds.size === 0}
                                         title={`${selectedIds.size} sohbeti sil`}
-                                        style={{ background: selectedIds.size === 0 ? 'rgba(248,113,113,0.15)' : 'linear-gradient(135deg, #ef4444, #dc2626)', border: '1px solid ' + (selectedIds.size === 0 ? 'rgba(248,113,113,0.65)' : '#ef4444'), color: '#ffffff', cursor: selectedIds.size === 0 ? 'not-allowed' : 'pointer', padding: '4px 12px', fontSize: '11px', fontWeight: 700, borderRadius: '6px', opacity: selectedIds.size === 0 ? 0.7 : 1, boxShadow: selectedIds.size === 0 ? 'none' : '0 0 10px rgba(239,68,68,0.4)', transition: 'all 0.15s' }}>
+                                        style={{ background: selectedIds.size === 0 ? 'rgba(248,113,113,0.15)' : 'linear-gradient(135deg, #ef4444, #dc2626)', border: '1px solid ' + (selectedIds.size === 0 ? 'rgba(248,113,113,0.65)' : '#ef4444'), color: '#ffffff', cursor: selectedIds.size === 0 ? 'not-allowed' : 'pointer', padding: '4px 10px', fontSize: '11px', fontWeight: 700, borderRadius: '6px', opacity: selectedIds.size === 0 ? 0.7 : 1, boxShadow: selectedIds.size === 0 ? 'none' : '0 0 10px rgba(239,68,68,0.4)', transition: 'all 0.15s' }}>
                                         Sil
                                     </button>
                                     <button onClick={exitSelectMode}
-                                        style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.35)', color: '#ffffff', cursor: 'pointer', padding: '4px 12px', fontSize: '11px', fontWeight: 700, borderRadius: '6px', transition: 'all 0.15s' }}>
+                                        style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.35)', color: '#ffffff', cursor: 'pointer', padding: '4px 10px', fontSize: '11px', fontWeight: 700, borderRadius: '6px', transition: 'all 0.15s' }}>
                                         Vazgeç
                                     </button>
                                 </div>
@@ -201,33 +221,100 @@ export default function ChatSidebar({
                                     autoFocus
                                 />
                             ) : (
-                                <span style={{ fontSize: '13.5px', fontWeight: activeSession?.id === s.id ? 600 : 500, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: activeSession?.id === s.id ? '#fff' : 'rgba(255,255,255,0.7)' }}>
-                                    {s.title || 'Sohbet'}
+                                <span style={{ fontSize: '13.5px', fontWeight: activeSession?.id === s.id ? 600 : 500, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: activeSession?.id === s.id ? '#fff' : 'rgba(255,255,255,0.7)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    {s.isPinned && !showArchived && (
+                                        <span title="Sabitli" style={{ color: '#fbbf24', flexShrink: 0, fontSize: '10px' }}>📌</span>
+                                    )}
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                                        {s.title || 'Sohbet'}
+                                    </span>
                                 </span>
                             )}
                             <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0, marginLeft: '6px' }}
                                 className="session-actions">
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); if (renamingSessionId !== s.id) onStartRename(s); }}
-                                    disabled={renamingSessionId === s.id}
-                                    aria-label="Yeniden adlandır"
-                                    style={{ width: '26px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '8px', color: renamingSessionId === s.id ? '#a78bfa' : 'rgba(255,255,255,0.5)', background: 'transparent', border: 'none', cursor: renamingSessionId === s.id ? 'not-allowed' : 'pointer', transition: 'all 0.15s' }}
-                                    onMouseEnter={(e) => { if (renamingSessionId !== s.id) { e.currentTarget.style.color = '#c4b5fd'; e.currentTarget.style.background = 'rgba(167,139,250,0.15)'; } }}
-                                    onMouseLeave={(e) => { if (renamingSessionId !== s.id) { e.currentTarget.style.color = 'rgba(255,255,255,0.5)'; e.currentTarget.style.background = 'transparent'; } }}>
-                                    {renamingSessionId === s.id ? (
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
-                                            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                                        </svg>
-                                    ) : (
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                        </svg>
-                                    )}
-                                </button>
+                                {/* Pin icon — pinli session'larda her zaman görünür (sarı), diğerlerinde hover */}
+                                {!showArchived && (
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); if (!isBusy(s.id, 'pin')) (s.isPinned ? onUnpin?.(s.id) : onPin?.(s.id)); }}
+                                        disabled={isBusy(s.id, 'pin')}
+                                        aria-label={s.isPinned ? 'Sabiti kaldır' : 'Sabitle'}
+                                        title={s.isPinned ? 'Sabiti kaldır' : 'Sabitle'}
+                                        style={{ width: '26px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '8px', color: s.isPinned ? '#fbbf24' : 'rgba(255,255,255,0.5)', background: s.isPinned ? 'rgba(251,191,36,0.12)' : 'transparent', border: 'none', cursor: isBusy(s.id, 'pin') ? 'not-allowed' : 'pointer', transition: 'all 0.15s' }}
+                                        onMouseEnter={(e) => { if (!isBusy(s.id, 'pin') && !s.isPinned) { e.currentTarget.style.color = '#fbbf24'; e.currentTarget.style.background = 'rgba(251,191,36,0.15)'; } }}
+                                        onMouseLeave={(e) => { if (!isBusy(s.id, 'pin') && !s.isPinned) { e.currentTarget.style.color = 'rgba(255,255,255,0.5)'; e.currentTarget.style.background = 'transparent'; } }}>
+                                        {isBusy(s.id, 'pin') ? (
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+                                        ) : (
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill={s.isPinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                <line x1="12" y1="17" x2="12" y2="22" />
+                                                <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17z" />
+                                            </svg>
+                                        )}
+                                    </button>
+                                )}
+                                {/* Rename — sadece aktif view'da */}
+                                {!showArchived && (
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); if (renamingSessionId !== s.id) onStartRename(s); }}
+                                        disabled={renamingSessionId === s.id}
+                                        aria-label="Yeniden adlandır"
+                                        title="Yeniden adlandır"
+                                        style={{ width: '26px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '8px', color: renamingSessionId === s.id ? '#a78bfa' : 'rgba(255,255,255,0.5)', background: 'transparent', border: 'none', cursor: renamingSessionId === s.id ? 'not-allowed' : 'pointer', transition: 'all 0.15s' }}
+                                        onMouseEnter={(e) => { if (renamingSessionId !== s.id) { e.currentTarget.style.color = '#c4b5fd'; e.currentTarget.style.background = 'rgba(167,139,250,0.15)'; } }}
+                                        onMouseLeave={(e) => { if (renamingSessionId !== s.id) { e.currentTarget.style.color = 'rgba(255,255,255,0.5)'; e.currentTarget.style.background = 'transparent'; } }}>
+                                        {renamingSessionId === s.id ? (
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
+                                                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                                            </svg>
+                                        ) : (
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                            </svg>
+                                        )}
+                                    </button>
+                                )}
+                                {/* Archive / Unarchive — view'a göre */}
+                                {!showArchived ? (
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); if (!isBusy(s.id, 'archive')) onArchive?.(s.id); }}
+                                        disabled={isBusy(s.id, 'archive')}
+                                        aria-label="Arşive taşı"
+                                        title="Arşive taşı"
+                                        style={{ width: '26px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '8px', color: 'rgba(255,255,255,0.5)', background: 'transparent', border: 'none', cursor: isBusy(s.id, 'archive') ? 'not-allowed' : 'pointer', transition: 'all 0.15s' }}
+                                        onMouseEnter={(e) => { if (!isBusy(s.id, 'archive')) { e.currentTarget.style.color = '#fb923c'; e.currentTarget.style.background = 'rgba(251,146,60,0.12)'; } }}
+                                        onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.5)'; e.currentTarget.style.background = 'transparent'; }}>
+                                        {isBusy(s.id, 'archive') ? (
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+                                        ) : (
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                <polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" />
+                                            </svg>
+                                        )}
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); if (!isBusy(s.id, 'archive')) onUnarchive?.(s.id); }}
+                                        disabled={isBusy(s.id, 'archive')}
+                                        aria-label="Arşivden çıkar"
+                                        title="Arşivden çıkar"
+                                        style={{ width: '26px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '8px', color: 'rgba(255,255,255,0.5)', background: 'transparent', border: 'none', cursor: isBusy(s.id, 'archive') ? 'not-allowed' : 'pointer', transition: 'all 0.15s' }}
+                                        onMouseEnter={(e) => { if (!isBusy(s.id, 'archive')) { e.currentTarget.style.color = '#86efac'; e.currentTarget.style.background = 'rgba(34,197,94,0.12)'; } }}
+                                        onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.5)'; e.currentTarget.style.background = 'transparent'; }}>
+                                        {isBusy(s.id, 'archive') ? (
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+                                        ) : (
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                <polyline points="3 14 12 5 21 14" /><line x1="12" y1="5" x2="12" y2="21" />
+                                            </svg>
+                                        )}
+                                    </button>
+                                )}
+                                {/* Delete */}
                                 <button onClick={(e) => { e.stopPropagation(); if (deletingSessionId !== s.id) onDeleteSession(s.id); }}
                                     disabled={deletingSessionId === s.id}
                                     aria-label="Sohbeti sil"
+                                    title="Sil"
                                     style={{ width: '26px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '8px', color: 'rgba(255,255,255,0.5)', background: 'transparent', border: 'none', cursor: deletingSessionId === s.id ? 'not-allowed' : 'pointer', transition: 'all 0.15s' }}
                                     onMouseEnter={(e) => { if (deletingSessionId !== s.id) { e.currentTarget.style.color = '#fca5a5'; e.currentTarget.style.background = 'rgba(239,68,68,0.15)'; } }}
                                     onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.5)'; e.currentTarget.style.background = 'transparent'; }}>
@@ -249,6 +336,30 @@ export default function ChatSidebar({
 
                 {/* Alt butonlar */}
                 <div style={{ padding: '12px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {/* Arşiv toggle */}
+                    <button
+                        onClick={onToggleArchived}
+                        title={showArchived ? 'Aktif sohbetlere dön' : 'Arşivi göster'}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '10px',
+                            padding: '8px 12px', borderRadius: '8px',
+                            background: showArchived ? 'rgba(251,146,60,0.15)' : 'transparent',
+                            border: '1px solid ' + (showArchived ? 'rgba(251,146,60,0.35)' : 'transparent'),
+                            color: showArchived ? '#fb923c' : 'rgba(255,255,255,0.7)',
+                            cursor: 'pointer', fontSize: '13px', fontWeight: 500, transition: 'all 0.15s'
+                        }}
+                        onMouseEnter={(e) => { if (!showArchived) { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#fb923c'; } }}
+                        onMouseLeave={(e) => { if (!showArchived) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.7)'; } }}>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" />
+                        </svg>
+                        <span style={{ flex: 1, textAlign: 'left' }}>{showArchived ? 'Aktif Sohbetler' : 'Arşiv'}</span>
+                        {!showArchived && archivedCount > 0 && (
+                            <span style={{ fontSize: '11px', padding: '2px 7px', borderRadius: '10px', background: 'rgba(251,146,60,0.2)', color: '#fb923c', fontWeight: 600 }}>
+                                {archivedCount}
+                            </span>
+                        )}
+                    </button>
                     <SidebarButton onClick={() => navigate('/profile')} label="Profil"
                         icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>}
                     />

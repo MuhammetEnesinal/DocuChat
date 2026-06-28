@@ -57,6 +57,17 @@ export default function Chat() {
         handleBatchDeleteSessions,
         handleStartRename,
         handleCommitRename,
+        // Archive / Pin / Export
+        showArchived,
+        archivedCount,
+        busy,
+        toggleArchivedView,
+        fetchArchivedCount,
+        handleArchiveSession,
+        handleUnarchiveSession,
+        handlePinSession,
+        handleUnpinSession,
+        handleBatchArchiveSessions,
     } = useSessions();
 
     const {
@@ -77,6 +88,7 @@ export default function Chat() {
 
     useEffect(() => {
         fetchSessions();
+        fetchArchivedCount();
         (async () => {
             setPopularQuestionsLoading(true);
             try {
@@ -234,6 +246,16 @@ export default function Chat() {
                 onBatchDeleteSessions={onBatchDeleteSessions}
                 user={user}
                 onLogout={() => { logout(); navigate('/login'); }}
+                // Archive / Pin / Export
+                showArchived={showArchived}
+                archivedCount={archivedCount}
+                busy={busy}
+                onToggleArchived={toggleArchivedView}
+                onArchive={handleArchiveSession}
+                onUnarchive={handleUnarchiveSession}
+                onPin={handlePinSession}
+                onUnpin={handleUnpinSession}
+                onBatchArchiveSessions={handleBatchArchiveSessions}
             />
 
             <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>

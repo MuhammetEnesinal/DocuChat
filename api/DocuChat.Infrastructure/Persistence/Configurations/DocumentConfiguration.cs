@@ -33,5 +33,10 @@ public class DocumentConfiguration : IEntityTypeConfiguration<Document>
         // Aynı kullanıcı + aynı dosya adı eşzamanlı upload race koruması.
         // App-level ExistsByUserAndNameAsync check ile birlikte ikinci savunma katmanı.
         builder.HasIndex(d => new { d.UserId, d.FileName }).IsUnique();
+
+        // Content hash dedup — aynı içerik farklı isimlerle yeniden yüklendiğinde tespit.
+        // SHA256 hex = sabit 64 char. UNIQUE değil (farklı kullanıcılar aynı belgeyi yüklüyor olabilir).
+        builder.Property(d => d.ContentHash).HasMaxLength(64);
+        builder.HasIndex(d => new { d.UserId, d.ContentHash });
     }
 }

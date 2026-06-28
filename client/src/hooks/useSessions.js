@@ -1,5 +1,9 @@
 import { useState, useCallback, useEffect } from 'react';
-import { getSessions, deleteSession, deleteSessionsBatch, renameSession } from '../services/api';
+import {
+    getSessions, deleteSession, deleteSessionsBatch, renameSession,
+    archiveSession, unarchiveSession, pinSession, unpinSession,
+    getArchivedSessionCount
+} from '../services/api';
 import { useToast } from '../components/shared/Toast';
 import { showApiError } from '../utils/format';
 import {
@@ -16,6 +20,12 @@ export function useSessions() {
     const [editingTitle, setEditingTitle] = useState('');
     const [deletingSessionId, setDeletingSessionId] = useState(null);
     const [renamingSessionId, setRenamingSessionId] = useState(null);
+    // Archive view toggle + count rozeti
+    const [showArchived, setShowArchived] = useState(false);
+    const [archivedCount, setArchivedCount] = useState(0);
+    // Hangi session + hangi action busy (spinner sadece o butonda dönsün).
+    // shape: { id: string, action: 'pin' | 'archive' | 'export' } | null
+    const [busy, setBusy] = useState(null);
     const toast = useToast();
 
     useEffect(() => {
@@ -37,13 +47,124 @@ export function useSessions() {
         return unsubscribe;
     }, []);
 
-    const fetchSessions = useCallback(async () => {
+    const fetchSessions = useCallback(async (archivedView = null) => {
+        const useArchived = archivedView ?? showArchived;
         setSessionsLoading(true);
         try {
-            const res = await getSessions();
-            setSessions(res.data.data || []);
+            // Default: aktif (archived=false). Archive view'da archived=true.
+            const res = await getSessions({ archived: useArchived });
+            const items = res.data.data || [];
+            // Backend PaginatedResult ise items, IReadOnlyList ise direkt array
+            setSessions(Array.isArray(items) ? items : (items.items || []));
         } catch (err) { showApiError(toast, err, 'Sohbet listesi yüklenemedi.'); }
         finally { setSessionsLoading(false); }
+    }, [toast, showArchived]);
+
+    const fetchArchivedCount = useCallback(async () => {
+        try {
+            const res = await getArchivedSessionCount();
+            setArchivedCount(res.data?.data ?? 0);
+        } catch { /* sessizce yut, badge yoksa yok */ }
+    }, []);
+
+    const toggleArchivedView = useCallback(async () => {
+        const next = !showArchived;
+        setShowArchived(next);
+        // Yeni view'a göre listeyi yenile
+        await fetchSessions(next);
+    }, [showArchived, fetchSessions]);
+
+    // ── Archive / Unarchive ──
+    const handleArchiveSession = useCallback(async (sessionId) => {
+        setBusy({ id: sessionId, action: 'archive' });
+        try {
+            await archiveSession(sessionId);
+            setSessions(prev => prev.filter(s => s.id !== sessionId));
+            setActiveSession(prev => prev?.id === sessionId ? null : prev);
+            setArchivedCount(c => c + 1);
+            toast.success('Sohbet arşivlendi.');
+        } catch (err) { showApiError(toast, err, 'Sohbet arşivlenemedi.'); }
+        finally { setBusy(null); }
+    }, [toast]);
+
+    const handleUnarchiveSession = useCallback(async (sessionId) => {
+        setBusy({ id: sessionId, action: 'archive' });
+        try {
+            await unarchiveSession(sessionId);
+            setSessions(prev => prev.filter(s => s.id !== sessionId));
+            setArchivedCount(c => Math.max(0, c - 1));
+            toast.success('Sohbet arşivden çıkarıldı.');
+        } catch (err) { showApiError(toast, err, 'Geri çıkarma başarısız.'); }
+        finally { setBusy(null); }
+    }, [toast]);
+
+    // ── Pin / Unpin ── client-side reorder ile ANINDA tepeye/yerine al.
+    // Backend sıralaması: pinned önce (PinnedAt desc), sonra CreatedAt desc.
+    // fetchSessions() YAPILMIYOR — skeleton flash + ekstra round-trip yok.
+    // Hata durumunda fetchSessions ile gerçek state'e geri dön.
+    const sortSessionsClientSide = useCallback((list) => {
+        return [...list].sort((a, b) => {
+            if (!!a.isPinned !== !!b.isPinned) return a.isPinned ? -1 : 1;
+            if (a.isPinned && b.isPinned) {
+                const ap = a.pinnedAt ? new Date(a.pinnedAt).getTime() : 0;
+                const bp = b.pinnedAt ? new Date(b.pinnedAt).getTime() : 0;
+                if (ap !== bp) return bp - ap;
+            }
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        });
+    }, []);
+
+    const handlePinSession = useCallback(async (sessionId) => {
+        setBusy({ id: sessionId, action: 'pin' });
+        try {
+            await pinSession(sessionId);
+            setSessions(prev => sortSessionsClientSide(
+                prev.map(s => s.id === sessionId
+                    ? { ...s, isPinned: true, pinnedAt: new Date().toISOString() }
+                    : s)
+            ));
+            toast.success('Sohbet sabitlendi.');
+        } catch (err) {
+            showApiError(toast, err, 'Sabitleme başarısız.');
+            await fetchSessions();
+        }
+        finally { setBusy(null); }
+    }, [toast, sortSessionsClientSide, fetchSessions]);
+
+    const handleUnpinSession = useCallback(async (sessionId) => {
+        setBusy({ id: sessionId, action: 'pin' });
+        try {
+            await unpinSession(sessionId);
+            setSessions(prev => sortSessionsClientSide(
+                prev.map(s => s.id === sessionId
+                    ? { ...s, isPinned: false, pinnedAt: null }
+                    : s)
+            ));
+            toast.success('Sabitleme kaldırıldı.');
+        } catch (err) {
+            showApiError(toast, err, 'Sabitleme kaldırılamadı.');
+            await fetchSessions();
+        }
+        finally { setBusy(null); }
+    }, [toast, sortSessionsClientSide, fetchSessions]);
+
+    const handleBatchArchiveSessions = useCallback(async (ids) => {
+        // Sequential — her arşivleme yan etkili (DB write), N tek istek de mevcut user-write
+        // rate-limit'inde rahat sığar (typically <20).
+        let success = 0, failed = 0;
+        for (const id of ids) {
+            setBusy({ id, action: 'archive' });
+            try { await archiveSession(id); success++; } catch { failed++; }
+        }
+        setBusy(null);
+        if (success > 0) {
+            setSessions(prev => prev.filter(s => !ids.includes(s.id)));
+            setActiveSession(prev => prev && ids.includes(prev.id) ? null : prev);
+            setArchivedCount(c => c + success);
+            toast.success(`${success} sohbet arşivlendi.`);
+        }
+        if (failed > 0) toast.error(`${failed} sohbet arşivlenemedi.`);
+        return success;
     }, [toast]);
 
     const handleBatchDeleteSessions = useCallback(async (ids, onDeleted) => {
@@ -111,5 +232,16 @@ export function useSessions() {
         handleBatchDeleteSessions,
         handleStartRename,
         handleCommitRename,
+        // Archive / Pin / Export
+        showArchived,
+        archivedCount,
+        busy,
+        toggleArchivedView,
+        fetchArchivedCount,
+        handleArchiveSession,
+        handleUnarchiveSession,
+        handlePinSession,
+        handleUnpinSession,
+        handleBatchArchiveSessions,
     };
 }

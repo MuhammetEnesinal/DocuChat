@@ -11,7 +11,9 @@ public sealed record ChatSessionFilterSpec(
     DateTime? DateFrom = null,
     DateTime? DateTo = null,
     ChatSessionSortBy SortBy = ChatSessionSortBy.CreatedAt,
-    bool Ascending = false)
+    bool Ascending = false,
+    // null = filtreleme yok (hepsi); true = sadece arşivlenmişler; false = sadece arşivlenmemişler.
+    bool? Archived = false)
 {
     // Controller string'inden enum'a parse — bilinmeyen değerde CreatedAt'e düşer.
     public static ChatSessionSortBy ParseSortBy(string? raw) =>

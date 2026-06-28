@@ -18,4 +18,18 @@ public interface IChatMessageFeedbackRepository : IRepository<ChatMessageFeedbac
         int maxAgeMonths,
         int maxCandidates,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Kullanıcının soru-benzerliği yüksek (≥ threshold) feedback'lerinde net skor:
+    ///   dislike_count - like_count
+    /// Cache HIT karar mantığı:
+    ///   net > 0  → dislike baskın → cache bypass (fresh cevap)
+    ///   net < 0  → like baskın    → validate atla, FAST cevap (kullanıcı zaten beğenmiş)
+    ///   net = 0  → nötr           → mevcut davranış (sim'e göre FAST veya validate)
+    /// </summary>
+    Task<int> GetSimilarFeedbackNetAsync(
+        string userId,
+        float[] queryVector,
+        double similarityThreshold,
+        CancellationToken ct = default);
 }

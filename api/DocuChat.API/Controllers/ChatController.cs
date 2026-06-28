@@ -111,26 +111,72 @@ public class ChatController : ControllerBase
         [FromQuery] DateTime? dateTo = null,
         [FromQuery] string sortBy = "createdAt",
         [FromQuery] bool ascending = false,
+        [FromQuery] bool? archived = false,
         CancellationToken ct = default)
     {
+        // archived parametresi her zaman filter olarak iletilir (varsayılan: aktif sessionlar).
+        // Frontend "Arşiv" view'inde archived=true gönderir.
         if (page.HasValue)
         {
-            var hasFilter = dateFrom.HasValue || dateTo.HasValue
-                || sortBy != "createdAt" || ascending;
-
-            if (hasFilter)
-            {
-                var filtered = await _chat.GetMySessionsFilteredAsync(
-                    page.Value, pageSize, dateFrom, dateTo, sortBy, ascending, ct);
-                return filtered.ToActionResult();
-            }
-
-            var paged = await _chat.GetMySessionsPagedAsync(page.Value, pageSize, ct);
-            return paged.ToActionResult();
+            var filtered = await _chat.GetMySessionsFilteredAsync(
+                page.Value, pageSize, dateFrom, dateTo, sortBy, ascending, archived, ct);
+            return filtered.ToActionResult();
+        }
+        // Sayfasız (tüm sessionlar) — default Get (archived=false aktifler)
+        if (archived == true)
+        {
+            // Arşiv view sayfasız da olabilir → spec ile çek
+            var filtered = await _chat.GetMySessionsFilteredAsync(
+                1, 1000, dateFrom, dateTo, sortBy, ascending, true, ct);
+            return filtered.ToActionResult();
         }
         var result = await _chat.GetMySessionsAsync(ct);
         return result.ToActionResult();
     }
+
+    [HttpGet("sessions/archived-count")]
+    [ProducesResponseType(typeof(ApiResponse<int>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetArchivedCount(CancellationToken ct)
+    {
+        var result = await _chat.GetArchivedCountAsync(ct);
+        return result.ToActionResult();
+    }
+
+    // ── Archive / Unarchive ──
+    [HttpPatch("sessions/{sessionId:guid}/archive")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> ArchiveSession(Guid sessionId, CancellationToken ct)
+        => (await _chat.ArchiveSessionAsync(sessionId, ct)).ToActionResult();
+
+    [HttpPatch("sessions/{sessionId:guid}/unarchive")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> UnarchiveSession(Guid sessionId, CancellationToken ct)
+        => (await _chat.UnarchiveSessionAsync(sessionId, ct)).ToActionResult();
+
+    // ── Pin / Unpin ──
+    [HttpPatch("sessions/{sessionId:guid}/pin")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> PinSession(Guid sessionId, CancellationToken ct)
+        => (await _chat.PinSessionAsync(sessionId, ct)).ToActionResult();
+
+    [HttpPatch("sessions/{sessionId:guid}/unpin")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> UnpinSession(Guid sessionId, CancellationToken ct)
+        => (await _chat.UnpinSessionAsync(sessionId, ct)).ToActionResult();
+
 
     [HttpGet("sessions/{sessionId:guid}/messages")]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<ChatMessageResponseDto>>), StatusCodes.Status200OK)]

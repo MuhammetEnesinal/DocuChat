@@ -42,4 +42,23 @@ public class ChatMessageFeedbackRepository
             .Take(maxCandidates)
             .ToListAsync(ct);
     }
+
+    public async Task<int> GetSimilarFeedbackNetAsync(
+        string userId,
+        float[] queryVector,
+        double similarityThreshold,
+        CancellationToken ct = default)
+    {
+        if (queryVector.Length == 0) return 0;
+
+        var vec = new Vector(queryVector);
+        var maxDistance = 1.0 - similarityThreshold;
+
+        // Tek query → sum ile DB tarafında hesapla (round-trip yok).
+        // dislike Rating=-1, like Rating=+1 → -Rating toplamı = dislike - like
+        return await _set
+            .Where(f => f.UserId == userId)
+            .Where(f => f.QuestionVector!.CosineDistance(vec) <= maxDistance)
+            .SumAsync(f => -f.Rating, ct);
+    }
 }

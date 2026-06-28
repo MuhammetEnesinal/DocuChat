@@ -19,4 +19,7 @@ public interface IChatSessionRepository : IRepository<ChatSession>
 
     Task<ChatSession?> GetWithMessagesPagedAsync(
         Guid sessionId, int page, int pageSize, CancellationToken ct = default);
+
+    // Sidebar'da "Arşiv (N)" badge için kullanıcının arşivlenmiş session sayısı.
+    Task<int> GetArchivedCountAsync(string userId, CancellationToken ct = default);
 }

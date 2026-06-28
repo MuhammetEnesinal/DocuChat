@@ -22,6 +22,7 @@ using DocuChat.Infrastructure.Services.BackgroundJobs;
 using DocuChat.Infrastructure.Services.Email;
 using DocuChat.Infrastructure.Services.Storage;
 using DocuChat.Infrastructure.Services.Documents;
+using DocuChat.Infrastructure.Services.Persistence;
 
 namespace DocuChat.Infrastructure;
 
@@ -64,6 +65,7 @@ public static class DependencyInjection
         services.AddScoped<IVectorSearch, VectorSearchService>();
         services.AddScoped<IRetrievalPipeline, RetrievalPipelineService>();
         services.AddScoped<IFileStorage, LocalFileStorage>();
+        services.AddSingleton<IDbExceptionInspector, PostgresExceptionInspector>();
         services.AddScoped<JwtTokenService>();
 
         // HttpClient — Embedding
@@ -116,8 +118,9 @@ public static class DependencyInjection
             client.Timeout = TimeSpan.FromSeconds(timeout);
         });
 
-        // Memory cache
-        services.AddMemoryCache();
+        // Memory cache — SizeLimit yoksa entry'lerin Size = N ayarı IGNORE edilir, cache sınırsız büyür.
+        // 100K entry × ~5 KB (1024-dim BGE embedding) ≈ ~500 MB tavan. Eviction LRU mantığında çalışır.
+        services.AddMemoryCache(o => o.SizeLimit = 100_000);
 
         // HttpClient — Mistral OCR
         services.AddHttpClient("Mistral", client =>

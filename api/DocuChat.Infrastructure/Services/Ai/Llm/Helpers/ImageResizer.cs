@@ -1,34 +1,38 @@
 namespace DocuChat.Infrastructure.Services.Ai.Llm.Helpers;
 
+/// <summary>Resize sonucu: bytes + gerçek MIME (resize edildi ise her zaman image/jpeg).</summary>
+internal readonly record struct ResizedImage(byte[] Bytes, string MimeType);
+
 internal static class ImageResizer
 {
     // Görsel hedef boyutu aşıyorsa JPEG q=85 ile boyutlandırır; küçükse dokunmaz.
-    // Hata olursa orijinal byte'ları döner (fail-open).
-    public static byte[] ResizeIfNeeded(byte[] bytes, int maxDim, int skipBelow = 800)
+    // Resize yapılırsa MimeType = "image/jpeg" (encoder output). Aksi halde caller'ın bildirdiği mime.
+    // Hata olursa orijinal byte'lar + orijinal mime döner (fail-open).
+    public static ResizedImage ResizeIfNeeded(byte[] bytes, string originalMime, int maxDim, int skipBelow = 800)
     {
         try
         {
             using var input = SkiaSharp.SKBitmap.Decode(bytes);
-            if (input is null) return bytes;
+            if (input is null) return new ResizedImage(bytes, originalMime);
 
             var maxSide = Math.Max(input.Width, input.Height);
 
             var threshold = Math.Max(skipBelow, maxDim);
-            if (maxSide <= threshold) return bytes;
+            if (maxSide <= threshold) return new ResizedImage(bytes, originalMime);
 
             var scale = (double)maxDim / maxSide;
             var newW = (int)(input.Width * scale);
             var newH = (int)(input.Height * scale);
 
             using var resized = input.Resize(new SkiaSharp.SKImageInfo(newW, newH), SkiaSharp.SKSamplingOptions.Default);
-            if (resized is null) return bytes;
+            if (resized is null) return new ResizedImage(bytes, originalMime);
             using var image = SkiaSharp.SKImage.FromBitmap(resized);
             using var data = image.Encode(SkiaSharp.SKEncodedImageFormat.Jpeg, quality: 85);
-            return data.ToArray();
+            return new ResizedImage(data.ToArray(), "image/jpeg");
         }
         catch
         {
-            return bytes;
+            return new ResizedImage(bytes, originalMime);
         }
     }
 }

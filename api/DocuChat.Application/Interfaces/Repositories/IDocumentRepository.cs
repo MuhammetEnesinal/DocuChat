@@ -18,6 +18,10 @@ public interface IDocumentRepository : IRepository<Document>
     // Aynı kullanıcı + aynı dosya adı kontrolü (case-insensitive).
     Task<bool> ExistsByUserAndNameAsync(string userId, string fileName, CancellationToken ct = default);
 
+    // ContentHash bazlı dedup — aynı kullanıcı aynı içeriği (farklı isimle de olsa) ikinci kez yükleyemez.
+    // Null ContentHash'li eski kayıtlar dahil edilmez (filter contentHash != null).
+    Task<Document?> FindByUserAndContentHashAsync(string userId, string contentHash, CancellationToken ct = default);
+
     // Belirli statüdeki tüm belge ID'lerini döner. DocumentRecoveryService startup'ta
     // Pending+Processing kalmış (önceki run'da yarıda kalmış) belgeleri tekrar zamanlamak için.
     Task<IReadOnlyList<Guid>> GetIdsByStatusAsync(IReadOnlyList<DocumentStatus> statuses, CancellationToken ct = default);

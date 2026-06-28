@@ -18,15 +18,18 @@ public class AdminController : ControllerBase
     private readonly IUserManagementService _userManagement;
     private readonly IValidator<RegisterRequestDto> _registerValidator;
     private readonly IValidator<UpdateUserRequestDto> _updateUserValidator;
+    private readonly IValidator<BatchUserDeleteRequestDto> _batchDeleteValidator;
 
     public AdminController(
         IUserManagementService userManagement,
         IValidator<RegisterRequestDto> registerValidator,
-        IValidator<UpdateUserRequestDto> updateUserValidator)
+        IValidator<UpdateUserRequestDto> updateUserValidator,
+        IValidator<BatchUserDeleteRequestDto> batchDeleteValidator)
     {
         _userManagement = userManagement;
         _registerValidator = registerValidator;
         _updateUserValidator = updateUserValidator;
+        _batchDeleteValidator = batchDeleteValidator;
     }
 
     [HttpGet("users")]
@@ -91,5 +94,25 @@ public class AdminController : ControllerBase
     {
         var result = await _userManagement.DeleteUserAsync(id, ct);
         return result.ToNoContentResult();
+    }
+
+    // Çoklu kullanıcı silme — tek HTTP isteği. UI N kullanıcı seçtiğinde N tek-tek DELETE
+    // göndermek yerine tek batch isteği yollar → rate limit hızla tükenmiyor.
+    [HttpPost("users/batch-delete")]
+    [EnableRateLimiting("batch-delete")]
+    [ProducesResponseType(typeof(ApiResponse<int>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+    public async Task<IActionResult> DeleteUsersBatch(
+        [FromBody] BatchUserDeleteRequestDto req, CancellationToken ct)
+    {
+        var validation = await _batchDeleteValidator.ValidateAsync(req, ct);
+        if (!validation.IsValid)
+            return validation.Errors.Select(e => e.ErrorMessage).ToValidationResult<int>();
+
+        var result = await _userManagement.DeleteUsersBatchAsync(req.Ids, ct);
+        return result.ToActionResult();
     }
 }

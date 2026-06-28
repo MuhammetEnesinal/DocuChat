@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { getDocuments, uploadDocument, deleteDocument, deleteDocumentsBatch, getDocumentChunks, reprocessDocument, downloadDocument } from '../services/api';
+import { getDocuments, uploadDocument, deleteDocument, deleteDocumentsBatch, getDocumentChunks, reprocessDocument, reprocessDocumentsBatch, downloadDocument } from '../services/api';
 import { useToast } from '../components/shared/Toast';
 import { showApiError, getApiErrorMessage } from '../utils/format';
 
@@ -52,24 +52,25 @@ export function useDocuments() {
         }
     }, [selectedDoc, fetchDocs]);
 
-    // Çoklu yeniden işleme — istekleri sırayla atar, server'ı yormasın
+    // Çoklu yeniden işleme — TEK HTTP isteği (batch-reprocess). Backend queue'ya enqueue eder,
+    // consumer maxConcurrent ile throttle yapar; client side rate-limit'e takılmaz.
     const batchReprocessDocs = useCallback(async (ids) => {
         if (ids.length === 0) return 0;
-        // Optimistic: hepsini Processing yap
-        setDocuments(prev => prev.map(d => ids.includes(d.id) ? { ...d, status: 'Processing' } : d));
-        let success = 0, failed = 0;
-        for (const id of ids) {
-            try {
-                await reprocessDocument(id);
-                success++;
-            } catch {
-                failed++;
-            }
+        // Optimistic: hepsini Pending yap (backend de aynısını yapar — consumer alınca Processing'e döner)
+        setDocuments(prev => prev.map(d => ids.includes(d.id) ? { ...d, status: 'Pending' } : d));
+        try {
+            const res = await reprocessDocumentsBatch(ids);
+            const queued = res.data?.data ?? 0;
+            const skipped = ids.length - queued;
+            if (queued > 0) toast.success(`${queued} belge yeniden işleme alındı.`);
+            if (skipped > 0) toast.info?.(`${skipped} belge atlandı (zaten işleniyor veya bulunamadı).`);
+            fetchDocs(true);  // gerçek statusları çek
+            return queued;
+        } catch (err) {
+            showApiError(toast, err, 'Belgeler yeniden işlenemedi.');
+            fetchDocs(true);  // optimistic rollback için sunucu durumunu çek
+            return 0;
         }
-        if (success > 0) toast.success(`${success} belge yeniden işleme alındı.`);
-        if (failed > 0) toast.error(`${failed} belge yeniden işlenemedi.`);
-        fetchDocs(true);  // gerçek statusları çek
-        return success;
     }, [toast, fetchDocs]);
 
     // Çoklu indirme — her belgeyi blob olarak çek, browser'da download tetikle

@@ -28,9 +28,29 @@ public sealed class DocumentProcessingQueue : IDocumentProcessingScheduler
         });
     }
 
-    /// <summary>IDocumentProcessingScheduler implementation.</summary>
+    /// <summary>IDocumentProcessingScheduler implementation. Recovery service için bloklu.</summary>
     public ValueTask ScheduleAsync(Guid documentId, CancellationToken ct = default) =>
         _channel.Writer.WriteAsync(documentId, ct);
+
+    /// <summary>Timeout-aware enqueue — kuyruk doluysa süresiz bekleme YOK.</summary>
+    public async Task<bool> TryScheduleAsync(Guid documentId, TimeSpan timeout, CancellationToken ct = default)
+    {
+        // Önce non-blocking deneme
+        if (_channel.Writer.TryWrite(documentId)) return true;
+
+        // Kuyruk dolu → bounded timeout ile bekle
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(timeout);
+        try
+        {
+            await _channel.Writer.WriteAsync(documentId, timeoutCts.Token);
+            return true;
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
+        {
+            return false;
+        }
+    }
 
     /// <summary>Consumer için stream — döngüde await foreach ile okunur.</summary>
     public IAsyncEnumerable<Guid> ReadAllAsync(CancellationToken ct) =>

@@ -14,4 +14,8 @@ public interface IUserManagementService
     Task<Result<IReadOnlyList<UserSummaryResponseDto>>> GetAllUsersAsync(CancellationToken ct = default);
     Task<Result<UserSummaryResponseDto>> UpdateUserAsync(string userId, UpdateUserRequestDto request, CancellationToken ct = default);
     Task<Result<bool>> DeleteUserAsync(string userId, CancellationToken ct = default);
+
+    // Çoklu kullanıcı silme — tek HTTP isteği, N user. Her biri için DeleteUserAsync semantiği
+    // (admin self-delete koruması, son admin koruması, vb.) korunur.
+    Task<Result<int>> DeleteUsersBatchAsync(IEnumerable<string> userIds, CancellationToken ct = default);
 }

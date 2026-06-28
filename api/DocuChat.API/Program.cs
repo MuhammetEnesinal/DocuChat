@@ -147,11 +147,12 @@ try
                 PermitLimit = 30, Window = TimeSpan.FromHours(1), QueueLimit = 0
             }));
 
-        // upload (gevşek — toplu yükleme için bol, abuse'a karşı disk/OCR maliyet koruması)
+        // upload (admin için yüksek — toplu klasör yüklemede sıkışmayı önle, abuse koruması yine de var:
+        // disk dolma + Mistral cost; queue zaten max 2 paralel işliyor → DB/disk yükü doğal sınırlı).
         options.AddPolicy("upload", ctx =>
             RateLimitPartition.GetFixedWindowLimiter(GetIp(ctx), _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 30, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
+                PermitLimit = 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
         // reprocess — Mistral OCR + Pixtral caption + LLM context generation. En pahalı op.

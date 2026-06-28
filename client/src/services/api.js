@@ -150,6 +150,22 @@ export const deleteSession = (sessionId) =>
 export const deleteSessionsBatch = (ids) =>
     api.post('/chat/sessions/batch-delete', { ids });
 
+// ── Session: Arşivleme / Sabitleme / Export ──────────────────────────────
+export const archiveSession = (sessionId) =>
+    api.patch(`/chat/sessions/${sessionId}/archive`);
+
+export const unarchiveSession = (sessionId) =>
+    api.patch(`/chat/sessions/${sessionId}/unarchive`);
+
+export const pinSession = (sessionId) =>
+    api.patch(`/chat/sessions/${sessionId}/pin`);
+
+export const unpinSession = (sessionId) =>
+    api.patch(`/chat/sessions/${sessionId}/unpin`);
+
+export const getArchivedSessionCount = () =>
+    api.get('/chat/sessions/archived-count');
+
 // ── Documents ─────────────────────────────────────────────────────────────
 export const getDocuments = (params = {}) =>
     api.get('/documents', { params });
@@ -182,6 +198,10 @@ export const deleteDocumentsBatch = (ids) =>
 export const reprocessDocument = (id) =>
     api.post(`/documents/${id}/reprocess`);
 
+// Çoklu reprocess — tek istek, N belge. Backend queue'ya hepsini ekler, consumer throttle yapar.
+export const reprocessDocumentsBatch = (ids) =>
+    api.post('/documents/batch-reprocess', { ids });
+
 export const getPopularQuestions = (limit = 6) =>
     api.get(`/chat/popular-questions?limit=${limit}`);
 
@@ -205,3 +225,7 @@ export const adminUpdateUser = (id, fullName, email, password) =>
 
 export const adminDeleteUser = (id) =>
     api.delete(`/admin/users/${id}`);
+
+// Çoklu kullanıcı silme — tek istek (admin self-delete + son admin koruması serverda).
+export const adminDeleteUsersBatch = (ids) =>
+    api.post('/admin/users/batch-delete', { ids });

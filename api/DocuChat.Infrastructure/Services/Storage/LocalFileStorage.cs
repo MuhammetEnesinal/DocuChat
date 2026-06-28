@@ -52,7 +52,8 @@ public class LocalFileStorage : IFileStorage
     {
         var fullPath = Path.Combine(_basePath, fileName);
         await using var fs = File.Create(fullPath);
-        stream.Position = 0;
+        // Caller stream'i kısmen okumuş olabilir — seekable ise baştan başla.
+        if (stream.CanSeek) stream.Position = 0;
         await stream.CopyToAsync(fs, ct);
         return fileName;
     }

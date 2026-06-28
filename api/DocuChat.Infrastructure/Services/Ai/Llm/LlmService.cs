@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using DocuChat.Application.Common.Imaging;
 using DocuChat.Application.Interfaces.Services;
 using DocuChat.Application.ServiceContracts;
 using DocuChat.Infrastructure.Services.Ai.Llm.Helpers;
@@ -490,6 +491,7 @@ public class LlmService : ILlmService
         string cachedQuestion,
         string cachedAnswer,
         IEnumerable<(string Role, string Content)>? history = null,
+        string? userFeedbackContext = null,
         CancellationToken ct = default)
     {
         var historySection = "";
@@ -505,8 +507,14 @@ public class LlmService : ILlmService
             }
         }
 
+        // Kullanıcının geçmiş şikayetleri varsa system prompt'a iliştir → validate kararı
+        // bu uyarıyı dikkate alır (örn. benzer cevaba "yanlış bilgi" dendiyse "valid":false dön).
+        var systemPrompt = string.IsNullOrWhiteSpace(userFeedbackContext)
+            ? LlmPrompts.CacheValidation.System
+            : LlmPrompts.CacheValidation.System + "\n" + userFeedbackContext;
+
         var payload = HelperPayload(
-            LlmPrompts.CacheValidation.System,
+            systemPrompt,
             LlmPrompts.CacheValidation.User(historySection, question, cachedQuestion, cachedAnswer),
             maxTokens: 20, temperature: 0.0f);
 
@@ -689,17 +697,16 @@ public class LlmService : ILlmService
 
         var maxDim = int.TryParse(_cfg["Caption:MaxImageDimension"], out var d) ? d : 1024;
         var skipBelow = int.TryParse(_cfg["Caption:SkipResizeBelow"], out var s) ? s : 800;
-        var resized = ImageResizer.ResizeIfNeeded(imageBytes, maxDim, skipBelow);
-        var base64 = Convert.ToBase64String(resized);
-
-        var effectiveMime = resized.Length > 1 && resized[0] == 0xFF && resized[1] == 0xD8
-            ? "image/jpeg" : mimeType;
+        // Resizer hem byte hem effective MIME döner — resize edildiyse her zaman image/jpeg,
+        // edilmediyse caller'ın bildirdiği orijinal mime korunur. Manuel magic-byte detection yok.
+        var resized = ImageResizer.ResizeIfNeeded(imageBytes, mimeType, maxDim, skipBelow);
+        var base64 = Convert.ToBase64String(resized.Bytes);
 
         var prompt = LlmPrompts.ImageCaption.Build(context);
         var userContent = new object[]
         {
             new { type = "text", text = prompt },
-            new { type = "image_url", image_url = new { url = $"data:{effectiveMime};base64,{base64}" } }
+            new { type = "image_url", image_url = new { url = $"data:{resized.MimeType};base64,{base64}" } }
         };
 
         var payload = new

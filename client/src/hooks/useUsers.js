@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { adminGetUsers, adminCreateUser, adminUpdateUser, adminDeleteUser } from '../services/api';
+import { adminGetUsers, adminCreateUser, adminUpdateUser, adminDeleteUser, adminDeleteUsersBatch } from '../services/api';
 import { useToast } from '../components/shared/Toast';
 import { showApiError, getApiErrorMessage } from '../utils/format';
 
@@ -78,27 +78,27 @@ export function useUsers() {
         }
     }, [users]);
 
-    // Çoklu kullanıcı silme — backend'de batch endpoint yok, sırayla delete
+    // Çoklu kullanıcı silme — TEK HTTP isteği (batch-delete). Admin role'üne sahip kullanıcılar
+    // serverda atlanır; serverdan dönen sayı kadar başarılı.
     const batchDeleteUsers = useCallback(async (ids) => {
         if (ids.length === 0) return 0;
         const snapshot = users;
-        let success = 0, failed = 0;
-        const failedIds = [];
-        for (const id of ids) {
-            try {
-                await adminDeleteUser(id);
-                success++;
-            } catch {
-                failed++;
-                failedIds.push(id);
-            }
+        // Optimistic: tümünü kaldır; hata olursa snapshot'tan geri yükle
+        setUsers(prev => prev.filter(u => !ids.includes(u.id)));
+        try {
+            const res = await adminDeleteUsersBatch(ids);
+            const success = res.data?.data ?? 0;
+            const skipped = ids.length - success;
+            if (success > 0) toast.success(`${success} kullanıcı silindi.`);
+            if (skipped > 0) toast.info?.(`${skipped} kullanıcı atlandı (admin veya bulunamadı).`);
+            await fetchUsers();
+            return success;
+        } catch (err) {
+            setUsers(snapshot);
+            showApiError(toast, err, 'Toplu silme başarısız.');
+            return 0;
         }
-        // Sadece başarılı olanları çıkar
-        setUsers(prev => prev.filter(u => failedIds.includes(u.id) || !ids.includes(u.id)));
-        if (success > 0) toast.success(`${success} kullanıcı silindi.`);
-        if (failed > 0) toast.error(`${failed} kullanıcı silinemedi.`);
-        return success;
-    }, [users, toast]);
+    }, [users, toast, fetchUsers]);
 
     return {
         users,

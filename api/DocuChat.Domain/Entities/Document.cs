@@ -15,8 +15,16 @@ public class Document : BaseEntity
     public DocumentStatus Status { get; set; } = DocumentStatus.Pending;
     public FileType FileType { get; set; } = FileType.Pdf;
 
+    // SHA256 hex (64 char). Aynı içerik farklı isim altında ikinci kez yüklenirse rejected.
+    // FileName dedup yetmez (Test.pdf, Test-v2.pdf, Test-2024.pdf ↔ aynı içerik → 3 kopya).
+    public string? ContentHash { get; set; }
+
     // LLM ile üretilmiş 1-2 cümlelik konu özeti.
     public string? Summary { get; set; }
+
+    // İşleme sırasındaki yumuşak uyarılar (caption quota aşımı, chunk context fail, vb.).
+    // Belge hâlâ Ready ama kullanıcı arayüzüne bilgi badge yansır.
+    public string? ProcessingNotes { get; set; }
 
     public List<DocumentChunk> Chunks { get; set; } = new();
     public List<DocumentImage> Images { get; set; } = new();

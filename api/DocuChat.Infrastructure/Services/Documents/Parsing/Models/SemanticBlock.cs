@@ -36,4 +36,20 @@ public sealed class SemanticBlock
     /// SplitOversizedBlockAsync ile bölünmüş sentetik piece'lerde null kalır → renderer fallback.
     /// </summary>
     public string? RawMarkdown { get; set; }
+
+    /// <summary>
+    /// Block'un sayfadaki TAHMİNİ dikey kapsamı (0.0 = sayfa tepesi, 1.0 = sayfa dibi).
+    /// MarkdownBlockExtractor sayfa içi block'ların content-length oranıyla hesaplar
+    /// (uniform spacing varsayımından daha doğru: uzun paragraflar büyük slot alır,
+    /// kısa heading'ler küçük slot alır).
+    ///
+    /// ImageLinker görsel atamasında kullanır:
+    ///   - image.NormY ∈ [BboxTopNormY, BboxBottomNormY] ise direkt eşleşir (içerme)
+    ///   - değilse en yakın kenara mesafe = score
+    ///   - bbox null ise eski uniform spacing fallback'i devreye girer
+    ///
+    /// Split'le üretilen sentetik piece'lerde null kalabilir (orijinal block parçalanmış).
+    /// </summary>
+    public double? BboxTopNormY { get; set; }
+    public double? BboxBottomNormY { get; set; }
 }

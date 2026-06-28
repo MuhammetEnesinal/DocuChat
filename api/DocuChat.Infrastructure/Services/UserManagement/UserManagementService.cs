@@ -170,6 +170,47 @@ public sealed class UserManagementService : IUserManagementService
         return Result<bool>.Success(true);
     }
 
+    public async Task<Result<int>> DeleteUsersBatchAsync(IEnumerable<string> userIds, CancellationToken ct = default)
+    {
+        var idList = userIds.Distinct().ToList();
+        if (idList.Count == 0) return Result<int>.Success(0);
+
+        var deleted = 0;
+        var skippedAdmins = 0;
+        var notFound = 0;
+        var failedDetails = new List<string>();
+
+        foreach (var id in idList)
+        {
+            var user = await _userManager.FindByIdAsync(id);
+            if (user is null) { notFound++; continue; }
+
+            var roles = await _userManager.GetRolesAsync(user);
+            if (roles.Contains(Roles.Admin)) { skippedAdmins++; continue; }
+
+            var result = await _userManager.DeleteAsync(user);
+            if (result.Succeeded)
+            {
+                deleted++;
+            }
+            else
+            {
+                failedDetails.Add($"{user.Email ?? id}: {string.Join(", ", result.Errors.Select(e => e.Description))}");
+            }
+        }
+
+        _logger.LogInformation(
+            "[UserManagement][Batch] {Deleted} silindi, {Skipped} admin atlandı, {NotFound} bulunamadı, {Failed} hata",
+            deleted, skippedAdmins, notFound, failedDetails.Count);
+
+        if (failedDetails.Count > 0)
+        {
+            return Result<int>.Failure(Error.Validation(
+                $"{deleted} kullanıcı silindi. {failedDetails.Count} hata: {string.Join(" | ", failedDetails.Take(5))}"));
+        }
+        return Result<int>.Success(deleted);
+    }
+
     // ====== Email helpers ======
 
     private async Task SendWelcomeEmailAsync(AppUser user, string password, CancellationToken ct)

@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ClosedXML.Excel;
+using DocuChat.Application.Common.Imaging;
 using DocuChat.Application.Interfaces.Services;
 using DocuChat.Domain.Enums;
 using DocuChat.Infrastructure.Services.Documents.Parsing.Ast;
@@ -24,6 +25,10 @@ namespace DocuChat.Infrastructure.Services.Documents;
 
 public class DocumentParserService : IDocumentParser
 {
+    // Hot-path regex'ler — JIT-compiled, cached. Belge başına onlarca call.
+    private static readonly Regex EmbedImgPlaceholderRegex =
+        new(@"\[\[EMBED_IMG_(\d+)\]\]", RegexOptions.Compiled);
+
     private readonly IHttpClientFactory _httpFactory;
     private readonly IFileStorage _fileStorage;
     private readonly ILogger<DocumentParserService> _logger;
@@ -70,7 +75,8 @@ public class DocumentParserService : IDocumentParser
         _adaptiveMultiplier = cfg.GetValue<double>("Chunking:AdaptiveMultiplier", 2.5);
         _adaptiveMin = cfg.GetValue<int>("Chunking:AdaptiveMinTokens", 400);
         _adaptiveMax = cfg.GetValue<int>("Chunking:AdaptiveMaxTokens", 1500);
-        _chunkingMode = cfg.GetValue<string>("Chunking:Mode", "PageBased") ?? "PageBased";
+        // appsettings.json default'u "Semantic" — constructor fallback de onunla hizalı.
+        _chunkingMode = cfg.GetValue<string>("Chunking:Mode", "Semantic") ?? "Semantic";
 
         var maxAtomicTokens = cfg.GetValue<int>("Chunking:MaxAtomicTokens", 1500);
         var blockCoalescerMin = cfg.GetValue<int>("Chunking:BlockCoalescer:MinTokens", 80);
@@ -87,12 +93,14 @@ public class DocumentParserService : IDocumentParser
         _chunker = new SemanticChunker(_tokens, _renderer, splitter, maxAtomicTokens);
         _pageChunker = new PageBasedChunker(_tokens, _adaptiveMax);
         _hierarchicalChunker = new HierarchicalChunker(_tokens, _renderer, _adaptiveMax);
+
+        // ClosedXML / MimeKit windows-1254 vb code page'ler için. Idempotent ama belge başına
+        // çağırmak gereksiz — service singleton/scoped lifetime'da burada bir kez yeter.
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
     }
 
     public async Task<IEnumerable<ParsedChunk>> ParseAsync(Stream stream, FileType fileType, CancellationToken ct = default)
     {
-        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-
         var bytes = await ReadAllBytesAsync(stream, ct);
 
         // DOCX / DOC: LibreOffice ile PDF'e çevir → PDF akışına yönlendir
@@ -105,13 +113,14 @@ public class DocumentParserService : IDocumentParser
                 bytes = await ExtractHtmlFromMhtmlAsync(bytes);
                 ext = "html";
             }
-            bytes = await ConvertToPdfAsync(bytes, ext);
+            bytes = await ConvertToPdfAsync(bytes, ext, ct);
             fileType = FileType.Pdf;
         }
 
         var mime = MimeFor(fileType);
 
-        // XLSX: belgeye [[EMBED_IMG_N]] placeholder'ları enjekte et, Mistral metne çevirsin
+        // XLSX: belgeye [[EMBED_IMG_N]] placeholder'ları enjekte et, Mistral metne çevirsin.
+        // Mistral fail olursa placeholder dosyalarını diske orphan bırakma → try/catch cleanup.
         List<string> placeholderPaths = new();
         if (fileType == FileType.Xlsx)
         {
@@ -120,7 +129,24 @@ public class DocumentParserService : IDocumentParser
             placeholderPaths = prep.Paths;
         }
 
-        var mistralPages = await CallMistralAsync(bytes, mime);
+        List<MistralPage> mistralPages;
+        try
+        {
+            mistralPages = await CallMistralAsync(bytes, mime, ct);
+        }
+        catch
+        {
+            if (placeholderPaths.Count > 0)
+            {
+                _logger.LogWarning("[Xlsx] Mistral fail — {N} placeholder dosyası temizleniyor", placeholderPaths.Count);
+                foreach (var p in placeholderPaths)
+                {
+                    try { await _fileStorage.DeleteAsync(p, CancellationToken.None); }
+                    catch (Exception delEx) { _logger.LogDebug(delEx, "[Xlsx] Placeholder silme: {Path}", p); }
+                }
+            }
+            throw;
+        }
 
         // PDF için sayfa-bazlı PdfPig fallback (Mistral'in kaçırdığı dijital embedded'ler).
         // 🆕 Mistral hash'leri PdfPig'e gönderilir — aynı görseli iki kez diske yazma + duplicate marker bug yok.
@@ -141,7 +167,7 @@ public class DocumentParserService : IDocumentParser
             for (var local = 0; local < mp.FigurePaths.Count; local++)
                 md = md.Replace($"[IMG_REF:{local}]", $"[IMG_PATH:{mp.FigurePaths[local]}]");
 
-            md = Regex.Replace(md, @"\[\[EMBED_IMG_(\d+)\]\]", m =>
+            md = EmbedImgPlaceholderRegex.Replace(md, m =>
             {
                 var n = int.Parse(m.Groups[1].Value);
                 return n >= 0 && n < placeholderPaths.Count
@@ -465,7 +491,7 @@ public class DocumentParserService : IDocumentParser
         }
     }
 
-    private async Task<byte[]> ConvertToPdfAsync(byte[] sourceBytes, string sourceExt)
+    private async Task<byte[]> ConvertToPdfAsync(byte[] sourceBytes, string sourceExt, CancellationToken ct)
     {
         var tmpDir = Path.Combine(Path.GetTempPath(), $"doc2pdf_{Guid.NewGuid()}");
         Directory.CreateDirectory(tmpDir);
@@ -474,7 +500,7 @@ public class DocumentParserService : IDocumentParser
 
         try
         {
-            await File.WriteAllBytesAsync(inFile, sourceBytes);
+            await File.WriteAllBytesAsync(inFile, sourceBytes, ct);
 
             // Her çağrıya ayrı UserInstallation profili ver — paralel çağrılar çakışmasın
             var userProfile = new Uri(Path.Combine(tmpDir, "lo_profile")).AbsoluteUri;
@@ -492,15 +518,31 @@ public class DocumentParserService : IDocumentParser
             using var proc = Process.Start(psi)
                 ?? throw new InvalidOperationException("LibreOffice (soffice) başlatılamadı. Kurulu mu?");
 
-            var stdout = await proc.StandardOutput.ReadToEndAsync();
-            var stderr = await proc.StandardError.ReadToEndAsync();
-            var timeoutMs = 120_000;
-            var completed = proc.WaitForExit(timeoutMs);
-            if (!completed)
+            // Timeout + outer CT'yi linke et. Timeout 120s; outer CT geldiğinde de iptal.
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(120));
+
+            // stdout/stderr async oku — ThreadPool thread'i bloklanmasın
+            var stdoutTask = proc.StandardOutput.ReadToEndAsync(timeoutCts.Token);
+            var stderrTask = proc.StandardError.ReadToEndAsync(timeoutCts.Token);
+
+            try
             {
-                try { proc.Kill(true); } catch { }
+                await proc.WaitForExitAsync(timeoutCts.Token);
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
+            {
+                try { proc.Kill(entireProcessTree: true); } catch { /* zaten exit etti olabilir */ }
                 throw new TimeoutException("LibreOffice 120 sn içinde tamamlanmadı.");
             }
+            catch (OperationCanceledException)
+            {
+                try { proc.Kill(entireProcessTree: true); } catch { }
+                throw;
+            }
+
+            var stdout = await stdoutTask;
+            var stderr = await stderrTask;
 
             if (proc.ExitCode != 0)
                 throw new InvalidOperationException(
@@ -510,7 +552,7 @@ public class DocumentParserService : IDocumentParser
                 throw new FileNotFoundException(
                     $"LibreOffice çıktı dosyası yok: {outFile}\nstdout: {stdout}\nstderr: {stderr}");
 
-            var pdfBytes = await File.ReadAllBytesAsync(outFile);
+            var pdfBytes = await File.ReadAllBytesAsync(outFile, ct);
             _logger.LogInformation("[LibreOffice] {Ext} → PDF: {InSize} → {OutSize} byte",
                 sourceExt, sourceBytes.Length, pdfBytes.Length);
             return pdfBytes;
@@ -525,42 +567,75 @@ public class DocumentParserService : IDocumentParser
     // PdfPig fallback aynı hash'li görselleri SKIP eder → disk israfı + duplicate marker bug yok.
     private record MistralPage(int Index, string Markdown, List<string> FigurePaths, HashSet<string> ImageHashes);
 
-    private async Task<List<MistralPage>> CallMistralAsync(byte[] bytes, string mime)
+    // 20MB üstü belgeleri /v1/files endpoint'ine multipart upload eder; base64 inline yerine
+    // signed URL kullanılır → request body ~67MB string allocation kaybolur. Küçük dosyalarda
+    // base64 inline kalır (round-trip yok, bilinen stabil yol).
+    private const long MistralLargeFileThreshold = 20L * 1024 * 1024;
+    // Worst-case retry zinciri: 1+2+4+8 sleep + 4 × HttpClient.Timeout (120s) → ~8 dakika.
+    // Outer global cap: 5 dakika. Çok büyük belgelerde tek istek 120s+ sürebilir; 5dk
+    // pratikte 2-3 deneme + retry sleep'ine yeter.
+    private static readonly TimeSpan MistralCallGlobalTimeout = TimeSpan.FromMinutes(5);
+
+    private async Task<List<MistralPage>> CallMistralAsync(byte[] bytes, string mime, CancellationToken outerCt)
     {
+        // Outer CT + global timeout linked → retry zinciri toplamda 5dk'yı aşmaz.
+        using var globalCts = CancellationTokenSource.CreateLinkedTokenSource(outerCt);
+        globalCts.CancelAfter(MistralCallGlobalTimeout);
+        var ct = globalCts.Token;
+
         var http = _httpFactory.CreateClient("Mistral");
-        var dataUrl = $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
+
+        string documentUrl;
+        if (bytes.Length >= MistralLargeFileThreshold)
+        {
+            documentUrl = await UploadMistralFileAsync(http, bytes, mime, ct);
+            _logger.LogInformation("[Mistral] Büyük dosya ({MB} MB) /v1/files endpoint ile gönderildi (base64 bypass)",
+                bytes.Length / (1024 * 1024));
+        }
+        else
+        {
+            documentUrl = $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
+        }
+
         var payload = new
         {
             model = _mistralModel,
-            document = new { type = "document_url", document_url = dataUrl },
+            document = new { type = "document_url", document_url = documentUrl },
             include_image_base64 = true
         };
 
         JsonDocument? json = null;
         for (var attempt = 1; attempt <= 4; attempt++)
         {
+            ct.ThrowIfCancellationRequested();
             try
             {
-                using var resp = await http.PostAsJsonAsync("/v1/ocr", payload);
+                using var resp = await http.PostAsJsonAsync("/v1/ocr", payload, ct);
                 if (!resp.IsSuccessStatusCode)
                 {
-                    var body = await resp.Content.ReadAsStringAsync();
+                    var body = await resp.Content.ReadAsStringAsync(ct);
                     _logger.LogWarning("[Mistral] HTTP {S} try {N}/4: {B}",
                         (int)resp.StatusCode, attempt, body.Length > 400 ? body[..400] : body);
                     if (attempt < 4 && (int)resp.StatusCode >= 500)
                     {
-                        await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt - 1)));
+                        await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt - 1)), ct);
                         continue;
                     }
                     resp.EnsureSuccessStatusCode();
                 }
-                json = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+                // Stream-based parse: response string'e materialize edilmiyor (~50MB tasarruf büyük OCR'larda)
+                using var respStream = await resp.Content.ReadAsStreamAsync(ct);
+                json = await JsonDocument.ParseAsync(respStream, cancellationToken: ct);
                 break;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex) when (attempt < 4)
             {
                 _logger.LogWarning("[Mistral] {T}: {M} retry {N}/4", ex.GetType().Name, ex.Message, attempt);
-                await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt - 1)));
+                await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt - 1)), ct);
             }
         }
         if (json is null) throw new InvalidOperationException("Mistral OCR yanıt vermedi.");
@@ -568,6 +643,12 @@ public class DocumentParserService : IDocumentParser
         var pages = new List<MistralPage>();
         if (!json.RootElement.TryGetProperty("pages", out var pagesEl) || pagesEl.ValueKind != JsonValueKind.Array)
             return pages;
+
+        // Global hash → path map. Mistral aynı resmi (logo, header) HER sayfada base64 olarak
+        // dönebilir. Burada hash bazında dedup → disk'e tek kopya yazılır, sayfalar aynı path'i
+        // paylaşır → disk + DB israfı önlenir.
+        var globalHashToPath = new Dictionary<string, string>(StringComparer.Ordinal);
+        var dedupedCount = 0;
 
         foreach (var pageEl in pagesEl.EnumerateArray())
         {
@@ -599,9 +680,20 @@ public class DocumentParserService : IDocumentParser
                     var hash = Convert.ToHexString(SHA256.HashData(imgBytes));
                     hashes.Add(hash);
 
-                    var ext = imgBytes[0] == 0xFF && imgBytes[1] == 0xD8 ? "jpg" : "png";
-                    using var ms = new MemoryStream(imgBytes);
-                    var path = await _fileStorage.SaveRawAsync(ms, $"img_{Guid.NewGuid()}.{ext}");
+                    string path;
+                    if (globalHashToPath.TryGetValue(hash, out var existingPath))
+                    {
+                        // Aynı hash daha önce görüldü → diske TEKRAR yazma, mevcut path'i kullan
+                        path = existingPath;
+                        dedupedCount++;
+                    }
+                    else
+                    {
+                        var ext = ImageMagicBytes.DetectExtension(imgBytes);
+                        using var ms = new MemoryStream(imgBytes);
+                        path = await _fileStorage.SaveRawAsync(ms, $"img_{Guid.NewGuid()}.{ext}");
+                        globalHashToPath[hash] = path;
+                    }
                     figs.Add(path);
 
                     if (!string.IsNullOrEmpty(imgId))
@@ -614,9 +706,65 @@ public class DocumentParserService : IDocumentParser
             }
             pages.Add(new MistralPage(idx, md, figs, hashes));
         }
-        _logger.LogInformation("[Mistral] {P} sayfa, {F} figure", pages.Count, pages.Sum(p => p.FigurePaths.Count));
+        _logger.LogInformation(
+            "[Mistral] {P} sayfa, {F} figure (unique: {U}{DedupNote})",
+            pages.Count, pages.Sum(p => p.FigurePaths.Count), globalHashToPath.Count,
+            dedupedCount > 0 ? $", {dedupedCount} tekrar dedup edildi" : "");
         return pages;
     }
+
+    // Büyük dosyayı Mistral /v1/files endpoint'ine multipart yükler, signed URL döner.
+    // Base64 inline (~33% boyut artışı + ek string allocation) yerine doğrudan binary upload.
+    private async Task<string> UploadMistralFileAsync(HttpClient http, byte[] bytes, string mime, CancellationToken ct)
+    {
+        using var form = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(bytes);
+        fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mime);
+        form.Add(fileContent, "file", $"upload.{ExtensionFor(mime)}");
+        form.Add(new StringContent("ocr"), "purpose");
+
+        using var uploadResp = await http.PostAsync("/v1/files", form, ct);
+        if (!uploadResp.IsSuccessStatusCode)
+        {
+            var body = await uploadResp.Content.ReadAsStringAsync(ct);
+            throw new InvalidOperationException(
+                $"Mistral /v1/files upload başarısız ({(int)uploadResp.StatusCode}): {(body.Length > 400 ? body[..400] : body)}");
+        }
+
+        string fileId;
+        using (var uploadStream = await uploadResp.Content.ReadAsStreamAsync(ct))
+        using (var uploadDoc = await JsonDocument.ParseAsync(uploadStream, cancellationToken: ct))
+        {
+            fileId = uploadDoc.RootElement.TryGetProperty("id", out var idEl) ? (idEl.GetString() ?? "") : "";
+            if (string.IsNullOrEmpty(fileId))
+                throw new InvalidOperationException("Mistral /v1/files response'unda 'id' alanı yok.");
+        }
+
+        using var urlResp = await http.GetAsync($"/v1/files/{fileId}/url?expiry=24", ct);
+        if (!urlResp.IsSuccessStatusCode)
+        {
+            var body = await urlResp.Content.ReadAsStringAsync(ct);
+            throw new InvalidOperationException(
+                $"Mistral signed URL alınamadı ({(int)urlResp.StatusCode}): {(body.Length > 400 ? body[..400] : body)}");
+        }
+
+        using var urlStream = await urlResp.Content.ReadAsStreamAsync(ct);
+        using var urlDoc = await JsonDocument.ParseAsync(urlStream, cancellationToken: ct);
+        var signed = urlDoc.RootElement.TryGetProperty("url", out var urlEl) ? urlEl.GetString() : null;
+        if (string.IsNullOrEmpty(signed))
+            throw new InvalidOperationException("Mistral signed URL response'unda 'url' alanı yok.");
+        return signed;
+    }
+
+    private static string ExtensionFor(string mime) => mime switch
+    {
+        "application/pdf"                                                                => "pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"        => "docx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"              => "xlsx",
+        "text/csv"                                                                       => "csv",
+        "application/msword"                                                             => "doc",
+        _                                                                                => "bin"
+    };
 
     private async Task<List<List<string>>> ExtractPdfEmbeddedPerPageAsync(
         byte[] pdfBytes,
@@ -657,7 +805,7 @@ public class DocumentParserService : IDocumentParser
                         continue;
                     }
 
-                    var ext = imgBytes[0] == 0xFF && imgBytes[1] == 0xD8 ? "jpg" : "png";
+                    var ext = ImageMagicBytes.DetectExtension(imgBytes);
                     using var ms = new MemoryStream(imgBytes);
                     var path = await _fileStorage.SaveRawAsync(ms, $"img_{Guid.NewGuid()}.{ext}");
                     pagePaths.Add(path);
@@ -696,10 +844,7 @@ public class DocumentParserService : IDocumentParser
                     var imgBytes = imgMs.ToArray();
                     if (imgBytes.Length < 64) continue;
 
-                    var ext = imgBytes[0] == 0xFF && imgBytes[1] == 0xD8 ? "jpg"
-                            : imgBytes[0] == 0x89 ? "png"
-                            : imgBytes[0] == 0x47 ? "gif"
-                            : imgBytes[0] == 0x42 ? "bmp" : "png";
+                    var ext = ImageMagicBytes.DetectExtension(imgBytes);
                     using var save = new MemoryStream(imgBytes);
                     var path = await _fileStorage.SaveRawAsync(save, $"img_{Guid.NewGuid()}.{ext}");
                     paths.Add(path);
@@ -804,10 +949,7 @@ public class DocumentParserService : IDocumentParser
                         {
                             var bytes = await http.GetByteArrayAsync(src);
                             if (bytes.Length < 64) continue;
-                            var mime = bytes[0] == 0xFF && bytes[1] == 0xD8 ? "image/jpeg"
-                                     : bytes[0] == 0x89 ? "image/png"
-                                     : bytes[0] == 0x47 ? "image/gif"
-                                     : bytes[0] == 0x42 ? "image/bmp" : "image/png";
+                            var mime = ImageMagicBytes.DetectMimeType(bytes);
                             var dataUri = $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
                             img.SetAttributeValue("src", dataUri);
                             referencedDataUris.Add(dataUri);

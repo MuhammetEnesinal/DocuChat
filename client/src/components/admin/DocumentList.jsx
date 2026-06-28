@@ -15,6 +15,8 @@ function statusLabel(status) {
         Processing: { label: 'İşleniyor', color: '#fbbf24', bg: 'rgba(251,191,36,0.1)' },
         Failed: { label: 'Hata', color: '#f87171', bg: 'rgba(248,113,113,0.1)' },
         Pending: { label: 'Bekliyor', color: 'var(--text-muted)', bg: 'rgba(148,163,184,0.1)' },
+        // Reprocess başarısız ama eski içerik aktif — chat çalışıyor, sadece güncel değil.
+        Stale: { label: 'Yeniden işleme başarısız (eski içerik aktif)', color: '#fb923c', bg: 'rgba(251,146,60,0.1)' },
     };
     return map[status] ?? map.Pending;
 }
@@ -201,6 +203,7 @@ export default function DocumentList({
                                         {formatSize(doc.fileSizeBytes)} · {doc.chunkCount} chunk · {formatDate(doc.createdAt)}
                                     </p>
                                     {doc.errorMessage && <p style={{ fontSize: '12px', color: '#f87171', marginTop: '2px' }}>{doc.errorMessage}</p>}
+                                    {doc.processingNotes && <p style={{ fontSize: '12px', color: '#fb923c', marginTop: '2px' }}>⚠ {doc.processingNotes}</p>}
                                 </div>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: '12px' }}>

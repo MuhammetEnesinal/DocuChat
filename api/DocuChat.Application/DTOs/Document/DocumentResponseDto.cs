@@ -9,4 +9,5 @@ public record DocumentResponseDto(
     string FileType,
     int ChunkCount,
     string? ErrorMessage,
+    string? ProcessingNotes,
     DateTime CreatedAt);

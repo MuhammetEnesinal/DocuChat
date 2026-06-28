@@ -39,6 +39,7 @@ public interface ILlmService
         string cachedQuestion,
         string cachedAnswer,
         IEnumerable<(string Role, string Content)>? history = null,
+        string? userFeedbackContext = null,
         CancellationToken ct = default);
 
     // sectionHeader: chunk'ın ait olduğu başlık zinciri (parse'da çıkarıldı), null/boş olabilir.

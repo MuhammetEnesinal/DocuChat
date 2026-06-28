@@ -65,6 +65,14 @@ public class DocumentRepository : GenericRepository<Document>, IDocumentReposito
             ct);
     }
 
+    public async Task<Document?> FindByUserAndContentHashAsync(
+        string userId, string contentHash, CancellationToken ct = default)
+    {
+        return await _set.FirstOrDefaultAsync(
+            d => d.UserId == userId && d.ContentHash == contentHash,
+            ct);
+    }
+
     public async Task<IReadOnlyList<Guid>> GetIdsByStatusAsync(
         IReadOnlyList<DocumentStatus> statuses, CancellationToken ct = default)
     {

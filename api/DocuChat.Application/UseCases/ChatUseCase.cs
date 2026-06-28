@@ -24,9 +24,11 @@ public class ChatUseCase : IChatUseCase
     private readonly ICurrentUser _currentUser;
     private readonly IEmbeddingService _embeddingService;
     private readonly ITokenCounter _tokenCounter;
+    private readonly IDbExceptionInspector _dbExceptionInspector;
     private readonly ILogger<ChatUseCase> _logger;
     private readonly double _cacheSimilarityThreshold;
     private readonly double _cacheHighConfidenceThreshold;
+    private readonly double _feedbackDislikeBypassThreshold;
     private readonly int _historyTokenBudget;
     private readonly int _historyMaxMessages;
     private readonly bool _followUpsEnabled;
@@ -38,6 +40,7 @@ public class ChatUseCase : IChatUseCase
         ICurrentUser currentUser,
         IEmbeddingService embeddingService,
         ITokenCounter tokenCounter,
+        IDbExceptionInspector dbExceptionInspector,
         ILogger<ChatUseCase> logger,
         IConfiguration configuration)
     {
@@ -47,9 +50,14 @@ public class ChatUseCase : IChatUseCase
         _currentUser = currentUser;
         _embeddingService = embeddingService;
         _tokenCounter = tokenCounter;
+        _dbExceptionInspector = dbExceptionInspector;
         _logger = logger;
         _cacheSimilarityThreshold = configuration.GetValue("Cache:SimilarityThreshold", 0.87);
         _cacheHighConfidenceThreshold = configuration.GetValue("Cache:HighConfidenceThreshold", 0.95);
+        // Dislike-based cache bypass: kullanıcı 0.85'ten yüksek benzerlikte bir cevaba dislike
+        // verdiyse cache atlanır. Sıkı eşik → false positive minimal (benzer ama farklı sorularda
+        // bypass'a takılma).
+        _feedbackDislikeBypassThreshold = configuration.GetValue("Cache:FeedbackDislikeBypassThreshold", 0.85);
         _historyTokenBudget = configuration.GetValue("Chat:HistoryTokenBudget", 3000);
         _historyMaxMessages = configuration.GetValue("Chat:HistoryMaxMessages", 20);
         _followUpsEnabled = configuration.GetValue("Chat:FollowUpsEnabled", true);
@@ -188,17 +196,39 @@ public class ChatUseCase : IChatUseCase
         var cacheMatch = await _uow.QuestionCache.FindSimilarAsync(questionVector, _cacheSimilarityThreshold, ct);
         if (cacheMatch is not null)
         {
+            // User-scoped feedback net check (kişisel, global cache'i değiştirmez):
+            //   net > 0 → dislike baskın → cache atla, fresh cevap üret
+            //   net < 0 → like baskın    → validate atla, FAST cevap dön (kullanıcı zaten beğenmiş)
+            //   net = 0 → nötr           → mevcut davranış (sim'e göre FAST veya validate)
+            var feedbackNet = await _uow.Feedback.GetSimilarFeedbackNetAsync(
+                _currentUser.UserId, questionVector, _feedbackDislikeBypassThreshold, ct);
+            if (feedbackNet > 0)
+            {
+                _logger.LogInformation(
+                    "[Cache][Stream] BYPASS — User {U} net dislike={Net}, cache atlanıyor",
+                    _currentUser.UserId, feedbackNet);
+            }
+            else
+            {
             var hit = cacheMatch.Cache;
             string? validated;
-            if (cacheMatch.Similarity >= _cacheHighConfidenceThreshold)
+            if (cacheMatch.Similarity >= _cacheHighConfidenceThreshold || feedbackNet < 0)
             {
-                _logger.LogInformation("[Cache][Stream] HIT FAST sim={Sim:F3}", cacheMatch.Similarity);
+                if (feedbackNet < 0)
+                    _logger.LogInformation(
+                        "[Cache][Stream] HIT FAST (like override) sim={Sim:F3} net={Net}",
+                        cacheMatch.Similarity, feedbackNet);
+                else
+                    _logger.LogInformation("[Cache][Stream] HIT FAST sim={Sim:F3}", cacheMatch.Similarity);
                 validated = hit.Answer;
             }
             else
             {
+                // Validate öncesi: kullanıcının önceki dislike feedback'lerini topla, validate
+                // LLM'e inject et → LLM kararı şikayetleri dikkate alarak verir.
+                var validateFeedbackCtx = await BuildUserFeedbackContextAsync(questionVector, ct);
                 validated = await _llm.ValidateCachedAnswerAsync(
-                    searchQuestion, hit.QuestionText, hit.Answer, history, ct);
+                    searchQuestion, hit.QuestionText, hit.Answer, history, validateFeedbackCtx, ct);
             }
 
             if (validated is not null)
@@ -242,14 +272,31 @@ public class ChatUseCase : IChatUseCase
                 yield return new { type = "done" };
                 yield break;
             }
+            }  // end else (dislike bypass değil)
         }
 
         // === 5. Cache miss: IsCacheable + clarification ===
         var docNamesWithSummary = await _uow.Documents.GetDocumentNamesAndSummariesAsync(ct);
         var docNameStrings = docNamesWithSummary.Select(d => d.FileName).ToList();
 
-        bool isCacheable = history.Count == 0
-            || await _llm.IsCacheableAsync(req.Question, history, ct);
+        // IsCacheable LLM helper'a bağımlı. Helper down/timeout olursa tüm chat çökmesin →
+        // fail-open: history yoksa cacheable=true (zaten ilk soru), varsa cacheable=false
+        // (güvenli taraf — history'ye bağımlı sayalım, cache yazımı atlanır ama cevap üretilir).
+        bool isCacheable;
+        if (history.Count == 0)
+        {
+            isCacheable = true;
+        }
+        else
+        {
+            try { isCacheable = await _llm.IsCacheableAsync(req.Question, history, ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Cache][Stream] IsCacheable LLM fail — fail-open: cacheable=false");
+                isCacheable = false;
+            }
+        }
         bool shouldClarify = history.Count == 0 || !isCacheable;
 
         if (shouldClarify && !req.SkipClarification)
@@ -285,74 +332,8 @@ public class ChatUseCase : IChatUseCase
             ct: ct)).ToList();
 
         // === 6.5 Personal Question-Similarity Feedback Check ===
-        // Mantık:
-        //   1. Kullanıcının eski feedback'lerinden SORU BENZERLİĞİ ile match
-        //   2. Cluster: birbirine benzeyen feedback'leri grupla (similarity > 0.85)
-        //   3. Net: dislike_count - like_count (like aktif iptal)
-        //   4. Net > 0 olan cluster'ları al → en yüksek net önce → Take 10
-        const double SimilarityThreshold = 0.75;
-        const double ClusterThreshold = 0.85;
-        const int MaxCandidates = 30;  // DB'den çekilecek max
-        const int MaxWarnings = 10;    // LLM'e gidecek max
-
-        string? feedbackContext = null;
-        try
-        {
-            // Yeni sorgunun embedding'i — zaten Aşama 3'te üretildi (questionVector)
-            var candidates = await _uow.Feedback.GetSimilarFeedbacksAsync(
-                _currentUser.UserId, questionVector, SimilarityThreshold,
-                maxAgeMonths: 6, MaxCandidates, ct);
-
-            if (candidates.Count > 0)
-            {
-                // C# tarafında clustering — birbirine benzeyen feedback'leri grupla
-                var clusters = new List<List<ChatMessageFeedback>>();
-                foreach (var fb in candidates)
-                {
-                    var matchedCluster = clusters.FirstOrDefault(cl =>
-                        CosineSimilarity(cl[0].QuestionVector, fb.QuestionVector) > ClusterThreshold);
-                    if (matchedCluster != null) matchedCluster.Add(fb);
-                    else clusters.Add(new List<ChatMessageFeedback> { fb });
-                }
-
-                // Her cluster için net = dislike - like
-                var warnings = clusters
-                    .Select(cl => new
-                    {
-                        Cluster = cl,
-                        Net = cl.Count(f => f.Rating == -1) - cl.Count(f => f.Rating == 1),
-                    })
-                    .Where(x => x.Net > 0)  // Like'lar dislike'ları geçmediyse dahil et
-                    .OrderByDescending(x => x.Net)  // En çok şikayet edilen önce
-                    .Take(MaxWarnings)
-                    .ToList();
-
-                if (warnings.Count > 0)
-                {
-                    // Her cluster için en yeni dislike'ı "temsilci" olarak al
-                    var items = warnings
-                        .Select(w =>
-                        {
-                            var rep = w.Cluster
-                                .Where(f => f.Rating == -1)
-                                .OrderByDescending(f => f.CreatedAt)
-                                .First();
-                            return (rep.QuestionText, rep.AnswerText, rep.ReasonText,
-                                (IReadOnlyList<string>)(rep.ReasonCategories ?? new List<string>()));
-                        })
-                        .ToList();
-
-                    feedbackContext = _llm.BuildFeedbackContextPrompt(items);
-                    _logger.LogInformation(
-                        "[Feedback] {W} warning prompt'a inject edildi (clusters: {C}, candidates: {N})",
-                        warnings.Count, clusters.Count, candidates.Count);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[Feedback] Personal feedback check atlandı — fail-open");
-        }
+        // Helper'a taşındı: cache hit validate yolu da aynı context'i kullanabilsin (DRY).
+        var feedbackContext = await BuildUserFeedbackContextAsync(questionVector, ct);
 
         if (chunks.Count == 0)
         {
@@ -381,11 +362,14 @@ public class ChatUseCase : IChatUseCase
         }
         var answer = answerBuilder.ToString();
 
-        // === 8. Quality validation + post-process ===
-        var quality = await SafeValidateAsync(searchQuestion, chunks, answer, ct);
+        // === 8. Post-process ÖNCE → Quality validation SONRA ===
+        // Validate, kullanıcıya gösterilen (cleaned) cevabı değerlendirsin: skor ile içerik tutarlı.
+        // Eskiden quality önce çalışıyordu, marker'lı/bozuk markdown'lı raw answer'ı skorluyordu.
         var llmRejected = LooksLikeRejection(answer);
         answer = StripNoAnswerMarker(answer);
         answer = StripKaynakReferences(answer);
+        answer = NormalizeImageMarkdown(answer);
+        var quality = await SafeValidateAsync(searchQuestion, chunks, answer, ct);
 
         string? badge = null;
         if (quality.Score < 0.4)
@@ -511,6 +495,30 @@ public class ChatUseCase : IChatUseCase
     private static string StripKaynakReferences(string answer) =>
         string.IsNullOrEmpty(answer) ? answer : KaynakRefRegex.Replace(answer, "");
 
+    // LLM bazen image markdown'ı bozuk üretir (nested, multi-line, URL'de boşluk).
+    // Frontend de aynısını yapıyor ama DB'ye temiz versiyon yazılsın → mesaj history reload'da düzgün.
+    private static readonly System.Text.RegularExpressions.Regex NestedImageMdRegex =
+        new(@"!\[[^\]]*\]\(\s*(!\[[^\]]*\]\([^)]+\))\s*\)",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+    private static readonly System.Text.RegularExpressions.Regex ImageMdWhitespaceRegex =
+        new(@"!\[([^\]]*)\]\(\s*([^)]+?)\s*\)",
+            System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.Singleline);
+    private static readonly System.Text.RegularExpressions.Regex UrlInternalWsRegex =
+        new(@"\s+", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static string NormalizeImageMarkdown(string answer)
+    {
+        if (string.IsNullOrEmpty(answer)) return answer;
+        var out_ = answer;
+        // Nested wrap'i temizle (birden fazla katman olabilir → bounded loop)
+        for (var i = 0; i < 5 && NestedImageMdRegex.IsMatch(out_); i++)
+            out_ = NestedImageMdRegex.Replace(out_, "$1");
+        // URL içindeki whitespace/newline'ı temizle
+        out_ = ImageMdWhitespaceRegex.Replace(out_, m =>
+            $"![{m.Groups[1].Value}]({UrlInternalWsRegex.Replace(m.Groups[2].Value, "")})");
+        return out_;
+    }
+
     private static string StripNoAnswerMarker(string answer)
     {
         if (string.IsNullOrWhiteSpace(answer)) return answer;
@@ -539,7 +547,8 @@ public class ChatUseCase : IChatUseCase
         int page, int pageSize,
         DateTime? dateFrom, DateTime? dateTo,
         string sortBy, bool ascending,
-        CancellationToken ct)
+        bool? archived = false,
+        CancellationToken ct = default)
     {
         var spec = new ChatSessionFilterSpec(
             UserId: _currentUser.UserId,
@@ -548,7 +557,8 @@ public class ChatUseCase : IChatUseCase
             DateFrom: dateFrom,
             DateTo: dateTo,
             SortBy: ChatSessionFilterSpec.ParseSortBy(sortBy),
-            Ascending: ascending);
+            Ascending: ascending,
+            Archived: archived);
 
         var paged = await _uow.Sessions.ListAsync(spec, ct);
         var dtos = paged.Items.Select(s => s.Adapt<ChatSessionResponseDto>()).ToList();
@@ -664,6 +674,61 @@ public class ChatUseCase : IChatUseCase
         return Result<int>.Success(deleted);
     }
 
+    // ── Archive / Pin ── tüm yetki kontrolü + status toggle aynı pattern, helper ile DRY.
+    public Task<Result<bool>> ArchiveSessionAsync(Guid sessionId, CancellationToken ct = default) =>
+        UpdateSessionStateAsync(sessionId, s =>
+        {
+            s.IsArchived = true;
+            s.ArchivedAt = DateTime.UtcNow;
+            // Arşive giderken pin'i kaldır — arşivde sabitlemenin anlamı yok
+            s.IsPinned = false;
+            s.PinnedAt = null;
+        }, "Archive", ct);
+
+    public Task<Result<bool>> UnarchiveSessionAsync(Guid sessionId, CancellationToken ct = default) =>
+        UpdateSessionStateAsync(sessionId, s =>
+        {
+            s.IsArchived = false;
+            s.ArchivedAt = null;
+        }, "Unarchive", ct);
+
+    public Task<Result<bool>> PinSessionAsync(Guid sessionId, CancellationToken ct = default) =>
+        UpdateSessionStateAsync(sessionId, s =>
+        {
+            s.IsPinned = true;
+            s.PinnedAt = DateTime.UtcNow;
+            // Pin'lerken arşivden çıkar — sabit görünür olmalı
+            if (s.IsArchived) { s.IsArchived = false; s.ArchivedAt = null; }
+        }, "Pin", ct);
+
+    public Task<Result<bool>> UnpinSessionAsync(Guid sessionId, CancellationToken ct = default) =>
+        UpdateSessionStateAsync(sessionId, s =>
+        {
+            s.IsPinned = false;
+            s.PinnedAt = null;
+        }, "Unpin", ct);
+
+    private async Task<Result<bool>> UpdateSessionStateAsync(
+        Guid sessionId, Action<ChatSession> mutate, string opName, CancellationToken ct)
+    {
+        var session = await _uow.Sessions.GetByIdAsync(sessionId, ct);
+        if (session is null)
+            return Result<bool>.Failure(Error.NotFound("Oturum bulunamadı."));
+        if (session.UserId != _currentUser.UserId && !_currentUser.IsInRole(Roles.Admin))
+            return Result<bool>.Failure(Error.Forbidden("Bu oturuma erişiminiz yok."));
+
+        mutate(session);
+        await _uow.SaveChangesAsync(ct);
+        _logger.LogInformation("[{Op}] Session {SessionId} (User: {UserId})", opName, sessionId, _currentUser.UserId);
+        return Result<bool>.Success(true);
+    }
+
+    public async Task<Result<int>> GetArchivedCountAsync(CancellationToken ct = default)
+    {
+        var count = await _uow.Sessions.GetArchivedCountAsync(_currentUser.UserId, ct);
+        return Result<int>.Success(count);
+    }
+
     private static string NormalizeQuestion(string question) =>
         new string(question.ToLowerInvariant()
             .Where(c => char.IsLetterOrDigit(c) || char.IsWhiteSpace(c))
@@ -730,7 +795,7 @@ public class ChatUseCase : IChatUseCase
         {
             await _uow.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (IsUniqueConstraintViolation(ex))
+        catch (Exception ex) when (_dbExceptionInspector.IsUniqueConstraintViolation(ex))
         {
             // Race condition — başka request aynı anda yazdı
             return Result<FeedbackResponseDto>.Failure(
@@ -745,15 +810,70 @@ public class ChatUseCase : IChatUseCase
             new FeedbackResponseDto(feedback.Id, feedback.CreatedAt));
     }
 
-    private static bool IsUniqueConstraintViolation(Exception ex)
-    {
-        var inner = ex.InnerException ?? ex;
-        return inner.GetType().FullName == "Npgsql.PostgresException"
-            && inner.GetType().GetProperty("SqlState")?.GetValue(inner) as string == "23505";
-    }
-
     // Feedback clustering için BGE-M3 vector benzerliği (1024-dim).
     // İki feedback'in QuestionVector'ünden cosine similarity.
+    // Kullanıcının son 6 ayındaki dislike feedback'lerini soru-benzerliği ile kümele, en çok şikayet
+    // edilen N cluster'ı LLM system prompt section'ı olarak hazırla. Hem MISS yolunda (AskStreamAsync
+    // ana cevap üretme) hem cache HIT validate adımında kullanılır.
+    private async Task<string?> BuildUserFeedbackContextAsync(float[] questionVector, CancellationToken ct)
+    {
+        const double SimilarityThreshold = 0.75;
+        const double ClusterThreshold = 0.85;
+        const int MaxCandidates = 30;
+        const int MaxWarnings = 10;
+
+        try
+        {
+            var candidates = await _uow.Feedback.GetSimilarFeedbacksAsync(
+                _currentUser.UserId, questionVector, SimilarityThreshold,
+                maxAgeMonths: 6, MaxCandidates, ct);
+            if (candidates.Count == 0) return null;
+
+            // C# tarafında clustering — birbirine çok benzer feedback'leri grupla
+            var clusters = new List<List<ChatMessageFeedback>>();
+            foreach (var fb in candidates)
+            {
+                var matched = clusters.FirstOrDefault(cl =>
+                    CosineSimilarity(cl[0].QuestionVector, fb.QuestionVector) > ClusterThreshold);
+                if (matched != null) matched.Add(fb);
+                else clusters.Add(new List<ChatMessageFeedback> { fb });
+            }
+
+            // Net dislike skoru — like'lar dislike'ları iptal eder
+            var warnings = clusters
+                .Select(cl => new
+                {
+                    Cluster = cl,
+                    Net = cl.Count(f => f.Rating == -1) - cl.Count(f => f.Rating == 1),
+                })
+                .Where(x => x.Net > 0)
+                .OrderByDescending(x => x.Net)
+                .Take(MaxWarnings)
+                .ToList();
+            if (warnings.Count == 0) return null;
+
+            var items = warnings.Select(w =>
+            {
+                var rep = w.Cluster
+                    .Where(f => f.Rating == -1)
+                    .OrderByDescending(f => f.CreatedAt)
+                    .First();
+                return (rep.QuestionText, rep.AnswerText, rep.ReasonText,
+                    (IReadOnlyList<string>)(rep.ReasonCategories ?? new List<string>()));
+            }).ToList();
+
+            _logger.LogInformation(
+                "[Feedback] {W} warning hazırlandı (clusters: {C}, candidates: {N})",
+                warnings.Count, clusters.Count, candidates.Count);
+            return _llm.BuildFeedbackContextPrompt(items);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Feedback] Personal feedback check atlandı — fail-open");
+            return null;
+        }
+    }
+
     private static double CosineSimilarity(float[] a, float[] b)
     {
         if (a is null || b is null || a.Length != b.Length || a.Length == 0) return 0.0;

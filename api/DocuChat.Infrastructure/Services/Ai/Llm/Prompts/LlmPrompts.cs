@@ -121,7 +121,10 @@ internal static class LlmPrompts
             "  • alt text kısa ve açıklayıcı olsun (KAYNAK'taki bağlamdan)\n" +
             "  • URL'yi olduğu gibi (kelime-kelime) kopyala — değiştirme/kısaltma yasak\n" +
             "  • Aynı görseli iki kez koyma\n" +
-            "  • Tabloda hücre içinde: `| ürün adı | ![alt](url) |`\n\n" +
+            "  • Tabloda hücre içinde: `| ürün adı | ![alt](url) |`\n" +
+            "  • KESİNLİKLE TEK SATIRDA yaz: `![alt](url)` — alt/url içinde satır atlatma\n" +
+            "  • İÇ İÇE YASAK: `![X]( ![Y](url) )` gibi sarma asla yapma\n" +
+            "  • `(` ile `)` arasına SADECE url gir — boşluk, satır, ek text YASAK\n\n" +
 
             "### ASLA YAZMA — Kullanıcı Görseli Zaten Görüyor\n" +
             "  ✗ \"Görsel: ![](url)\" tarzı etiketleme\n" +

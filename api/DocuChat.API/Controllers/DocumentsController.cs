@@ -21,15 +21,18 @@ public class DocumentsController : ControllerBase
     private readonly IDocumentUseCase _document;
     private readonly IValidator<UploadDocumentRequestDto> _uploadValidator;
     private readonly IValidator<BatchDocumentDeleteRequestDto> _batchDeleteValidator;
+    private readonly IValidator<BatchDocumentReprocessRequestDto> _batchReprocessValidator;
 
     public DocumentsController(
         IDocumentUseCase document,
         IValidator<UploadDocumentRequestDto> uploadValidator,
-        IValidator<BatchDocumentDeleteRequestDto> batchDeleteValidator)
+        IValidator<BatchDocumentDeleteRequestDto> batchDeleteValidator,
+        IValidator<BatchDocumentReprocessRequestDto> batchReprocessValidator)
     {
         _document = document;
         _uploadValidator = uploadValidator;
         _batchDeleteValidator = batchDeleteValidator;
+        _batchReprocessValidator = batchReprocessValidator;
     }
 
     [HttpGet]
@@ -112,6 +115,27 @@ public class DocumentsController : ControllerBase
     public async Task<IActionResult> Reprocess(Guid id, CancellationToken ct)
     {
         var result = await _document.ReprocessAsync(id, ct);
+        return result.ToActionResult();
+    }
+
+    // Çoklu reprocess — tek HTTP isteği, N belge. Throttle queue tarafında (consumer maxConcurrent).
+    // Rate limit batch-delete ile aynı kategori (10/dk) çünkü user-facing operasyon, içerideki
+    // pahalı kısım kuyrukta serialize ediliyor.
+    [HttpPost("batch-reprocess")]
+    [EnableRateLimiting("batch-delete")]
+    [ProducesResponseType(typeof(ApiResponse<int>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+    public async Task<IActionResult> ReprocessBatch(
+        [FromBody] BatchDocumentReprocessRequestDto req, CancellationToken ct)
+    {
+        var validation = await _batchReprocessValidator.ValidateAsync(req, ct);
+        if (!validation.IsValid)
+            return validation.Errors.Select(e => e.ErrorMessage).ToValidationResult<int>();
+
+        var result = await _document.ReprocessBatchAsync(req.Ids, ct);
         return result.ToActionResult();
     }
 

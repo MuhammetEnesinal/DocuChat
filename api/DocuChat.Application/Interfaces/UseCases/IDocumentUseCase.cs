@@ -13,6 +13,10 @@ public interface IDocumentUseCase
     Task<Result<IReadOnlyList<DocumentChunkResponseDto>>> GetChunksAsync(Guid id, CancellationToken ct = default);
     Task<Result<DocumentResponseDto>> ReprocessAsync(Guid id, CancellationToken ct = default);
 
+    // Çoklu reprocess — N belgeyi tek HTTP isteğinde queue'ya enqueue eder.
+    // Throttle artık queue'da (consumer maxConcurrent), rate-limit/dakika değil.
+    Task<Result<int>> ReprocessBatchAsync(IEnumerable<Guid> ids, CancellationToken ct = default);
+
     // Pending belge için background parse+chunk+embed. Scheduler tarafından çağrılır;
     // HTTP path'te kullanılmaz (uzun sürer, browser timeout'una düşer).
     Task ProcessPendingAsync(Guid documentId, CancellationToken ct = default);

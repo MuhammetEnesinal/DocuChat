@@ -25,6 +25,7 @@ public interface IChatUseCase
         int page, int pageSize,
         DateTime? dateFrom, DateTime? dateTo,
         string sortBy, bool ascending,
+        bool? archived = false,
         CancellationToken ct = default);
 
     Task<Result<IReadOnlyList<ChatMessageResponseDto>>> GetMessagesAsync(
@@ -39,6 +40,17 @@ public interface IChatUseCase
 
     Task<Result<int>> DeleteSessionsBatchAsync(
         IEnumerable<Guid> sessionIds, CancellationToken ct = default);
+
+    // Arşivleme: session sidebar ana listesinden gizlenir, "Arşiv" view'inde görünür. Geri çıkarılabilir.
+    Task<Result<bool>> ArchiveSessionAsync(Guid sessionId, CancellationToken ct = default);
+    Task<Result<bool>> UnarchiveSessionAsync(Guid sessionId, CancellationToken ct = default);
+
+    // Sabitleme: session listenin EN ÜSTÜNDE kalır, sıralamadan bağımsız.
+    Task<Result<bool>> PinSessionAsync(Guid sessionId, CancellationToken ct = default);
+    Task<Result<bool>> UnpinSessionAsync(Guid sessionId, CancellationToken ct = default);
+
+    // Sidebar "Arşiv (N)" badge için.
+    Task<Result<int>> GetArchivedCountAsync(CancellationToken ct = default);
 
     Task<Result<IReadOnlyList<string>>> GetPopularQuestionsAsync(int limit, CancellationToken ct = default);
 
