@@ -11,9 +11,6 @@ public class DocumentImage : BaseEntity
     /// <summary>Diskteki dosya yolu (LocalFileStorage)</summary>
     public string Path { get; set; } = string.Empty;
 
-    /// <summary>Pixtral VLM ile üretilen Türkçe açıklama.</summary>
-    public string? Caption { get; set; }
-
     /// <summary>Belge içindeki sayfa numarası (1-bazlı, varsa).</summary>
     public int? PageNumber { get; set; }
 

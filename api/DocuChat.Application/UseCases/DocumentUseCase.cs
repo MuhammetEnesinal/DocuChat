@@ -677,8 +677,6 @@ public class DocumentUseCase : IDocumentUseCase
             }
             if (paths.Count == 0) continue;
 
-            var captions = ci < captionsByChunk.Count ? captionsByChunk[ci] : null;
-
             for (var localIdx = 0; localIdx < paths.Count; localIdx++)
             {
                 var path = paths[localIdx];
@@ -710,13 +708,13 @@ public class DocumentUseCase : IDocumentUseCase
                     continue;
                 }
 
-                // 4. Yeni görsel — kaydet
-                var caption = (captions != null && localIdx < captions.Count) ? captions[localIdx] : null;
+                // 4. Yeni görsel — kaydet (caption chunk content'inde inline, DB'de yok)
                 image = new DocumentImage
                 {
                     DocumentId = doc.Id,
                     Path = path,
-                    Caption = string.IsNullOrWhiteSpace(caption) ? null : caption,
+                    // Caption kolonu kaldırıldı — caption zaten chunk content'ine inline ekleniyor
+                    // ([IMG:N — caption]) ve embedding'de yer alıyor; DB'de ayrı saklama gereksiz.
                     PageNumber = chunk.PageNumber,
                     Source = DetectImageSource(path),
                     ContentHash = hash,  // dedup için kullanılıyor

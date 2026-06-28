@@ -11,7 +11,6 @@ public class DocumentImageConfiguration : IEntityTypeConfiguration<DocumentImage
         b.HasKey(x => x.Id);
 
         b.Property(x => x.Path).IsRequired().HasMaxLength(1024);
-        b.Property(x => x.Caption).HasColumnType("text");
         b.Property(x => x.Source).HasMaxLength(20);
         b.Property(x => x.ContentHash).HasMaxLength(64);
 
