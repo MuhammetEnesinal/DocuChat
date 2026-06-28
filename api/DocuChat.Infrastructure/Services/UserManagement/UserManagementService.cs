@@ -1,8 +1,8 @@
-using Mapster;
+﻿using Mapster;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using DocuChat.Application.Common;
+using DocuChat.Application.Common.Results;
 using DocuChat.Application.DTOs.Auth;
 using DocuChat.Application.Interfaces.Services;
 using DocuChat.Domain.Enums;

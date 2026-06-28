@@ -1,4 +1,4 @@
-using DocuChat.Application.Common;
+﻿using DocuChat.Application.Common.Results;
 using DocuChat.Domain.Entities;
 using DocuChat.Domain.Enums;
 

@@ -1,8 +1,8 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using DocuChat.Application.Common;
+using DocuChat.Application.Common.Results;
 using DocuChat.Application.Interfaces.Services;
 using DocuChat.Application.DTOs.Auth;
 using DocuChat.API.Common;

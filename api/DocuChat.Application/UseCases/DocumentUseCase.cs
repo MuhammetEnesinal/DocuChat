@@ -1,4 +1,4 @@
-
+﻿
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging;
 using DocuChat.Application.Interfaces.UseCases;
 using DocuChat.Application.Interfaces.Services;
 using DocuChat.Application.Interfaces.Repositories;
-using DocuChat.Application.Common;
+using DocuChat.Application.Common.Results;
 using DocuChat.Application.DTOs.Document;
 using DocuChat.Domain.Entities;
 using DocuChat.Domain.Enums;

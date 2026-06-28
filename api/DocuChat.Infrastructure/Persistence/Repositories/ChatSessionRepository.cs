@@ -1,5 +1,5 @@
-using Microsoft.EntityFrameworkCore;
-using DocuChat.Application.Common;
+﻿using Microsoft.EntityFrameworkCore;
+using DocuChat.Application.Common.Results;
 using DocuChat.Application.Common.Specifications;
 using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Domain.Entities;

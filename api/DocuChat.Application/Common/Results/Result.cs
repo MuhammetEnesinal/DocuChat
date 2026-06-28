@@ -1,4 +1,4 @@
-﻿namespace DocuChat.Application.Common;
+﻿namespace DocuChat.Application.Common.Results;
 
 public class Result<T>
 {

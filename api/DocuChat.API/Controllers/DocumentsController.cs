@@ -1,9 +1,9 @@
-// DocuChat.API/Controllers/DocumentsController.cs
+﻿// DocuChat.API/Controllers/DocumentsController.cs
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using DocuChat.Application.Common;
+using DocuChat.Application.Common.Results;
 using DocuChat.Application.Interfaces.UseCases;
 using DocuChat.Application.DTOs.Document;
 using DocuChat.API.Extensions;

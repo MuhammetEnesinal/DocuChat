@@ -1,4 +1,4 @@
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using Mapster;
@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 using DocuChat.Application.Interfaces.UseCases;
 using DocuChat.Application.Interfaces.Services;
 using DocuChat.Application.Interfaces.Repositories;
-using DocuChat.Application.Common;
+using DocuChat.Application.Common.Results;
 using DocuChat.Application.Common.Specifications;
 using DocuChat.Application.DTOs.Chat;
 using DocuChat.Domain.Entities;

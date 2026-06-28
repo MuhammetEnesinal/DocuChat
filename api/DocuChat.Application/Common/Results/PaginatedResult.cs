@@ -1,4 +1,4 @@
-namespace DocuChat.Application.Common;
+namespace DocuChat.Application.Common.Results;
 
 public record PaginatedResult<T>(
     IReadOnlyList<T> Items,

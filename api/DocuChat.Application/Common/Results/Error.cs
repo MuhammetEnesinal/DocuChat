@@ -1,4 +1,4 @@
-﻿namespace DocuChat.Application.Common;
+﻿namespace DocuChat.Application.Common.Results;
 
 public record Error(string Code, string Message, int StatusCode)
 {
