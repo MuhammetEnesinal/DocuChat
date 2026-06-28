@@ -1,18 +1,14 @@
-// DocuChat.Infrastructure/Persistence/Repositories/QuestionCacheRepository.cs
 using Microsoft.EntityFrameworkCore;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
 using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Domain.Entities;
-using DocuChat.Infrastructure.Persistence;
 
 namespace DocuChat.Infrastructure.Persistence.Repositories;
 
-public class QuestionCacheRepository : IQuestionCacheRepository
+public class QuestionCacheRepository : GenericRepository<QuestionCache>, IQuestionCacheRepository
 {
-    private readonly AppDbContext _db;
-
-    public QuestionCacheRepository(AppDbContext db) => _db = db;
+    public QuestionCacheRepository(AppDbContext db) : base(db) { }
 
     public async Task<CacheMatch?> FindSimilarAsync(
         float[] queryVector,
@@ -22,7 +18,7 @@ public class QuestionCacheRepository : IQuestionCacheRepository
         var vector = new Vector(queryVector);
 
         // Arama global → cache global. Belge filtresi yok; içerik değişiminde tüm cache temizlenir.
-        var query = _db.QuestionCaches
+        var query = _set
             .Where(q => 1 - q.QuestionVector.CosineDistance(vector) >= threshold);
 
         // En yakın 3 adayı çek (debug için), en yüksek skoru döndür.
@@ -39,7 +35,7 @@ public class QuestionCacheRepository : IQuestionCacheRepository
         if (candidates.Count == 0)
         {
             // Eşik altı veya hiç entry yok — debug için en yakını da göster
-            var nearest = await _db.QuestionCaches
+            var nearest = await _set
                 .Select(q => new
                 {
                     Q = q.QuestionText,
@@ -59,10 +55,14 @@ public class QuestionCacheRepository : IQuestionCacheRepository
         return new CacheMatch(best.Cache, best.Sim);
     }
 
-    public async Task AddAsync(QuestionCache entry, CancellationToken ct = default)
+    /// <summary>
+    /// Upsert: aynı normalize edilmiş QuestionText varsa cevap/vector güncellenir + HitCount++,
+    /// yoksa yeni entry eklenir. Vanilla INSERT için IRepository.AddAsync kullanılır.
+    /// </summary>
+    public async Task UpsertAsync(QuestionCache entry, CancellationToken ct = default)
     {
         var normalized = (entry.QuestionText ?? string.Empty).Trim().ToLower();
-        var existing = await _db.QuestionCaches
+        var existing = await _set
             .Where(q => q.QuestionText.ToLower() == normalized)
             .FirstOrDefaultAsync(ct);
 
@@ -76,12 +76,12 @@ public class QuestionCacheRepository : IQuestionCacheRepository
             return;
         }
 
-        _db.QuestionCaches.Add(entry);
+        _set.Add(entry);
     }
 
     public async Task IncrementHitAsync(Guid id, CancellationToken ct = default)
     {
-        await _db.QuestionCaches
+        await _set
             .Where(q => q.Id == id)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(q => q.HitCount, q => q.HitCount + 1)
@@ -91,11 +91,11 @@ public class QuestionCacheRepository : IQuestionCacheRepository
 
     public async Task ClearAllAsync(CancellationToken ct = default)
     {
-        await _db.QuestionCaches.ExecuteDeleteAsync(ct);
+        await _set.ExecuteDeleteAsync(ct);
     }
 
     public async Task<IReadOnlyList<string>> GetTopByHitCountAsync(int limit, CancellationToken ct = default)
-        => await _db.QuestionCaches
+        => await _set
             .OrderByDescending(q => q.HitCount)
             .Take(limit)
             .Select(q => q.QuestionText)
@@ -105,14 +105,14 @@ public class QuestionCacheRepository : IQuestionCacheRepository
     {
         // Hit almamış cache de eskidiğinde silinmeli — bu yüzden CreatedAt'i de kontrol et.
         var cutoff = DateTime.UtcNow - maxAge;
-        return await _db.QuestionCaches
+        return await _set
             .Where(q => q.CreatedAt < cutoff
                      && (q.LastHitAt == null || q.LastHitAt < cutoff))
             .ExecuteDeleteAsync(ct);
     }
 
     /// <summary>
-    /// 🆕 Per-document cache invalidation:
+    /// Per-document cache invalidation:
     ///   - SourceDocumentIds CSV'sinde documentId geçen entries silinir (PostgreSQL ILIKE)
     ///   - includeUntracked=true: SourceDocumentIds=NULL olan (eski) entries de silinir
     ///     (geriye uyumluluk — eski cache'de source tracking yoktu)
@@ -120,7 +120,7 @@ public class QuestionCacheRepository : IQuestionCacheRepository
     public async Task<int> DeleteByDocumentIdAsync(Guid documentId, bool includeUntracked, CancellationToken ct = default)
     {
         var idStr = documentId.ToString();
-        var query = _db.QuestionCaches.AsQueryable();
+        var query = _set.AsQueryable();
 
         if (includeUntracked)
         {

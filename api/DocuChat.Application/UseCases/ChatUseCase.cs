@@ -448,7 +448,7 @@ public class ChatUseCase : IChatUseCase
         {
             try
             {
-                await _uow.QuestionCache.AddAsync(new QuestionCache
+                await _uow.QuestionCache.UpsertAsync(new QuestionCache
                 {
                     QuestionText = searchQuestion,
                     QuestionVector = questionVector,
