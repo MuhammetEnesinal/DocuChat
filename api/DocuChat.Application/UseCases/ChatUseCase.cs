@@ -31,6 +31,7 @@ public class ChatUseCase : IChatUseCase
     private readonly double _feedbackDislikeBypassThreshold;
     private readonly int _historyTokenBudget;
     private readonly int _historyMaxMessages;
+    private readonly int _historyKeepRawCount;
     private readonly bool _followUpsEnabled;
 
     public ChatUseCase(
@@ -60,6 +61,8 @@ public class ChatUseCase : IChatUseCase
         _feedbackDislikeBypassThreshold = configuration.GetValue("Cache:FeedbackDislikeBypassThreshold", 0.85);
         _historyTokenBudget = configuration.GetValue("Chat:HistoryTokenBudget", 3000);
         _historyMaxMessages = configuration.GetValue("Chat:HistoryMaxMessages", 20);
+        // Son N mesaj HAM gönderilir, öncesi LLM ile özetlenir. 6 = 3 turn (3 user + 3 assistant)
+        _historyKeepRawCount = Math.Max(2, configuration.GetValue("Chat:KeepRawMessages", 6));
         _followUpsEnabled = configuration.GetValue("Chat:FollowUpsEnabled", true);
     }
 
@@ -137,7 +140,7 @@ public class ChatUseCase : IChatUseCase
         // === 2. History load (sliding window + conversation summary) ===
         // Son N mesajı ham tut, eski mesajları LLM ile özetle → "system" rolünde özet ekle.
         // Anahtar bağlam (kullanıcı rolü, konu, terimler) bütçe dolduğunda da korunur.
-        const int KeepRawCount = 6;  // son 6 mesaj (3 turn) ham
+        // N = Chat:KeepRawMessages (config, default 6).
         var history = new List<(string Role, string Content)>();
         var sessionWithMessages = await _uow.Sessions.GetWithMessagesAsync(session.Id, ct);
         if (sessionWithMessages?.Messages?.Any() == true)
@@ -147,8 +150,8 @@ public class ChatUseCase : IChatUseCase
                 .Where(m => !m.Content.StartsWith("AŞAĞIDAKİ BELGE PARÇALARINI"))
                 .ToList();
 
-            // Son KeepRawCount mesaj → ham
-            var rawCount = Math.Min(KeepRawCount, allMessages.Count);
+            // Son N mesaj → ham
+            var rawCount = Math.Min(_historyKeepRawCount, allMessages.Count);
             var rawMessages = allMessages.Skip(allMessages.Count - rawCount).ToList();
 
             // Önceki mesajlar → özetle (varsa)
@@ -360,6 +363,17 @@ public class ChatUseCase : IChatUseCase
             answerBuilder.Append(delta);
             yield return new { type = "token", delta };
         }
+
+        // Stream tamamlandı AMA bu noktada client kapanmış olabilir (TCP RST veya CT trigger).
+        // Yarım cevabı DB'ye ve cache'e yazmamak için CT check + erken çıkış.
+        // (foreach içindeki OCE zaten propagate eder; bu guard EK güvence — yield sırasında
+        // network kopması gibi durumlarda foreach hata atmadan biter ama ct işaretlenir.)
+        if (ct.IsCancellationRequested)
+        {
+            _logger.LogInformation(
+                "[Stream] Cancellation algılandı stream sonrası — quality/cache/save atlandı, yarım cevap persist edilmedi");
+            yield break;
+        }
         var answer = answerBuilder.ToString();
 
         // === 8. Post-process ÖNCE → Quality validation SONRA ===
@@ -384,6 +398,9 @@ public class ChatUseCase : IChatUseCase
         }
 
         // === 9. Images + follow-ups (parallel) ===
+        // Önceden: tüm chunk imagelarını gallery'e yolluyorduk (LLM bahsetmese bile) → görsel kirlilik.
+        // Şimdi: SADECE cevap içinde ![alt](path) markdown'ı geçen path'ler frontend gallery'sine gider.
+        // Chunk image'ları LLM context'e zaten gitti; UI'da göstermek için LLM kararı belirleyici.
         List<string> allImagePaths;
         string? imagesJson;
         if (llmRejected)
@@ -393,24 +410,8 @@ public class ChatUseCase : IChatUseCase
         }
         else
         {
-            var seenPaths = new HashSet<string>();
-            allImagePaths = chunks
-                .Where(c => c.ImagePath != null)
-                .SelectMany(c =>
-                {
-                    try
-                    {
-                        var parsed = JsonSerializer.Deserialize<List<string>>(c.ImagePath!);
-                        return parsed ?? new List<string> { c.ImagePath! };
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "[Chat] ImagePath JSON parse hatası — raw path fallback'e düşülüyor");
-                        return new List<string> { c.ImagePath! };
-                    }
-                })
-                .Where(p => seenPaths.Add(p))
-                .ToList();
+            var referenced = ExtractReferencedImagePaths(answer);
+            allImagePaths = referenced.ToList();
             imagesJson = allImagePaths.Count > 0 ? JsonSerializer.Serialize(allImagePaths) : null;
         }
 
@@ -505,6 +506,25 @@ public class ChatUseCase : IChatUseCase
             System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.Singleline);
     private static readonly System.Text.RegularExpressions.Regex UrlInternalWsRegex =
         new(@"\s+", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    // LLM cevabında ![alt](path) syntax'ı ile bahsedilen image path'lerini çıkarır.
+    // Sıra korunur (cevapta hangi sırada geçtiyse), duplicate eliminated.
+    private static readonly System.Text.RegularExpressions.Regex ReferencedImageRegex =
+        new(@"!\[[^\]]*\]\(([^)]+)\)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static List<string> ExtractReferencedImagePaths(string answer)
+    {
+        if (string.IsNullOrEmpty(answer)) return new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<string>();
+        foreach (System.Text.RegularExpressions.Match m in ReferencedImageRegex.Matches(answer))
+        {
+            var path = m.Groups[1].Value.Trim();
+            if (string.IsNullOrEmpty(path)) continue;
+            if (seen.Add(path)) result.Add(path);
+        }
+        return result;
+    }
 
     private static string NormalizeImageMarkdown(string answer)
     {
