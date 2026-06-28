@@ -797,11 +797,12 @@ public class ChatUseCase : IChatUseCase
         var questionVector = await _embeddingService.GetEmbeddingAsync(questionText, ct);
 
         // 5. Feedback kaydet (chunk match yok, sadece question similarity ile çalışır)
+        // SessionId kolonu kaldırıldı — feedback'in session bağı zaten Message → Session
+        // navigation üzerinden dolaylı çekilebilir; ayrı denormalized kolon gereksizdi.
         var feedback = new ChatMessageFeedback
         {
             UserId = _currentUser.UserId,
             MessageId = request.MessageId,
-            SessionId = session.Id,
             QuestionText = questionText,
             QuestionVector = questionVector,
             AnswerText = message.Content,

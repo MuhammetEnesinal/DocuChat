@@ -9,7 +9,6 @@ public class ChatMessageFeedback : BaseEntity
 {
     public string UserId { get; set; } = string.Empty;
     public Guid MessageId { get; set; }
-    public Guid SessionId { get; set; }
 
     /// <summary>Soru metni — chunks silinse bile analitik için kalır.</summary>
     public string QuestionText { get; set; } = string.Empty;
