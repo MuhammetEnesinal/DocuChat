@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Domain.Entities;
 using DocuChat.Domain.Enums;
@@ -8,7 +9,13 @@ namespace DocuChat.Infrastructure.Persistence.Repositories;
 
 public class ChatMessageRepository : GenericRepository<ChatMessage>, IChatMessageRepository
 {
-    public ChatMessageRepository(AppDbContext db) : base(db) { }
+    private readonly ILogger<ChatMessageRepository> _logger;
+
+    public ChatMessageRepository(AppDbContext db, ILogger<ChatMessageRepository> logger)
+        : base(db)
+    {
+        _logger = logger;
+    }
 
     public async Task<int> CountBySessionAsync(Guid sessionId, CancellationToken ct = default)
         => await _set.CountAsync(m => m.SessionId == sessionId, ct);
@@ -38,7 +45,11 @@ public class ChatMessageRepository : GenericRepository<ChatMessage>, IChatMessag
             {
                 paths = JsonSerializer.Deserialize<List<string>>(msg.ImagesJson!);
             }
-            catch { continue; }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[ChatMessage] ImagesJson parse atlandı — msgId={MessageId}", msg.Id);
+                continue;
+            }
 
             if (paths is null) continue;
 

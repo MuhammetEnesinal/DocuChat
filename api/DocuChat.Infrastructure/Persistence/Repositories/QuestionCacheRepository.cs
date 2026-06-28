@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
 using DocuChat.Application.Interfaces.Repositories;
@@ -8,7 +9,13 @@ namespace DocuChat.Infrastructure.Persistence.Repositories;
 
 public class QuestionCacheRepository : GenericRepository<QuestionCache>, IQuestionCacheRepository
 {
-    public QuestionCacheRepository(AppDbContext db) : base(db) { }
+    private readonly ILogger<QuestionCacheRepository> _logger;
+
+    public QuestionCacheRepository(AppDbContext db, ILogger<QuestionCacheRepository> logger)
+        : base(db)
+    {
+        _logger = logger;
+    }
 
     public async Task<CacheMatch?> FindSimilarAsync(
         float[] queryVector,
@@ -46,12 +53,16 @@ public class QuestionCacheRepository : GenericRepository<QuestionCache>, IQuesti
                 .FirstOrDefaultAsync(ct);
 
             if (nearest != null)
-                Console.WriteLine($"[CacheDebug] MISS — threshold={threshold:F3}, en yakın aday sim={nearest.Sim:F3} q='{nearest.Q}'");
+                _logger.LogInformation(
+                    "[Cache] MISS — threshold={Threshold:F3}, en yakın aday sim={Similarity:F3} q='{Question}'",
+                    threshold, nearest.Sim, nearest.Q);
             return null;
         }
 
         var best = candidates[0];
-        Console.WriteLine($"[CacheDebug] HIT — threshold={threshold:F3}, sim={best.Sim:F3} q='{best.Cache.QuestionText}'");
+        _logger.LogInformation(
+            "[Cache] HIT — threshold={Threshold:F3}, sim={Similarity:F3} q='{Question}'",
+            threshold, best.Sim, best.Cache.QuestionText);
         return new CacheMatch(best.Cache, best.Sim);
     }
 

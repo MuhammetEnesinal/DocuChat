@@ -178,7 +178,10 @@ public class DocumentUseCase : IDocumentUseCase
                 foreach (var p in paths)
                     if (!string.IsNullOrWhiteSpace(p)) allPaths.Add(p);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[Caption] ImagePath JSON parse atlandı");
+            }
         }
         if (allPaths.Count == 0) return (result, emptyHashes);
 
@@ -465,7 +468,7 @@ public class DocumentUseCase : IDocumentUseCase
     ///   4. Sonuç: dedup edilmiş content + paths listesi
     /// Hash bilinmiyorsa (limit aşımı veya hesaplanamamış) path unique kabul edilir (kayıp riski yok).
     /// </summary>
-    private static (string DedupedContent, List<string> DedupedPaths) DedupChunkPaths(
+    private (string DedupedContent, List<string> DedupedPaths) DedupChunkPaths(
         string content,
         string? imagePathJson,
         IReadOnlyDictionary<string, string?> pathToHash)
@@ -475,7 +478,11 @@ public class DocumentUseCase : IDocumentUseCase
 
         List<string> paths;
         try { paths = JsonSerializer.Deserialize<List<string>>(imagePathJson) ?? new(); }
-        catch { return (content ?? string.Empty, new List<string>()); }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[DedupChunkPaths] ImagePath JSON parse hatası — boş listeye düşülüyor");
+            return (content ?? string.Empty, new List<string>());
+        }
 
         if (paths.Count <= 1) return (content ?? string.Empty, paths);
 
@@ -548,7 +555,11 @@ public class DocumentUseCase : IDocumentUseCase
 
             List<string> paths;
             try { paths = JsonSerializer.Deserialize<List<string>>(parsed.ImagePath) ?? new(); }
-            catch { continue; }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[ImageLinking] Chunk {Index} ImagePath JSON parse hatası — chunk atlandı", ci);
+                continue;
+            }
             if (paths.Count == 0) continue;
 
             var captions = ci < captionsByChunk.Count ? captionsByChunk[ci] : null;

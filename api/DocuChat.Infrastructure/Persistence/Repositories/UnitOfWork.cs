@@ -1,5 +1,6 @@
 ﻿
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Domain.Entities;
 
@@ -18,7 +19,10 @@ public class UnitOfWork : IUnitOfWork
     public IChatMessageFeedbackRepository Feedback { get; }
     public IQuestionCacheRepository QuestionCache { get; }
 
-    public UnitOfWork(AppDbContext db)
+    public UnitOfWork(
+        AppDbContext db,
+        ILogger<QuestionCacheRepository> cacheLogger,
+        ILogger<ChatMessageRepository> messageLogger)
     {
         _db = db;
         Documents = new DocumentRepository(db);
@@ -26,9 +30,9 @@ public class UnitOfWork : IUnitOfWork
         Images = new DocumentImageRepository(db);
         ChunkImages = new ChunkImageRepository(db);
         Sessions = new ChatSessionRepository(db);
-        Messages = new ChatMessageRepository(db);
+        Messages = new ChatMessageRepository(db, messageLogger);
         Feedback = new ChatMessageFeedbackRepository(db);
-        QuestionCache = new QuestionCacheRepository(db);
+        QuestionCache = new QuestionCacheRepository(db, cacheLogger);
     }
 
     public Task<int> SaveChangesAsync(CancellationToken ct = default)

@@ -450,7 +450,7 @@ public class DocumentParserService : IDocumentParser
         return clamped;
     }
 
-    private static int CountImagesInJson(string? imagePathJson)
+    private int CountImagesInJson(string? imagePathJson)
     {
         if (string.IsNullOrEmpty(imagePathJson)) return 0;
         try
@@ -458,7 +458,11 @@ public class DocumentParserService : IDocumentParser
             using var doc = JsonDocument.Parse(imagePathJson);
             return doc.RootElement.ValueKind == JsonValueKind.Array ? doc.RootElement.GetArrayLength() : 0;
         }
-        catch { return 0; }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[Parser] ImagePath JSON sayım hatası — 0 dönülüyor");
+            return 0;
+        }
     }
 
     private async Task<byte[]> ConvertToPdfAsync(byte[] sourceBytes, string sourceExt)
@@ -583,7 +587,12 @@ public class DocumentParserService : IDocumentParser
                     var c = b64.IndexOf(',');
                     if (c >= 0) b64 = b64[(c + 1)..];
                     byte[] imgBytes;
-                    try { imgBytes = Convert.FromBase64String(b64); } catch { continue; }
+                    try { imgBytes = Convert.FromBase64String(b64); }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "[Parser] Base64 decode atlandı — image id={ImgId}", imgId);
+                        continue;
+                    }
                     if (imgBytes.Length < 64) continue;
 
                     // 🆕 Hash hesapla — PdfPig fallback ile dedup için kullanılacak

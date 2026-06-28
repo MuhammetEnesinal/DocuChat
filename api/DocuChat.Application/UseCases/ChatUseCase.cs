@@ -419,7 +419,11 @@ public class ChatUseCase : IChatUseCase
                         var parsed = JsonSerializer.Deserialize<List<string>>(c.ImagePath!);
                         return parsed ?? new List<string> { c.ImagePath! };
                     }
-                    catch { return new List<string> { c.ImagePath! }; }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "[Chat] ImagePath JSON parse hatası — raw path fallback'e düşülüyor");
+                        return new List<string> { c.ImagePath! };
+                    }
                 })
                 .Where(p => seenPaths.Add(p))
                 .ToList();
