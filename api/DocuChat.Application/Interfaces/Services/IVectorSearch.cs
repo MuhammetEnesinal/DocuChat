@@ -6,7 +6,7 @@ public interface IVectorSearch
 {
     Task<IReadOnlyList<ChunkResult>> SearchAsync(
         string question,
-        CancellationToken ct = default,
         string? hydeText = null,
-        string? bm25Query = null);
+        string? bm25Query = null,
+        CancellationToken ct = default);
 }

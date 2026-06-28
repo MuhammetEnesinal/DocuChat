@@ -273,7 +273,7 @@ public class DocumentUseCase : IDocumentUseCase
     {
         try
         {
-            using var stream = _fileStorage.Read(path);
+            using var stream = _fileStorage.OpenRead(path);
             using var ms = new MemoryStream();
             await stream.CopyToAsync(ms, ct);
             var bytes = ms.ToArray();
@@ -614,7 +614,7 @@ public class DocumentUseCase : IDocumentUseCase
     {
         try
         {
-            using var stream = _fileStorage.Read(path);
+            using var stream = _fileStorage.OpenRead(path);
             using var ms = new MemoryStream();
             await stream.CopyToAsync(ms, ct);
             var bytes = ms.ToArray();
@@ -797,8 +797,8 @@ public class DocumentUseCase : IDocumentUseCase
 
         try
         {
-            using var stream = _fileStorage.Read(doc.StoragePath);
-            var parsedList = (await _parser.ParseAsync(stream, doc.FileType)).ToList();
+            using var stream = _fileStorage.OpenRead(doc.StoragePath);
+            var parsedList = (await _parser.ParseAsync(stream, doc.FileType, ct)).ToList();
 
             // Contextual Retrieval: BAŞ + ORTA + SON chunk'lardan özet (TOC/kapak sayfasına saplanmaz)
             var sampleChunks = parsedList
@@ -1066,7 +1066,7 @@ public class DocumentUseCase : IDocumentUseCase
 
         try
         {
-            var stream = _fileStorage.Read(doc.StoragePath);
+            var stream = _fileStorage.OpenRead(doc.StoragePath);
             var contentType = doc.ContentType == "application/pdf"
                 ? "application/pdf"
                 : "application/octet-stream";

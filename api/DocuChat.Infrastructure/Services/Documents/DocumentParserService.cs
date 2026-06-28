@@ -89,11 +89,11 @@ public class DocumentParserService : IDocumentParser
         _hierarchicalChunker = new HierarchicalChunker(_tokens, _renderer, _adaptiveMax);
     }
 
-    public async Task<IEnumerable<ParsedChunk>> ParseAsync(Stream stream, FileType fileType)
+    public async Task<IEnumerable<ParsedChunk>> ParseAsync(Stream stream, FileType fileType, CancellationToken ct = default)
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
-        var bytes = await ReadAllBytesAsync(stream);
+        var bytes = await ReadAllBytesAsync(stream, ct);
 
         // DOCX / DOC: LibreOffice ile PDF'e çevir → PDF akışına yönlendir
         if (fileType is FileType.Docx or FileType.Doc)
@@ -850,11 +850,11 @@ public class DocumentParserService : IDocumentParser
             || head.Contains("Content-Type: multipart/related", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static async Task<byte[]> ReadAllBytesAsync(Stream stream)
+    private static async Task<byte[]> ReadAllBytesAsync(Stream stream, CancellationToken ct)
     {
         if (stream.CanSeek) stream.Position = 0;
         using var ms = new MemoryStream();
-        await stream.CopyToAsync(ms);
+        await stream.CopyToAsync(ms, ct);
         if (stream.CanSeek) stream.Position = 0;
         return ms.ToArray();
     }

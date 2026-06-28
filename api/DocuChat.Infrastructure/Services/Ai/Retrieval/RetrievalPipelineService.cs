@@ -62,7 +62,7 @@ public sealed class RetrievalPipelineService : IRetrievalPipeline
         var bm25Query = enrichedFromLlm ?? question;
 
         var chunks = await _vectorSearch.SearchAsync(
-            question, ct: ct, hydeText: embedText, bm25Query: bm25Query);
+            question, hydeText: embedText, bm25Query: bm25Query, ct: ct);
 
         return chunks.ToList();
     }

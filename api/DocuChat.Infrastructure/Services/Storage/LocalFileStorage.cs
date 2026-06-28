@@ -38,10 +38,10 @@ public class LocalFileStorage : IFileStorage
         return Task.CompletedTask;
     }
 
-    public Stream Read(string storagePath)
+    public Stream OpenRead(string storagePath)
     {
         var fullPath = Path.GetFullPath(Path.Combine(_basePath, storagePath));
-        _logger.LogDebug("[FileStorage] Read: {FullPath} | Exists: {Exists}", fullPath, File.Exists(fullPath));
+        _logger.LogDebug("[FileStorage] OpenRead: {FullPath} | Exists: {Exists}", fullPath, File.Exists(fullPath));
         if (!File.Exists(fullPath))
             throw new FileNotFoundException($"Dosya bulunamadı: {fullPath}");
         return File.OpenRead(fullPath);

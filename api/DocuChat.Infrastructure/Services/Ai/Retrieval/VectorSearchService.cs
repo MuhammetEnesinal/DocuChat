@@ -54,9 +54,9 @@ public class VectorSearchService : IVectorSearch
 
     public async Task<IReadOnlyList<ChunkResult>> SearchAsync(
         string question,
-        CancellationToken ct = default,
         string? hydeText = null,
-        string? bm25Query = null)
+        string? bm25Query = null,
+        CancellationToken ct = default)
     {
         var bm25Text = !string.IsNullOrWhiteSpace(bm25Query) ? bm25Query : question;
         var textToEmbed = !string.IsNullOrWhiteSpace(hydeText) ? hydeText : question;

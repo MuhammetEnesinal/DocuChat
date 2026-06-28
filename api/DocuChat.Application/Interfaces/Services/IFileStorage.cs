@@ -11,5 +11,9 @@ public interface IFileStorage
 
     Task DeleteAsync(string storagePath, CancellationToken ct = default);
 
-    Stream Read(string storagePath);
+    /// <summary>
+    /// Disk üzerindeki dosyayı okumak için lazy stream açar (caller dispose etmeli).
+    /// FileNotFoundException fırlatabilir.
+    /// </summary>
+    Stream OpenRead(string storagePath);
 }
