@@ -23,7 +23,6 @@ public class ChatUseCase : IChatUseCase
     private readonly ILlmService _llm;
     private readonly ICurrentUser _currentUser;
     private readonly IEmbeddingService _embeddingService;
-    private readonly IQuestionCacheRepository _cache;
     private readonly ITokenCounter _tokenCounter;
     private readonly ILogger<ChatUseCase> _logger;
     private readonly double _cacheSimilarityThreshold;
@@ -38,7 +37,6 @@ public class ChatUseCase : IChatUseCase
         ILlmService llm,
         ICurrentUser currentUser,
         IEmbeddingService embeddingService,
-        IQuestionCacheRepository cache,
         ITokenCounter tokenCounter,
         ILogger<ChatUseCase> logger,
         IConfiguration configuration)
@@ -48,7 +46,6 @@ public class ChatUseCase : IChatUseCase
         _llm = llm;
         _currentUser = currentUser;
         _embeddingService = embeddingService;
-        _cache = cache;
         _tokenCounter = tokenCounter;
         _logger = logger;
         _cacheSimilarityThreshold = configuration.GetValue("Cache:SimilarityThreshold", 0.87);
@@ -188,7 +185,7 @@ public class ChatUseCase : IChatUseCase
         var questionVector = await _embeddingService.GetEmbeddingAsync(searchQuestion, ct);
 
         // === 4. Cache lookup (eager) ===
-        var cacheMatch = await _cache.FindSimilarAsync(questionVector, _cacheSimilarityThreshold, ct);
+        var cacheMatch = await _uow.QuestionCache.FindSimilarAsync(questionVector, _cacheSimilarityThreshold, ct);
         if (cacheMatch is not null)
         {
             var hit = cacheMatch.Cache;
@@ -214,7 +211,7 @@ public class ChatUseCase : IChatUseCase
                     : new List<string>();
                 var followUpTask = SafeFollowUpsAsync(searchQuestion, hit.Answer, hitChunks, ct);
 
-                await _cache.IncrementHitAsync(hit.Id, ct);
+                await _uow.QuestionCache.IncrementHitAsync(hit.Id, ct);
                 var userMsgCache = new ChatMessage
                 {
                     SessionId = session.Id,
@@ -451,7 +448,7 @@ public class ChatUseCase : IChatUseCase
         {
             try
             {
-                await _cache.AddAsync(new QuestionCache
+                await _uow.QuestionCache.AddAsync(new QuestionCache
                 {
                     QuestionText = searchQuestion,
                     QuestionVector = questionVector,
@@ -614,7 +611,7 @@ public class ChatUseCase : IChatUseCase
     public async Task<Result<IReadOnlyList<string>>> GetPopularQuestionsAsync(
         int limit, CancellationToken ct)
     {
-        var cached = await _cache.GetTopByHitCountAsync(limit, ct);
+        var cached = await _uow.QuestionCache.GetTopByHitCountAsync(limit, ct);
         if (cached.Count > 0)
             return Result<IReadOnlyList<string>>.Success(cached);
 

@@ -368,12 +368,5 @@ FodyWeavers.xsd
 *.docx
 *.jpeg
 *.doc
-/src/DocuChat.API/uploads/b6e5ed65-ec1d-4cc2-b0c3-3e8a84349381_3.1+GENEL+BİLGİLER.doc
-/src/DocuChat.API/uploads/2b608719-512b-44b0-8b18-2d3ba44a9692_2.1+İŞE+GİR+BUTONU.doc
-/src/DocuChat.API/uploads/17cbe293-0b57-46c6-a386-535b1db760d7_1.1+Makine+Seç+İşlemi.doc
-/src/DocuChat.API/uploads/261c39ef-1afc-46a2-a0c9-41e947083d49_Robotik Sistemler - İSTANBUL TOPKAPI ÜNİVERSİTESİ.csv
-/src/DocuChat.API/uploads/3740400a-e742-4153-bffc-7d5cde6d2489_2.2+HAZIRLIK+BUTONU.doc
-/src/DocuChat.API/uploads/17cbe293-0b57-46c6-a386-535b1db760d7_1.1+Makine+Seç+İşlemi.doc
-/src/DocuChat.API/uploads/17cbe293-0b57-46c6-a386-535b1db760d7_1.1+Makine+Seç+İşlemi.doc
-/src/DocuChat.API/uploads/261c39ef-1afc-46a2-a0c9-41e947083d49_Robotik Sistemler - İSTANBUL TOPKAPI ÜNİVERSİTESİ.csv
-/src/DocuChat.API/uploads/17cbe293-0b57-46c6-a386-535b1db760d7_1.1+Makine+Seç+İşlemi.doc
+# Uploaded documents (kept locally, not tracked)
+/api/DocuChat.API/uploads/

@@ -195,26 +195,9 @@ try
     using (var scope = app.Services.CreateScope())
         await SeedData.SeedRolesAndAdminAsync(scope.ServiceProvider);
 
-    // Startup recovery: önceki çalıştırmadan kalan "Processing" belgeleri "Failed" yap
-    using (var scope = app.Services.CreateScope())
-    {
-        var db = scope.ServiceProvider.GetRequiredService<DocuChat.Infrastructure.Persistence.AppDbContext>();
-        var stuck = db.Documents
-            .Where(d => d.Status == DocuChat.Domain.Enums.DocumentStatus.Processing
-                     || d.Status == DocuChat.Domain.Enums.DocumentStatus.Pending)
-            .ToList();
-        if (stuck.Count > 0)
-        {
-            foreach (var d in stuck)
-            {
-                d.Status = DocuChat.Domain.Enums.DocumentStatus.Failed;
-                d.ErrorMessage = "Sunucu yeniden başlatıldı; işlem yarım kaldı. Yeniden işlemeyi deneyin.";
-                d.UpdatedAt = DateTime.UtcNow;
-            }
-            await db.SaveChangesAsync();
-            Log.Information("[Startup] {Count} takılı belge Failed olarak işaretlendi", stuck.Count);
-        }
-    }
+    // NOT: Pending/Processing'de kalan belgelerin recovery'si DocumentRecoveryService (IHostedService)
+    // tarafından yapılır — orada queue'ya enqueue edilir, DocumentProcessingConsumer bounded
+    // concurrency ile işler. Burada manuel Failed işaretleme YAPMA — recovery'i nullify eder.
 
     if (app.Environment.IsDevelopment())
     {
