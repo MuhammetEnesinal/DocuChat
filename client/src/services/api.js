@@ -6,6 +6,9 @@ export { API_BASE };
 const api = axios.create({
     baseURL: API_BASE + '/api',
     headers: { 'Content-Type': 'application/json' },
+    // Cookie tabanlı JWT için — /uploads/* static dosya isteklerinde tarayıcı auth_token
+    // cookie'sini gönderir. CORS tarafında AllowCredentials() açık.
+    withCredentials: true,
 });
 
 api.interceptors.request.use((config) => {
@@ -34,6 +37,9 @@ export default api;
 // ── Auth ──────────────────────────────────────────────────────────────────
 export const login = (email, password) =>
     api.post('/auth/login', { email, password });
+
+// Backend HttpOnly auth_token cookie'sini temizler (frontend JS bu cookie'yi göremez).
+export const logout = () => api.post('/auth/logout');
 
 export const forgotPassword = (email) =>
     api.post('/auth/forgot-password', { email });

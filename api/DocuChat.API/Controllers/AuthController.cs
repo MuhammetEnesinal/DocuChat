@@ -5,8 +5,8 @@ using Microsoft.AspNetCore.RateLimiting;
 using DocuChat.Application.Common;
 using DocuChat.Application.Interfaces.Services;
 using DocuChat.Application.DTOs.Auth;
-using DocuChat.API.Extensions;
 using DocuChat.API.Common;
+using DocuChat.API.Extensions;
 
 namespace DocuChat.API.Controllers;
 
@@ -14,8 +14,13 @@ namespace DocuChat.API.Controllers;
 [Route("api/auth")]
 public class AuthController : ControllerBase
 {
+    // Static dosyalar (/uploads/*) için JWT cookie ismi.
+    // JWT bearer middleware OnMessageReceived event'inde bu cookie'den de okuyor.
+    private const string AuthCookieName = "auth_token";
+
     private readonly IAuthService _authService;
     private readonly ICurrentUser _currentUser;
+    private readonly IWebHostEnvironment _env;
     private readonly IValidator<LoginRequestDto> _loginValidator;
     private readonly IValidator<ForgotPasswordRequestDto> _forgotPasswordValidator;
     private readonly IValidator<ResetPasswordRequestDto> _resetPasswordValidator;
@@ -24,6 +29,7 @@ public class AuthController : ControllerBase
     public AuthController(
         IAuthService authService,
         ICurrentUser currentUser,
+        IWebHostEnvironment env,
         IValidator<LoginRequestDto> loginValidator,
         IValidator<ForgotPasswordRequestDto> forgotPasswordValidator,
         IValidator<ResetPasswordRequestDto> resetPasswordValidator,
@@ -31,6 +37,7 @@ public class AuthController : ControllerBase
     {
         _authService = authService;
         _currentUser = currentUser;
+        _env = env;
         _loginValidator = loginValidator;
         _forgotPasswordValidator = forgotPasswordValidator;
         _resetPasswordValidator = resetPasswordValidator;
@@ -51,7 +58,29 @@ public class AuthController : ControllerBase
                              .ToValidationResult<AuthResponseDto>();
 
         var result = await _authService.LoginAsync(req, ct);
+
+        // Login başarılıysa JWT'yi HttpOnly cookie olarak da set et — <img src=/uploads/...>
+        // çağrılarında tarayıcı cookie'yi otomatik gönderir (Authorization header gönderemez).
+        if (result.IsSuccess)
+            SetAuthCookie(result.Value!.Token, result.Value!.ExpiresAt);
+
         return result.ToActionResult();
+    }
+
+    [HttpPost("logout")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public IActionResult Logout()
+    {
+        Response.Cookies.Delete(AuthCookieName, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = !_env.IsDevelopment(),
+            SameSite = SameSiteMode.Lax,
+            Path = "/"
+        });
+        return NoContent();
     }
 
     [HttpPost("forgot-password")]
@@ -113,5 +142,24 @@ public class AuthController : ControllerBase
 
         var result = await _authService.ChangePasswordAsync(_currentUser.UserId, req.CurrentPassword, req.NewPassword, ct);
         return result.ToActionResult();
+    }
+
+    /// <summary>
+    /// JWT'yi HttpOnly cookie olarak set eder.
+    /// - HttpOnly: JS okuyamaz (XSS koruması)
+    /// - Secure: prod'da HTTPS şart (dev localhost http için false)
+    /// - SameSite=Lax: cross-site CSRF saldırılarına karşı koruma; same-site img/link OK
+    /// - Path=/: tüm endpoint'ler için geçerli
+    /// </summary>
+    private void SetAuthCookie(string token, DateTime expiresAt)
+    {
+        Response.Cookies.Append(AuthCookieName, token, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = !_env.IsDevelopment(),
+            SameSite = SameSiteMode.Lax,
+            Expires = expiresAt,
+            Path = "/"
+        });
     }
 }

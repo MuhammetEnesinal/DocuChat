@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { logout as apiLogout } from '../services/api';
 
 const useAuthStore = create((set) => ({
     token: localStorage.getItem('token') || null,
@@ -10,7 +11,10 @@ const useAuthStore = create((set) => ({
         set({ token, user });
     },
 
-    logout: () => {
+    logout: async () => {
+        // Backend auth_token cookie'sini temizle (HttpOnly olduğu için JS'den temizlenemez).
+        // Fail olursa sessizce geç — local state temizliği her durumda yapılır.
+        try { await apiLogout(); } catch { /* ignore */ }
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         set({ token: null, user: null });

@@ -75,8 +75,13 @@ try
         .GetSection("AllowedOrigins").Get<string[]>()
         ?? ["http://localhost:5173"];
 
+    // AllowCredentials: cookie tabanlı JWT için gerekli (frontend axios.withCredentials=true).
+    // .WithOrigins specific olmak zorunda — AllowCredentials ile birlikte wildcard izinsiz.
     builder.Services.AddCors(o => o.AddPolicy("DefaultCors", p =>
-        p.WithOrigins(allowedOrigins).AllowAnyMethod().AllowAnyHeader()));
+        p.WithOrigins(allowedOrigins)
+         .AllowAnyMethod()
+         .AllowAnyHeader()
+         .AllowCredentials()));
 
     builder.Services.AddRateLimiter(options =>
     {
@@ -195,6 +200,22 @@ try
             IssuerSigningKey = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Secret"]!))
         };
+
+        // Static dosya (/uploads/*) çağrılarında <img> tag'i Authorization header gönderemez —
+        // tarayıcı sadece cookie'leri otomatik yollar. Bearer header yoksa auth_token cookie'sinden oku.
+        options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+        {
+            OnMessageReceived = ctx =>
+            {
+                if (string.IsNullOrEmpty(ctx.Token))
+                {
+                    var cookieToken = ctx.Request.Cookies["auth_token"];
+                    if (!string.IsNullOrEmpty(cookieToken))
+                        ctx.Token = cookieToken;
+                }
+                return Task.CompletedTask;
+            }
+        };
     });
 
     // Suppress cookie auth redirects for API endpoints (belt-and-suspenders)
@@ -240,7 +261,24 @@ try
 
     app.UseRateLimiter();
 
-    // Static files CORS'tan sonra — resimlere de CORS header'ı uygulanır
+    // Auth middleware'leri static files'tan ÖNCE — /uploads check'inde ctx.User populated olmalı.
+    app.UseAuthentication();
+    app.UseAuthorization();
+
+    // /uploads/* sadece authenticated kullanıcılar için.
+    // JWT bearer header VEYA auth_token cookie üzerinden (OnMessageReceived event).
+    app.Use(async (ctx, next) =>
+    {
+        if (ctx.Request.Path.StartsWithSegments("/uploads")
+            && !(ctx.User.Identity?.IsAuthenticated ?? false))
+        {
+            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+        await next();
+    });
+
+    // Static files (CORS sonrası, auth check sonrası)
     var storagePath = builder.Configuration["Storage:LocalPath"] ?? "uploads";
     Directory.CreateDirectory(Path.GetFullPath(storagePath));
     app.UseStaticFiles(new StaticFileOptions
@@ -251,8 +289,6 @@ try
         DefaultContentType = "application/octet-stream"
     });
     app.UseMiddleware<ExceptionHandlingMiddleware>();
-    app.UseAuthentication();
-    app.UseAuthorization();
     app.MapControllers();
 
     app.Run();
