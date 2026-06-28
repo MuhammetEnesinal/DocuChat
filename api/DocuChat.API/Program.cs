@@ -149,7 +149,29 @@ try
                 PermitLimit = 30, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
-        // NOT: Diğer endpoint'lerde rate limit yok (admin operasyonları, read, mutation).
+        // reprocess — Mistral OCR + Pixtral caption + LLM context generation. En pahalı op.
+        // Admin hesabı compromise olsa bile API faturasını koruma.
+        options.AddPolicy("reprocess", ctx =>
+            RateLimitPartition.GetFixedWindowLimiter(GetIp(ctx), _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
+            }));
+
+        // batch-delete — bulk DB write + disk cleanup. Ids[] array büyük olabilir, DB yükü.
+        options.AddPolicy("batch-delete", ctx =>
+            RateLimitPartition.GetFixedWindowLimiter(GetIp(ctx), _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
+            }));
+
+        // user-write — admin user CRUD. Create/Update welcome+notice mail gönderiyor → SMTP spam vektörü.
+        options.AddPolicy("user-write", ctx =>
+            RateLimitPartition.GetFixedWindowLimiter(GetIp(ctx), _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
+            }));
+
+        // NOT: Read endpoint'lerinde rate limit yok (GET ops). Sadece write/expensive ops koruma.
     });
 
     // AddInfrastructure calls AddIdentity<> which sets cookie as default scheme.

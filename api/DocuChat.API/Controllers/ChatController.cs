@@ -175,9 +175,11 @@ public class ChatController : ControllerBase
     }
 
     [HttpPost("sessions/batch-delete")]
+    [EnableRateLimiting("batch-delete")]
     [ProducesResponseType(typeof(ApiResponse<int>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> DeleteSessionsBatch(
         [FromBody] BatchSessionDeleteRequestDto req, CancellationToken ct)
     {

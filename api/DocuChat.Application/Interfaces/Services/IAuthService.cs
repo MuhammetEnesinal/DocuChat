@@ -1,15 +1,15 @@
-﻿using DocuChat.Application.Common;
+using DocuChat.Application.Common;
 using DocuChat.Application.DTOs.Auth;
 
 namespace DocuChat.Application.Interfaces.Services;
 
+/// <summary>
+/// Kimlik doğrulama akışları: login, password reset, kendi profilini yönetme.
+/// Admin tarafından yapılan user CRUD operasyonları için IUserManagementService kullanılır.
+/// </summary>
 public interface IAuthService
 {
-    Task<Result<AuthResponseDto>> RegisterAsync(RegisterRequestDto request, CancellationToken ct = default);
     Task<Result<AuthResponseDto>> LoginAsync(LoginRequestDto request, CancellationToken ct = default);
-    Task<Result<IReadOnlyList<UserSummaryResponseDto>>> GetAllUsersAsync(CancellationToken ct = default);
-    Task<Result<bool>> DeleteUserAsync(string userId, CancellationToken ct = default);
-    Task<Result<UserSummaryResponseDto>> UpdateUserAsync(string userId, UpdateUserRequestDto req, CancellationToken ct = default);
     Task<Result<bool>> ForgotPasswordAsync(string email, CancellationToken ct = default);
     Task<Result<bool>> ResetPasswordAsync(string email, string token, string newPassword, CancellationToken ct = default);
     Task<Result<UserSummaryResponseDto>> GetMeAsync(string userId, CancellationToken ct = default);

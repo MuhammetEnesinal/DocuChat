@@ -49,6 +49,10 @@ public class DocumentsController : ControllerBase
     }
 
     [HttpGet("{id:guid}/chunks")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<DocumentChunkResponseDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetChunks(Guid id, CancellationToken ct)
     {
         var result = await _document.GetChunksAsync(id, ct);
@@ -80,6 +84,10 @@ public class DocumentsController : ControllerBase
     }
 
     [HttpGet("{id:guid}/preview")]
+    [ProducesResponseType(typeof(FileStreamResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Preview(Guid id, CancellationToken ct)
     {
         var result = await _document.GetFileStreamAsync(id, ct);
@@ -95,6 +103,12 @@ public class DocumentsController : ControllerBase
     }
 
     [HttpPost("{id:guid}/reprocess")]
+    [EnableRateLimiting("reprocess")]
+    [ProducesResponseType(typeof(ApiResponse<DocumentResponseDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> Reprocess(Guid id, CancellationToken ct)
     {
         var result = await _document.ReprocessAsync(id, ct);
@@ -112,9 +126,11 @@ public class DocumentsController : ControllerBase
     }
 
     [HttpPost("batch-delete")]
+    [EnableRateLimiting("batch-delete")]
     [ProducesResponseType(typeof(ApiResponse<int>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> DeleteBatch(
         [FromBody] BatchDocumentDeleteRequestDto req, CancellationToken ct)
     {

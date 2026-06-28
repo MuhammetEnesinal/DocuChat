@@ -17,6 +17,7 @@ using DocuChat.Infrastructure.Services.Ai.Llm;
 using DocuChat.Infrastructure.Services.Ai.Reranker;
 using DocuChat.Infrastructure.Services.Ai.Retrieval;
 using DocuChat.Infrastructure.Services.Auth;
+using DocuChat.Infrastructure.Services.UserManagement;
 using DocuChat.Infrastructure.Services.BackgroundJobs;
 using DocuChat.Infrastructure.Services.Email;
 using DocuChat.Infrastructure.Services.Storage;
@@ -57,6 +58,7 @@ public static class DependencyInjection
 
         // Infrastructure Services
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IUserManagementService, UserManagementService>();
         services.AddScoped<IEmailService, SmtpEmailService>();
         services.AddScoped<IDocumentParser, DocumentParserService>();
         services.AddScoped<IVectorSearch, VectorSearchService>();
