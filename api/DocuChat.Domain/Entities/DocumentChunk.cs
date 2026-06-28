@@ -8,7 +8,6 @@ public class DocumentChunk : BaseEntity
     public float[] Embedding { get; set; } = Array.Empty<float>();
     public string? Header { get; set; }
 
-    public string? Summary { get; set; }
     public int? PageNumber { get; set; }
 
     public string? CleanContent { get; set; }          // markdown stripped — embed + tsvector için

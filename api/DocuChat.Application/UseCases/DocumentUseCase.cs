@@ -509,9 +509,10 @@ public class DocumentUseCase : IDocumentUseCase
                     Content = contentSb.ToString(),
                     ChunkIndex = idx,
                     Embedding = vec,
-                    // ImagePath kaldırıldı — görseller artık DocumentImages + ChunkImages join'de
+                    // ImagePath kaldırıldı — görseller artık DocumentImages + ChunkImages join'de.
+                    // Summary kolonu da kaldırıldı — captionSummary zaten embedText'in içinde,
+                    // ayrı bir kolonda saklama gereksiz I/O ve disk israfı.
                     Header = parsed.Header,
-                    Summary = string.IsNullOrEmpty(captionSummary) ? null : captionSummary,
                     CleanContent = parsed.CleanContent,
                     PageNumber = parsed.PageNumber,
                 };
