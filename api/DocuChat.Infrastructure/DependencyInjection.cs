@@ -44,11 +44,9 @@ public static class DependencyInjection
         .AddDefaultTokenProviders()
         .AddErrorDescriber<TurkishIdentityErrorDescriber>();
 
-        // Repositories
-        services.AddScoped<IChatSessionRepository, ChatSessionRepository>();
-        services.AddScoped<IChatMessageFeedbackRepository, ChatMessageFeedbackRepository>();
+        // Repositories — sadece UoW kayıtlı; tüm repo'lara IUnitOfWork üzerinden erişilir.
+        // Direct IXxxRepository injection KULLANILMAZ — convention: her zaman _uow.Xxx.
         services.AddScoped<IUnitOfWork, UnitOfWork>();
-        services.AddScoped<IQuestionCacheRepository, QuestionCacheRepository>();
 
         // Token sayacı (tiktoken) — chunk + chat history bütçeleme
         services.AddSingleton<ITokenCounter, Services.Documents.Parsing.Chunking.TokenCounter>();

@@ -37,11 +37,10 @@ public sealed class CacheCleanupService : BackgroundService
     private async Task RunCleanupAsync(CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
-        var cache = scope.ServiceProvider.GetRequiredService<IQuestionCacheRepository>();
         var uow = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
         try
         {
-            var deleted = await cache.DeleteExpiredAsync(CacheTtl, ct);
+            var deleted = await uow.QuestionCache.DeleteExpiredAsync(CacheTtl, ct);
             if (deleted > 0)
                 _logger.LogInformation("[CacheCleanup] {Count} eski kayıt silindi", deleted);
             else

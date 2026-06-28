@@ -481,7 +481,7 @@ public class ChatUseCase : IChatUseCase
         {
             type = "complete",
             messageId = assistantMsg.Id,  // ⭐ feedback için gerçek Guid
-            chunks = chunks.Adapt<List<ChunkResponseDto>>(),
+            chunks = chunks.Adapt<List<AnswerSourceChunkDto>>(),
             images = allImagePaths.Count > 0 ? allImagePaths : null,
             followUps = followUps.Count > 0 ? followUps : null,
             badge,

@@ -26,7 +26,6 @@ public class DocumentUseCase : IDocumentUseCase
     private readonly IEmbeddingService _embedder;
     private readonly IFileStorage _fileStorage;
     private readonly ICurrentUser _currentUser;
-    private readonly IQuestionCacheRepository _cache;
     private readonly ILlmService _llm;
     private readonly ITokenCounter _tokenCounter;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -46,7 +45,6 @@ public class DocumentUseCase : IDocumentUseCase
         IEmbeddingService embedder,
         IFileStorage fileStorage,
         ICurrentUser currentUser,
-        IQuestionCacheRepository cache,
         ILlmService llm,
         ITokenCounter tokenCounter,
         IServiceScopeFactory scopeFactory,
@@ -60,7 +58,6 @@ public class DocumentUseCase : IDocumentUseCase
         _embedder = embedder;
         _fileStorage = fileStorage;
         _currentUser = currentUser;
-        _cache = cache;
         _llm = llm;
         _tokenCounter = tokenCounter;
         _scopeFactory = scopeFactory;
@@ -879,7 +876,7 @@ public class DocumentUseCase : IDocumentUseCase
             //   - Reprocess: bu belgenin chunks'larıyla cevap üretmiş entries silinmeli + untracked (eski) fallback
             if (isReprocess)
             {
-                var deletedCacheCount = await _cache.DeleteByDocumentIdAsync(doc.Id, includeUntracked: true, ct);
+                var deletedCacheCount = await _uow.QuestionCache.DeleteByDocumentIdAsync(doc.Id, includeUntracked: true, ct);
                 _logger.LogInformation(
                     "[Cache] Reprocess sonrası belge-bazlı invalidation: {Count} cache entry silindi. DocId: {DocId}",
                     deletedCacheCount, doc.Id);
@@ -973,7 +970,7 @@ public class DocumentUseCase : IDocumentUseCase
             // (eski untracked entries de güvenlik için silinir — geriye uyumluluk)
             var totalCacheDeleted = 0;
             foreach (var delId in deletedIds)
-                totalCacheDeleted += await _cache.DeleteByDocumentIdAsync(delId, includeUntracked: true, ct);
+                totalCacheDeleted += await _uow.QuestionCache.DeleteByDocumentIdAsync(delId, includeUntracked: true, ct);
             await RemoveDeletedImagesFromChatHistoryAsync(allDeletedImagePaths, ct);
             await _uow.SaveChangesAsync(ct);
             _logger.LogInformation(
@@ -1000,7 +997,7 @@ public class DocumentUseCase : IDocumentUseCase
         await _uow.SaveChangesAsync(ct);
 
         // 🆕 Per-document invalidation
-        var deletedCacheCount = await _cache.DeleteByDocumentIdAsync(docId, includeUntracked: true, ct);
+        var deletedCacheCount = await _uow.QuestionCache.DeleteByDocumentIdAsync(docId, includeUntracked: true, ct);
         await RemoveDeletedImagesFromChatHistoryAsync(deletedImagePaths, ct);
         await _uow.SaveChangesAsync(ct);
         _logger.LogInformation(

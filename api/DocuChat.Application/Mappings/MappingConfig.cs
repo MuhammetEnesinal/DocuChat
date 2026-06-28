@@ -45,6 +45,6 @@ public static class MappingConfig
                    .ToList());
 
         // Aynı şekil; tip ayrımı API yüzeyini internal model'den izole eder.
-        TypeAdapterConfig<ChunkResult, ChunkResponseDto>.NewConfig();
+        TypeAdapterConfig<ChunkResult, AnswerSourceChunkDto>.NewConfig();
     }
 }

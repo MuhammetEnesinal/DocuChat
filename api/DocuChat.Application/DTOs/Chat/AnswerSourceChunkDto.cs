@@ -1,6 +1,6 @@
 namespace DocuChat.Application.DTOs.Chat;
 
-public record ChunkResponseDto(
+public record AnswerSourceChunkDto(
     string FileName,
     string Content,
     string? ImagePath = null,
