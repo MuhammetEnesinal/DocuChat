@@ -16,12 +16,4 @@ public class DocumentImageRepository : GenericRepository<DocumentImage>, IDocume
             .OrderBy(i => i.PageNumber)
             .ToListAsync(ct);
     }
-
-    public async Task<DocumentImage?> FindByDocumentAndHashAsync(
-        Guid documentId, string contentHash, CancellationToken ct = default)
-    {
-        if (string.IsNullOrEmpty(contentHash)) return null;
-        return await _set
-            .FirstOrDefaultAsync(i => i.DocumentId == documentId && i.ContentHash == contentHash, ct);
-    }
 }
