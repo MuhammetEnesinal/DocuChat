@@ -17,9 +17,6 @@ public class DocumentImage : BaseEntity
     /// <summary>SHA256 görsel byte'larından — duplicate tespit için.</summary>
     public string? ContentHash { get; set; }
 
-    /// <summary>Görselin kaynağı: Mistral | PdfPig | Xlsx (debug/teşhis için).</summary>
-    public string? Source { get; set; }
-
     public Document? Document { get; set; }
     public List<ChunkImage> ChunkLinks { get; set; } = new();
 }

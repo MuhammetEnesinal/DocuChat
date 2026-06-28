@@ -713,10 +713,11 @@ public class DocumentUseCase : IDocumentUseCase
                 {
                     DocumentId = doc.Id,
                     Path = path,
-                    // Caption kolonu kaldırıldı — caption zaten chunk content'ine inline ekleniyor
-                    // ([IMG:N — caption]) ve embedding'de yer alıyor; DB'de ayrı saklama gereksiz.
+                    // Caption + Source kolonları kaldırıldı:
+                    // - caption chunk content'ine inline gömülü, embedding'de yer alıyor
+                    // - Source debug için tutuluyordu ama hiç sorgulanmadı + detection mantığı
+                    //   bozuktu (path'te "pdfpig"/"xlsx" geçmediği için hepsi "Mistral" oluyordu)
                     PageNumber = chunk.PageNumber,
-                    Source = DetectImageSource(path),
                     ContentHash = hash,  // dedup için kullanılıyor
                 };
                 pathToImage[path] = image;
@@ -757,14 +758,6 @@ public class DocumentUseCase : IDocumentUseCase
             _logger.LogDebug(ex, "[Images] {Path} hash hesaplanamadı — dedupe atlanır", path);
             return null;
         }
-    }
-
-    private static string DetectImageSource(string path)
-    {
-        var lower = path.ToLowerInvariant();
-        if (lower.Contains("pdfpig")) return "PdfPig";
-        if (lower.Contains("xlsx") || lower.Contains("excel")) return "Xlsx";
-        return "Mistral";  // varsayılan
     }
 
     private async Task AddAndCommitInBatchesAsync(
