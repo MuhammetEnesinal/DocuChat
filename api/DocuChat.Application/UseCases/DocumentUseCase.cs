@@ -417,6 +417,8 @@ public class DocumentUseCase : IDocumentUseCase
     {
         var results = new DocumentChunk[parsedList.Count];
         var captionsByChunk = new List<string?>[parsedList.Count];  // index → caption listesi
+        var embedTexts = new string[parsedList.Count];              // FAZ 1 çıktısı → FAZ 2 girdisi
+        var finalContents = new string[parsedList.Count];           // DB'ye yazılacak chunk içeriği
         using var sem = new SemaphoreSlim(_maxParallelChunks);
         var processed = 0;
         var total = parsedList.Count;
@@ -426,31 +428,32 @@ public class DocumentUseCase : IDocumentUseCase
         // Pre-compute: tüm chunk context'leri paralel batch (50 chunk → 5 batch ≈ 10sn)
         var precomputedContexts = await ComputeChunkContextsAsync(parsedList, earlySummary, ct);
 
-        var tasks = parsedList.Select(async (parsed, idx) =>
+        // ════════════════ FAZ 1 — HAZIRLIK (paralel, embed YOK) ════════════════
+        // Her chunk için embedText + DB content + caption hazırlanır. Embedding bu aşamada
+        // yapılmaz; tüm embedText'ler toplanıp FAZ 2'de TEK SEFERDE batch'lenir (A1).
+        // Eski: her chunk burada ayrı GetEmbeddingAsync çağırıyordu → 600 chunk = 600 HTTP.
+        var prepTasks = parsedList.Select(async (parsed, idx) =>
         {
             await sem.WaitAsync(ct);
             try
             {
                 // CHUNK-LEVEL PATH DEDUP: PdfPig + Mistral aynı görseli iki kez yakalamış olabilir.
                 // ContentHash'i aynı olan path'lerin [IMG:N] markerlarını tek marker'a indir.
-                // Sonuç: parsed.Content'in renumber edilmiş hâli + dedup edilmiş path listesi.
                 var (dedupContent, dedupPaths) = DedupChunkPaths(
                     parsed.Content, parsed.ImagePath, pathToHash);
 
-                // Caption lookup dedup edilmiş path listesi üzerinden
                 var captions = dedupPaths.Select(p =>
                     captionMap.TryGetValue(p, out var c) ? c : null).ToList();
                 captionsByChunk[idx] = captions;
 
-                // Batch'ten gelen context — LLM call yok, sözlük lookup
                 var chunkCtx = precomputedContexts[idx] ?? string.Empty;
 
-                // [IMG:N] tokenlarını [IMG:N — caption] formatına dönüştür (inline).
+                // [IMG:N] → [IMG:N — caption] (inline)
                 var contentWithCaptions = captions.Count > 0
                     ? InlineImageCaptions(dedupContent, captions)
                     : dedupContent;
 
-                // Embed için: temiz metin + bağlam + (inline caption'lı içerikten extract'lanan açıklamalar)
+                // Embed için: temiz metin + bağlam + caption açıklamaları
                 var embedBase = !string.IsNullOrEmpty(parsed.CleanContent)
                     ? parsed.CleanContent!
                     : parsed.Content;
@@ -459,75 +462,51 @@ public class DocumentUseCase : IDocumentUseCase
                 if (!string.IsNullOrEmpty(chunkCtx)) embedText = chunkCtx + " " + embedText;
                 if (!string.IsNullOrEmpty(captionSummary)) embedText = embedText + " " + captionSummary;
 
-                // BGE-M3 max sequence = 8192 token. Sınırı aşan input SESSİZ truncate edilir,
-                // sondaki captions kaybolur. Burada token-aware ön kırpma yap → uyarı log'la.
-                embedText = ClipForEmbedding(embedText, idx);
+                // BGE-M3 max 8192 token — aşan input sessiz truncate edilir, token-aware ön kırp.
+                embedTexts[idx] = ClipForEmbedding(embedText, idx);
 
                 var contentSb = new StringBuilder();
                 if (!string.IsNullOrEmpty(chunkCtx))
                     contentSb.Append("**[Bağlam]:** ").Append(chunkCtx).Append("\n\n");
                 contentSb.Append(contentWithCaptions);
-
-                // 🆕 EMBEDDING RETRY: 3 deneme exponential backoff. Final fail olursa
-                // o chunk null'lanır → işlem sonunda filter edilir, belge yine Ready olur.
-                // Bir chunk fail = tüm belgenin fail olması ENGELLENİR.
-                float[]? vec = null;
-                for (var attempt = 1; attempt <= 3; attempt++)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    try
-                    {
-                        vec = await _embedder.GetEmbeddingAsync(embedText, ct);
-                        break;
-                    }
-                    catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-                    catch (Exception ex) when (attempt < 3)
-                    {
-                        _logger.LogWarning(ex,
-                            "[ChunkBuild] Chunk #{Idx} embedding hatası (attempt {N}/3) — retry",
-                            idx, attempt);
-                        await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt - 1)), ct);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex,
-                            "[ChunkBuild] Chunk #{Idx} embedding 3 denemede de başarısız — chunk ATLANACAK",
-                            idx);
-                        // vec null kalır → aşağıdaki check ile sentinel kaydedilmez
-                    }
-                }
-
-                if (vec is null)
-                {
-                    // Embedding alınamadı — chunk results[idx] null kalır, filter edilir
-                    return;
-                }
-
-                results[idx] = new DocumentChunk
-                {
-                    DocumentId = doc.Id,
-                    Content = contentSb.ToString(),
-                    ChunkIndex = idx,
-                    Embedding = vec,
-                    // ImagePath kaldırıldı — görseller artık DocumentImages + ChunkImages join'de.
-                    // Summary kolonu da kaldırıldı — captionSummary zaten embedText'in içinde,
-                    // ayrı bir kolonda saklama gereksiz I/O ve disk israfı.
-                    Header = parsed.Header,
-                    CleanContent = parsed.CleanContent,
-                    PageNumber = parsed.PageNumber,
-                };
+                finalContents[idx] = contentSb.ToString();
             }
             finally
             {
                 sem.Release();
                 var done = Interlocked.Increment(ref processed);
-                // Her 10 chunk veya ilk + son için log
                 if (done == 1 || done == total || done % 10 == 0)
                     _logger.LogInformation("[ChunkBuild] {Done}/{Total} chunk hazırlandı", done, total);
             }
         }).ToArray();
+        await Task.WhenAll(prepTasks);
 
-        await Task.WhenAll(tasks);
+        // ════════════════ FAZ 2 — BATCH EMBEDDING (A1) ════════════════
+        // Tüm embedText'ler tek çağrıda (servis içeride MaxBatchSize dilimlere bölüp /api/embed
+        // ile toplu gönderir). Cache'li metinler ağ trafiği yaratmaz. Batch desteklenmiyorsa
+        // servis otomatik tekil yola düşer. Embed alınamayan metin → null → chunk atlanır (A2).
+        _logger.LogInformation("[ChunkBuild] {Total} chunk için batch embedding başlıyor", total);
+        var vectors = await _embedder.GetEmbeddingsAsync(embedTexts, ct);
+
+        // ════════════════ FAZ 3 — CHUNK NESNELERİ ════════════════
+        for (var idx = 0; idx < total; idx++)
+        {
+            var vec = vectors[idx];
+            if (vec is null) continue;  // embedding alınamadı → chunk atlanır (A2 uyarısı ProcessPending'de)
+
+            results[idx] = new DocumentChunk
+            {
+                DocumentId = doc.Id,
+                Content = finalContents[idx],
+                ChunkIndex = idx,
+                Embedding = vec,
+                // ImagePath kaldırıldı — görseller DocumentImages + ChunkImages join'de.
+                // Summary kolonu da kaldırıldı — captionSummary zaten embedText'in içinde.
+                Header = parsedList[idx].Header,
+                CleanContent = parsedList[idx].CleanContent,
+                PageNumber = parsedList[idx].PageNumber,
+            };
+        }
 
         // 🆕 Null chunk'ları (embedding fail olanlar) filtrele + uyarı logu
         var validChunks = results.Where(c => c != null).ToList();

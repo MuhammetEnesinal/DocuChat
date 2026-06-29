@@ -84,6 +84,112 @@ public class EmbeddingService : IEmbeddingService
         return vector;
     }
 
+    // Ollama batch endpoint /api/embed başına gönderilecek max metin sayısı. Çok büyük tek
+    // istek (örn 600 metin) timeout/bellek riski → güvenli dilimlere böl.
+    private const int MaxBatchSize = 64;
+
+    public async Task<IReadOnlyList<float[]?>> GetEmbeddingsAsync(
+        IReadOnlyList<string> texts, CancellationToken ct = default)
+    {
+        if (texts.Count == 0) return Array.Empty<float[]?>();
+
+        var results = new float[texts.Count][];
+        var missIndices = new List<int>();
+        var missTexts = new List<string>();
+
+        // [1] Cache kontrolü — hit olanları doldur, miss olanları topla
+        for (var i = 0; i < texts.Count; i++)
+        {
+            var key = BuildCacheKey(texts[i]);
+            if (_memCache.TryGetValue(key, out float[]? hit) && hit is not null)
+            {
+                results[i] = hit;
+                RecordCacheHitStats(hit: true);
+            }
+            else
+            {
+                RecordCacheHitStats(hit: false);
+                missIndices.Add(i);
+                missTexts.Add(texts[i]);
+            }
+        }
+
+        if (missTexts.Count == 0) return results;  // hepsi cache'te — ağ çağrısı yok
+
+        // [2] Miss'leri MaxBatchSize'lık dilimlerde /api/embed ile toplu çöz
+        for (var start = 0; start < missTexts.Count; start += MaxBatchSize)
+        {
+            ct.ThrowIfCancellationRequested();
+            var sliceTexts = missTexts.GetRange(start, Math.Min(MaxBatchSize, missTexts.Count - start));
+            var sliceIndices = missIndices.GetRange(start, sliceTexts.Count);
+
+            float[][]? vectors = null;
+            try { vectors = await CallBatchEmbedAsync(sliceTexts, ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "[Embedding] Batch endpoint hatası — tekil yola düşülüyor ({N} metin)", sliceTexts.Count);
+            }
+
+            if (vectors is not null && vectors.Length == sliceTexts.Count)
+            {
+                // Batch başarılı → cache + sonuç (input sırası korunur)
+                for (var j = 0; j < sliceTexts.Count; j++)
+                {
+                    results[sliceIndices[j]] = vectors[j];
+                    _memCache.Set(BuildCacheKey(sliceTexts[j]), vectors[j], CacheOptions);
+                }
+            }
+            else
+            {
+                // Fallback: tekil endpoint (eski Ollama / batch desteklenmiyorsa). Çalışmaya devam.
+                _logger.LogInformation(
+                    "[Embedding] Batch sonuç alınamadı — {N} metin tekil işlenecek", sliceTexts.Count);
+                for (var j = 0; j < sliceTexts.Count; j++)
+                {
+                    try { results[sliceIndices[j]] = await GetEmbeddingAsync(sliceTexts[j], ct); }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                    catch (Exception ex)
+                    {
+                        // Tekil de başarısız → eleman null kalır, caller chunk'ı atlar (A2).
+                        _logger.LogWarning(ex, "[Embedding] Tekil fallback başarısız — metin atlanacak");
+                    }
+                }
+            }
+        }
+
+        _logger.LogDebug("[Embedding] Batch tamamlandı — {Total} metin ({Miss} ağ, {Hit} cache)",
+            texts.Count, missTexts.Count, texts.Count - missTexts.Count);
+        return results;
+    }
+
+    // Ollama /api/embed — input: [...] çoğul, embeddings: [[...],[...]] döner.
+    // Başarısız/format dışı yanıtta null → caller tekil yola düşer.
+    private async Task<float[][]?> CallBatchEmbedAsync(IReadOnlyList<string> texts, CancellationToken ct)
+    {
+        var payload = new { model = _model, input = texts };
+        var response = await _http.PostAsJsonAsync("/api/embed", payload, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            _logger.LogWarning("[Embedding] Batch API [{Status}]: {Body}",
+                (int)response.StatusCode, body.Length > 200 ? body[..200] : body);
+            return null;
+        }
+
+        var json = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(json);
+        if (!doc.RootElement.TryGetProperty("embeddings", out var embsEl)
+            || embsEl.ValueKind != JsonValueKind.Array)
+            return null;
+
+        var vectors = new List<float[]>(texts.Count);
+        foreach (var embEl in embsEl.EnumerateArray())
+            vectors.Add(embEl.EnumerateArray().Select(e => e.GetSingle()).ToArray());
+        return vectors.ToArray();
+    }
+
     private string BuildCacheKey(string text)
     {
         // SHA256: çakışmasız, model + metin → benzersiz anahtar.
