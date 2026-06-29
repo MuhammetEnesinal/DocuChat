@@ -974,6 +974,19 @@ public class DocumentUseCase : IDocumentUseCase
             var (newChunks, captionsByChunk) = await BuildChunksAndCollectCaptionsAsync(
                 doc, parsedList, earlySummary, captionMap, pathToHash, ct);
 
+            // A2 — SESSİZ CHUNK KAYBINI GÖRÜNÜR KIL:
+            // BuildChunksAndCollectCaptionsAsync embedding'i 3 denemede de başarısız olan chunk'ları
+            // sessizce atlar (belge yine Ready olur). Eskiden bu kayıp sadece log'a yazılırdı →
+            // admin hangi içeriğin aranamaz olduğunu bilemezdi. parsedList.Count - newChunks.Count
+            // tam olarak embed edilemeyip DB'ye yazılmayan chunk sayısıdır; ProcessingNotes'a
+            // yansıtıyoruz → DocumentList'te turuncu "⚠" uyarısı olarak görünür, admin Yeniden İşle yapabilir.
+            var skippedChunkCount = parsedList.Count - newChunks.Count;
+            if (skippedChunkCount > 0)
+            {
+                processingNotes.Add(
+                    $"{skippedChunkCount}/{parsedList.Count} bölüm embedding hatası nedeniyle işlenemedi — bu bölümler aramada bulunamaz. Sorun geçici olabilir, 'Yeniden İşle' ile düzeltmeyi deneyin.");
+            }
+
             // Reprocess'te silinecek eski image path'leri DB save BAŞARILI olduktan sonra
             // diskten silinecek (önce silersek SaveChanges fail ederse broken references kalır).
             List<string> pendingDiskDeletes = new();
