@@ -122,10 +122,16 @@ public class VectorSearchService : IVectorSearch
         if (_rerankerEnabled && candidates.Count > 0)
         {
             var docs = candidates.Select(c => c.Content).ToList();
-            var reranked = await _reranker.RerankAsync(question, docs, topK, ct);
 
-            // Reranker MinScore filtresi (config: Reranker:MinScore)
-            matched = reranked
+            // Çözüm 3 (B4) — Reranker'a ENRICHED query: dense/BM25 zenginleştirilmiş query
+            //   kullanırken reranker ham 'question' alıyordu. Follow-up'ta ("peki ya o?")
+            //   reranker bağlamsız skorluyordu. bm25Text = enriched (varsa) ya da ham → tutarlı.
+            // Çözüm 2 — Reranker'a topK DEĞİL, TÜM adayları skorlat (candidates.Count): belge
+            //   çeşitliliğini biz seçelim. Reranker'ın ilk-N kesimi belge dominasyonunu önlemez;
+            //   örn. 12 slotun 9'unu tek belge kapabilir. Önce hepsi skorlanır, sonra round-robin.
+            var reranked = await _reranker.RerankAsync(bm25Text, docs, candidates.Count, ct);
+
+            var allMatched = reranked
                 .Where(r => r.Score >= 0)  // negative skor = istenmeyen
                 .OrderByDescending(r => r.Score)
                 .Select(r =>
@@ -136,11 +142,16 @@ public class VectorSearchService : IVectorSearch
                 })
                 .ToList();
 
+            // Çözüm 2 — BELGE ÇEŞİTLİLİĞİ: havuzda 2+ belge varsa round-robin ile dengele
+            //   (her belgeden sırayla 1 chunk), sonra topK kes. Tek belge sorusunda dokunmaz
+            //   (skor sırası aynen korunur) → tek-belge kalitesi düşmez.
+            matched = ApplyDocumentDiversity(allMatched).Take(topK).ToList();
+
             var docDist = matched.GroupBy(c => c.FileName)
                 .Select(g => $"{g.Key}({g.Count()})")
                 .ToList();
-            _logger.LogInformation("[VectorSearch] Reranker top {K} — belge dağılımı: {Dist}",
-                matched.Count, string.Join(", ", docDist));
+            _logger.LogInformation("[VectorSearch] Reranker {In} aday → top {K} (çeşitlilik) — belge dağılımı: {Dist}",
+                candidates.Count, matched.Count, string.Join(", ", docDist));
         }
         else
         {
@@ -151,9 +162,63 @@ public class VectorSearchService : IVectorSearch
                 .ToList();
         }
 
+        // Çözüm 4 — KOMŞU GENİŞLETMEYİ ÖLÇEKLE: çok-belge sonucunda (3+ farklı belge) her
+        //   chunk'a prev+next eklemek token bütçesini şişirir → B5 daha az AYRI belge alır,
+        //   çeşitlilik düşer. Tek/iki belgede komşu bağlamı değerli; 3+ belgede çeşitlilik öncelikli.
+        var distinctDocs = matched.Select(m => m.FileName).Distinct().Count();
+        if (distinctDocs >= 3)
+        {
+            _logger.LogInformation(
+                "[VectorSearch] {N} farklı belge — komşu genişletme atlandı (çeşitlilik önceliği)", distinctDocs);
+            return matched
+                .Select(m => new ChunkResult(m.FileName, m.Content, SerializeImagePaths(m.ImagePaths), m.Header, m.PageNumber, m.DocumentId))
+                .ToList();
+        }
+
         // Komşu chunk genişletme (Stitch): prev + match + next → tek expanded ChunkResult.
         // Config: VectorSearch:NeighborExpansion (default true)
         return await ExpandWithNeighborsAsync(matched, ct);
+    }
+
+    // BELGE ÇEŞİTLİLİĞİ (round-robin): reranker skor sırasını koruyarak her turda her belgeden
+    // 1 chunk alır → tek belge tüm slotları kapamaz. Belge sırası = en yüksek skorlu chunk'ı
+    // önce gelen belge önce. Tek belge varsa hiç dokunmaz (orijinal skor sırası döner) →
+    // tek-belge sorularında kalite düşmez; sadece çok-belge/karşılaştırma sorularında devreye girer.
+    private static List<MatchedChunk> ApplyDocumentDiversity(List<MatchedChunk> ranked)
+    {
+        if (ranked.Count == 0) return ranked;
+
+        var docOrder = new List<string>();
+        var byDoc = new Dictionary<string, Queue<MatchedChunk>>(StringComparer.Ordinal);
+        foreach (var m in ranked)
+        {
+            if (!byDoc.TryGetValue(m.FileName, out var q))
+            {
+                q = new Queue<MatchedChunk>();
+                byDoc[m.FileName] = q;
+                docOrder.Add(m.FileName);
+            }
+            q.Enqueue(m);
+        }
+
+        // Tek belge → çeşitlilik gereksiz, orijinal skor sırası korunur
+        if (docOrder.Count <= 1) return ranked;
+
+        var result = new List<MatchedChunk>(ranked.Count);
+        while (result.Count < ranked.Count)
+        {
+            var addedThisRound = false;
+            foreach (var doc in docOrder)
+            {
+                if (byDoc[doc].Count > 0)
+                {
+                    result.Add(byDoc[doc].Dequeue());
+                    addedThisRound = true;
+                }
+            }
+            if (!addedThisRound) break;
+        }
+        return result;
     }
 
     // Tuple yerine named record — okunabilirlik için. Internal use only.
