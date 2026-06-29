@@ -104,7 +104,7 @@ function ImageModal({ src, onClose }) {
 function ClarificationBubble({ msg, onClarificationSelect, onClarificationDismiss }) {
     return (
         <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'flex-start', gap: '12px' }}>
-            <div style={{ width: '34px', height: '34px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '4px', background: 'var(--gradient-accent)', boxShadow: '0 6px 18px -6px rgba(139,92,246,0.6)' }}>
+            <div style={{ width: '34px', height: '34px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '4px', background: 'var(--gradient-accent)', boxShadow: '0 6px 18px -6px rgba(var(--accent-rgb),0.6)' }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                 </svg>
@@ -281,7 +281,7 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
 
             <div style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', alignItems: 'flex-start', gap: '12px' }}>
                 {!isUser && (
-                    <div style={{ width: '34px', height: '34px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '4px', background: 'var(--gradient-accent)', boxShadow: '0 6px 18px -6px rgba(139,92,246,0.6)' }}>
+                    <div style={{ width: '34px', height: '34px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '4px', background: 'var(--gradient-accent)', boxShadow: '0 6px 18px -6px rgba(var(--accent-rgb),0.6)' }}>
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
                             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                         </svg>
@@ -299,7 +299,7 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
                         borderTopLeftRadius: !isUser ? '6px' : '18px',
                         lineHeight: '1.7',
                         boxShadow: isUser
-                            ? '0 10px 30px -8px rgba(139,92,246,0.45), 0 0 0 1px rgba(255,255,255,0.06) inset'
+                            ? '0 10px 30px -8px rgba(var(--accent-rgb),0.45), 0 0 0 1px rgba(255,255,255,0.06) inset'
                             : '0 8px 24px -10px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04) inset',
                     }}>
                         {!isUser ? (
@@ -351,7 +351,7 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
                         <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.55)', fontWeight: 500 }}>{formatTime(msg.createdAt)}</span>
                         <button onClick={() => onCopy(msg.content, msg.id)}
                             style={{ fontSize: '12px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 9px', borderRadius: '8px', color: copiedId === msg.id ? '#86efac' : 'rgba(255,255,255,0.7)', background: copiedId === msg.id ? 'rgba(34,197,94,0.12)' : 'rgba(255,255,255,0.05)', border: '1px solid ' + (copiedId === msg.id ? 'rgba(34,197,94,0.25)' : 'rgba(255,255,255,0.08)'), cursor: 'pointer', transition: 'all 0.15s' }}
-                            onMouseEnter={(e) => { if (copiedId !== msg.id) { e.currentTarget.style.background = 'rgba(167,139,250,0.14)'; e.currentTarget.style.borderColor = 'rgba(167,139,250,0.3)'; e.currentTarget.style.color = '#fff'; } }}
+                            onMouseEnter={(e) => { if (copiedId !== msg.id) { e.currentTarget.style.background = 'rgba(var(--accent-light-rgb),0.14)'; e.currentTarget.style.borderColor = 'rgba(var(--accent-light-rgb),0.3)'; e.currentTarget.style.color = '#fff'; } }}
                             onMouseLeave={(e) => { if (copiedId !== msg.id) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'rgba(255,255,255,0.7)'; } }}>
                             {copiedId === msg.id ? (
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
@@ -364,7 +364,7 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
                         </button>
                         {msg.isError && onRetry && msg.retryQuestion && (
                             <button onClick={() => onRetry(msg.retryQuestion)}
-                                style={{ fontSize: '12px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '5px', color: '#c4b5fd', background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.3)', borderRadius: '8px', padding: '4px 9px', cursor: 'pointer' }}>
+                                style={{ fontSize: '12px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '5px', color: '#c4b5fd', background: 'rgba(var(--accent-light-rgb),0.12)', border: '1px solid rgba(var(--accent-light-rgb),0.3)', borderRadius: '8px', padding: '4px 9px', cursor: 'pointer' }}>
                                 ↺ Tekrar dene
                             </button>
                         )}
@@ -443,9 +443,9 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '7px' }}>
                                 {msg.followUpQuestions.map((q, i) => (
                                     <button key={i} onClick={() => onFollowUpSelect(q, msg.id)}
-                                        style={{ textAlign: 'left', padding: '7px 12px', borderRadius: '14px', background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.25)', color: '#c4b5fd', cursor: 'pointer', fontSize: '12.5px', transition: 'all 0.15s' }}
-                                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(167,139,250,0.18)'; e.currentTarget.style.borderColor = 'rgba(167,139,250,0.5)'; e.currentTarget.style.color = '#fff'; }}
-                                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(167,139,250,0.08)'; e.currentTarget.style.borderColor = 'rgba(167,139,250,0.25)'; e.currentTarget.style.color = '#c4b5fd'; }}>
+                                        style={{ textAlign: 'left', padding: '7px 12px', borderRadius: '14px', background: 'rgba(var(--accent-light-rgb),0.08)', border: '1px solid rgba(var(--accent-light-rgb),0.25)', color: '#c4b5fd', cursor: 'pointer', fontSize: '12.5px', transition: 'all 0.15s' }}
+                                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(var(--accent-light-rgb),0.18)'; e.currentTarget.style.borderColor = 'rgba(var(--accent-light-rgb),0.5)'; e.currentTarget.style.color = '#fff'; }}
+                                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(var(--accent-light-rgb),0.08)'; e.currentTarget.style.borderColor = 'rgba(var(--accent-light-rgb),0.25)'; e.currentTarget.style.color = '#c4b5fd'; }}>
                                         {q}
                                     </button>
                                 ))}

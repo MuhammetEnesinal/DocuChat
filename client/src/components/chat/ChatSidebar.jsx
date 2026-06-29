@@ -57,7 +57,7 @@ export default function ChatSidebar({
 
     if (collapsed) {
         return (
-            <div style={{ width: '60px', background: 'rgba(50, 45, 90, 0.32)', backdropFilter: 'blur(40px) saturate(180%)', WebkitBackdropFilter: 'blur(40px) saturate(180%)', borderRight: '1px solid rgba(167,139,250,0.18)', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px 0', gap: '14px', flexShrink: 0 }}>
+            <div style={{ width: '60px', background: 'rgba(50, 45, 90, 0.32)', backdropFilter: 'blur(40px) saturate(180%)', WebkitBackdropFilter: 'blur(40px) saturate(180%)', borderRight: '1px solid rgba(var(--accent-light-rgb),0.18)', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px 0', gap: '14px', flexShrink: 0 }}>
                 <div style={{ width: '36px', height: '36px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--gradient-accent)', marginBottom: '4px', boxShadow: '0 6px 20px -6px rgba(99,102,241,0.6)' }}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
                         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -84,7 +84,7 @@ export default function ChatSidebar({
             {/* Mobil overlay */}
             <div className="chat-sidebar-overlay" onClick={onToggleCollapse} />
 
-            <div className="chat-sidebar" style={{ width: '280px', background: 'rgba(50, 45, 90, 0.32)', backdropFilter: 'blur(40px) saturate(180%)', WebkitBackdropFilter: 'blur(40px) saturate(180%)', borderRight: '1px solid rgba(167,139,250,0.18)', display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width 0.2s', boxShadow: 'inset -1px 0 0 rgba(255,255,255,0.04), 4px 0 30px -10px rgba(0,0,0,0.4)' }}>
+            <div className="chat-sidebar" style={{ width: '280px', background: 'rgba(50, 45, 90, 0.32)', backdropFilter: 'blur(40px) saturate(180%)', WebkitBackdropFilter: 'blur(40px) saturate(180%)', borderRight: '1px solid rgba(var(--accent-light-rgb),0.18)', display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width 0.2s', boxShadow: 'inset -1px 0 0 rgba(255,255,255,0.04), 4px 0 30px -10px rgba(0,0,0,0.4)' }}>
                 {/* Logo + Daralt */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 18px', borderBottom: '1px solid var(--glass-border)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -121,7 +121,7 @@ export default function ChatSidebar({
                         {selectMode ? (
                             <>
                                 <button onClick={toggleSelectAll}
-                                    style={{ background: 'linear-gradient(135deg, rgba(167,139,250,0.35), rgba(139,92,246,0.25))', border: '1px solid rgba(167,139,250,0.65)', color: '#ffffff', cursor: 'pointer', padding: '4px 10px', fontSize: '12px', fontWeight: 700, borderRadius: '6px', boxShadow: '0 0 8px rgba(167,139,250,0.25)' }}>
+                                    style={{ background: 'linear-gradient(135deg, rgba(var(--accent-light-rgb),0.35), rgba(var(--accent-rgb),0.25))', border: '1px solid rgba(var(--accent-light-rgb),0.65)', color: '#ffffff', cursor: 'pointer', padding: '4px 10px', fontSize: '12px', fontWeight: 700, borderRadius: '6px', boxShadow: '0 0 8px rgba(var(--accent-light-rgb),0.25)' }}>
                                     {allSelected ? 'Hiçbiri' : 'Tümü'}
                                 </button>
                                 <span style={{ color: '#ffffff', fontSize: '12px', fontWeight: 700 }}>{selectedIds.size} seçili</span>
@@ -166,9 +166,9 @@ export default function ChatSidebar({
                     {sessions.map((s) => {
                         const isSelected = selectMode && selectedIds.has(s.id);
                         const baseBg = isSelected
-                            ? 'rgba(139,92,246,0.18)'
+                            ? 'rgba(var(--accent-rgb),0.18)'
                             : activeSession?.id === s.id
-                                ? 'linear-gradient(135deg, rgba(139,92,246,0.22) 0%, rgba(99,102,241,0.16) 100%)'
+                                ? 'linear-gradient(135deg, rgba(var(--accent-rgb),0.22) 0%, rgba(99,102,241,0.16) 100%)'
                                 : 'transparent';
                         return (
                         <div key={s.id}
@@ -192,9 +192,9 @@ export default function ChatSidebar({
                                 padding: '11px 12px', borderRadius: '12px', cursor: 'pointer', transition: 'all 0.15s',
                                 background: baseBg,
                                 border: isSelected
-                                    ? '1px solid rgba(167,139,250,0.45)'
-                                    : activeSession?.id === s.id ? '1px solid rgba(167,139,250,0.35)' : '1px solid transparent',
-                                boxShadow: activeSession?.id === s.id ? '0 4px 14px -6px rgba(139,92,246,0.4), inset 0 1px 0 rgba(255,255,255,0.05)' : 'none',
+                                    ? '1px solid rgba(var(--accent-light-rgb),0.45)'
+                                    : activeSession?.id === s.id ? '1px solid rgba(var(--accent-light-rgb),0.35)' : '1px solid transparent',
+                                boxShadow: activeSession?.id === s.id ? '0 4px 14px -6px rgba(var(--accent-rgb),0.4), inset 0 1px 0 rgba(255,255,255,0.05)' : 'none',
                                 outline: 'none',
                             }}
                             onFocus={(e) => { if (!isSelected && activeSession?.id !== s.id) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
@@ -207,7 +207,7 @@ export default function ChatSidebar({
                                     checked={selectedIds.has(s.id)}
                                     onChange={() => toggleSelect(s.id)}
                                     onClick={(e) => e.stopPropagation()}
-                                    style={{ width: '14px', height: '14px', cursor: 'pointer', accentColor: '#a78bfa', marginRight: '8px', flexShrink: 0 }}
+                                    style={{ width: '14px', height: '14px', cursor: 'pointer', accentColor: 'var(--accent-light)', marginRight: '8px', flexShrink: 0 }}
                                 />
                             )}
                             {editingSessionId === s.id ? (
@@ -217,7 +217,7 @@ export default function ChatSidebar({
                                     onKeyDown={(e) => { if (e.key === 'Enter') onCommitRename(s.id); if (e.key === 'Escape') onSetEditingSessionId(null); }}
                                     onClick={(e) => e.stopPropagation()}
                                     maxLength={60}
-                                    style={{ flex: 1, fontSize: '14px', background: 'transparent', outline: 'none', border: 'none', borderBottom: '1px solid #a78bfa', color: '#fff' }}
+                                    style={{ flex: 1, fontSize: '14px', background: 'transparent', outline: 'none', border: 'none', borderBottom: '1px solid var(--accent-light)', color: '#fff' }}
                                     autoFocus
                                 />
                             ) : (
@@ -259,8 +259,8 @@ export default function ChatSidebar({
                                         disabled={renamingSessionId === s.id}
                                         aria-label="Yeniden adlandır"
                                         title="Yeniden adlandır"
-                                        style={{ width: '26px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '8px', color: renamingSessionId === s.id ? '#a78bfa' : 'rgba(255,255,255,0.5)', background: 'transparent', border: 'none', cursor: renamingSessionId === s.id ? 'not-allowed' : 'pointer', transition: 'all 0.15s' }}
-                                        onMouseEnter={(e) => { if (renamingSessionId !== s.id) { e.currentTarget.style.color = '#c4b5fd'; e.currentTarget.style.background = 'rgba(167,139,250,0.15)'; } }}
+                                        style={{ width: '26px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '8px', color: renamingSessionId === s.id ? 'var(--accent-light)' : 'rgba(255,255,255,0.5)', background: 'transparent', border: 'none', cursor: renamingSessionId === s.id ? 'not-allowed' : 'pointer', transition: 'all 0.15s' }}
+                                        onMouseEnter={(e) => { if (renamingSessionId !== s.id) { e.currentTarget.style.color = '#c4b5fd'; e.currentTarget.style.background = 'rgba(var(--accent-light-rgb),0.15)'; } }}
                                         onMouseLeave={(e) => { if (renamingSessionId !== s.id) { e.currentTarget.style.color = 'rgba(255,255,255,0.5)'; e.currentTarget.style.background = 'transparent'; } }}>
                                         {renamingSessionId === s.id ? (
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">

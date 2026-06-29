@@ -77,10 +77,10 @@ export default function NewChatHero({ children, popularQuestions, onSelectQuesti
                                         display: 'flex', alignItems: 'flex-start', gap: '10px',
                                         padding: '11px 14px',
                                         borderRadius: '12px',
-                                        background: 'linear-gradient(135deg, rgba(139,92,246,0.16) 0%, rgba(99,102,241,0.12) 100%)',
+                                        background: 'linear-gradient(135deg, rgba(var(--accent-rgb),0.16) 0%, rgba(99,102,241,0.12) 100%)',
                                         backdropFilter: 'blur(20px) saturate(180%)',
                                         WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-                                        border: '1px solid rgba(167,139,250,0.25)',
+                                        border: '1px solid rgba(var(--accent-light-rgb),0.25)',
                                         color: '#e9e5ff',
                                         fontSize: '13px',
                                         fontWeight: 500,
@@ -89,16 +89,16 @@ export default function NewChatHero({ children, popularQuestions, onSelectQuesti
                                         textAlign: 'left',
                                         width: '100%',
                                         minWidth: 0,
-                                        boxShadow: '0 4px 14px -6px rgba(139,92,246,0.28), inset 0 1px 0 rgba(255,255,255,0.05)',
+                                        boxShadow: '0 4px 14px -6px rgba(var(--accent-rgb),0.28), inset 0 1px 0 rgba(255,255,255,0.05)',
                                     }}
                                     onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(139,92,246,0.30) 0%, rgba(99,102,241,0.22) 100%)';
-                                        e.currentTarget.style.borderColor = 'rgba(167,139,250,0.5)';
+                                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(var(--accent-rgb),0.30) 0%, rgba(99,102,241,0.22) 100%)';
+                                        e.currentTarget.style.borderColor = 'rgba(var(--accent-light-rgb),0.5)';
                                         e.currentTarget.style.color = '#fff';
                                     }}
                                     onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(139,92,246,0.16) 0%, rgba(99,102,241,0.12) 100%)';
-                                        e.currentTarget.style.borderColor = 'rgba(167,139,250,0.25)';
+                                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(var(--accent-rgb),0.16) 0%, rgba(99,102,241,0.12) 100%)';
+                                        e.currentTarget.style.borderColor = 'rgba(var(--accent-light-rgb),0.25)';
                                         e.currentTarget.style.color = '#e9e5ff';
                                     }}
                                 >

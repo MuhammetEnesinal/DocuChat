@@ -17,9 +17,9 @@ export default function Modal({ title, subtitle, onClose, children, maxWidth = '
                 className={`w-full ${maxWidth} flex flex-col rounded-2xl overflow-hidden`}
                 style={{
                     background: '#15161f',
-                    border: '1px solid rgba(167,139,250,0.22)',
+                    border: '1px solid rgba(var(--accent-light-rgb),0.22)',
                     maxHeight: '85vh',
-                    boxShadow: '0 30px 80px -20px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04), 0 0 40px -10px rgba(139,92,246,0.25)',
+                    boxShadow: '0 30px 80px -20px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04), 0 0 40px -10px rgba(var(--accent-rgb),0.25)',
                 }}
                 onClick={(e) => e.stopPropagation()}
             >

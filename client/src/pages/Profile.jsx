@@ -133,7 +133,7 @@ export default function Profile() {
                     borderRadius: '16px',
                     padding: '28px',
                     background: 'rgba(32, 26, 58, 0.55)',
-                    border: '1px solid rgba(167,139,250,0.14)',
+                    border: '1px solid rgba(var(--accent-light-rgb),0.14)',
                     backdropFilter: 'blur(24px) saturate(160%)',
                     WebkitBackdropFilter: 'blur(24px) saturate(160%)',
                     boxShadow: '0 8px 28px -10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)',
@@ -142,7 +142,7 @@ export default function Profile() {
                         <div style={{
                             width: '64px', height: '64px', borderRadius: '18px',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)',
+                            background: 'linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%)',
                             color: '#fff', fontSize: '22px', fontWeight: 700, letterSpacing: '0.02em',
                             boxShadow: '0 10px 30px -8px rgba(99,102,241,0.5)',
                             flexShrink: 0,
@@ -166,9 +166,9 @@ export default function Profile() {
                                 {(user?.roles ?? []).map(r => (
                                     <span key={r} style={{
                                         fontSize: '12px', fontWeight: 600, padding: '3px 10px', borderRadius: '8px',
-                                        background: 'rgba(139,92,246,0.18)',
+                                        background: 'rgba(var(--accent-rgb),0.18)',
                                         color: '#c4b5fd',
-                                        border: '1px solid rgba(167,139,250,0.3)',
+                                        border: '1px solid rgba(var(--accent-light-rgb),0.3)',
                                     }}>{r}</span>
                                 ))}
                             </div>
@@ -183,7 +183,7 @@ export default function Profile() {
                     borderRadius: '16px',
                     padding: '28px',
                     background: 'rgba(32, 26, 58, 0.55)',
-                    border: '1px solid rgba(167,139,250,0.14)',
+                    border: '1px solid rgba(var(--accent-light-rgb),0.14)',
                     backdropFilter: 'blur(24px) saturate(160%)',
                     WebkitBackdropFilter: 'blur(24px) saturate(160%)',
                     boxShadow: '0 8px 28px -10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)',

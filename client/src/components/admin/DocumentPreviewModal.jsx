@@ -69,10 +69,10 @@ export default function DocumentPreviewModal({ doc, onClose }) {
             display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px',
         }}>
             <div style={{
-                background: '#0e0a1c', border: '1px solid rgba(167,139,250,0.18)',
+                background: '#0e0a1c', border: '1px solid rgba(var(--accent-light-rgb),0.18)',
                 borderRadius: '16px', width: '100%', maxWidth: '900px',
                 maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden',
-                boxShadow: '0 30px 80px -20px rgba(0,0,0,0.7), 0 0 40px -10px rgba(139,92,246,0.2)',
+                boxShadow: '0 30px 80px -20px rgba(0,0,0,0.7), 0 0 40px -10px rgba(var(--accent-rgb),0.2)',
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>

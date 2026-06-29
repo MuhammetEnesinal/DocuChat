@@ -31,7 +31,7 @@ export default function AuthCard({ children }) {
             {/* Gradient ışın çizgileri (horizon) */}
             <div style={{ position: 'relative', width: 'min(640px, 90vw)', height: '40px', marginTop: '8px', zIndex: 20 }}>
                 {/* Kısa parlak çizgi */}
-                <div style={{ position: 'absolute', inset: 'auto 0 12px 0', left: '50%', transform: 'translateX(-50%)', height: '2px', width: '75%', background: 'linear-gradient(to right, transparent, #6366f1, transparent)', filter: 'blur(1px)' }} />
+                <div style={{ position: 'absolute', inset: 'auto 0 12px 0', left: '50%', transform: 'translateX(-50%)', height: '2px', width: '75%', background: 'linear-gradient(to right, transparent, var(--accent-deep), transparent)', filter: 'blur(1px)' }} />
                 <div style={{ position: 'absolute', inset: 'auto 0 12px 0', left: '50%', transform: 'translateX(-50%)', height: '1px', width: '75%', background: 'linear-gradient(to right, transparent, #818cf8, transparent)' }} />
                 {/* Uzun ince çizgi */}
                 <div style={{ position: 'absolute', inset: 'auto 0 12px 0', left: '50%', transform: 'translateX(-50%)', height: '5px', width: '25%', background: 'linear-gradient(to right, transparent, #06b6d4, transparent)', filter: 'blur(3px)' }} />

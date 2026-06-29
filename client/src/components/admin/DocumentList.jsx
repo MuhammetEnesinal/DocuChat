@@ -104,7 +104,7 @@ export default function DocumentList({
 
     return (
         <>
-            <div style={{ borderRadius: '16px', overflow: 'hidden', background: 'rgba(32, 26, 58, 0.55)', border: '1px solid rgba(167,139,250,0.14)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', boxShadow: '0 8px 28px -10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)' }}>
+            <div style={{ borderRadius: '16px', overflow: 'hidden', background: 'rgba(32, 26, 58, 0.55)', border: '1px solid rgba(var(--accent-light-rgb),0.14)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', boxShadow: '0 8px 28px -10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)' }}>
                 <div className="admin-list-header" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
                         <h2 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Yüklü Belgeler</h2>
@@ -120,7 +120,7 @@ export default function DocumentList({
                                 {/* İndir */}
                                 <button onClick={handleBatchDownload} disabled={selectedIds.size === 0}
                                     title="Seçili belgeleri indir"
-                                    style={{ padding: '6px 14px', borderRadius: '8px', fontSize: '13px', fontWeight: 600, background: selectedIds.size === 0 ? 'rgba(167,139,250,0.1)' : 'rgba(167,139,250,0.2)', color: '#c4b5fd', border: '1px solid rgba(167,139,250,0.3)', cursor: selectedIds.size === 0 ? 'not-allowed' : 'pointer', opacity: selectedIds.size === 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    style={{ padding: '6px 14px', borderRadius: '8px', fontSize: '13px', fontWeight: 600, background: selectedIds.size === 0 ? 'rgba(var(--accent-light-rgb),0.1)' : 'rgba(var(--accent-light-rgb),0.2)', color: '#c4b5fd', border: '1px solid rgba(var(--accent-light-rgb),0.3)', cursor: selectedIds.size === 0 ? 'not-allowed' : 'pointer', opacity: selectedIds.size === 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '6px' }}>
                                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
                                     </svg>
@@ -172,9 +172,9 @@ export default function DocumentList({
                     const fi = fileIcon(doc.contentType, doc.fileName);
                     const isProcessing = doc.status === 'Processing' || doc.status === 'Pending';
                     return (
-                        <div key={doc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid var(--border)', transition: 'background 0.15s', background: selectMode && selectedIds.has(doc.id) ? 'rgba(139,92,246,0.08)' : 'transparent' }}
+                        <div key={doc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid var(--border)', transition: 'background 0.15s', background: selectMode && selectedIds.has(doc.id) ? 'rgba(var(--accent-rgb),0.08)' : 'transparent' }}
                             onMouseEnter={(e) => { if (!(selectMode && selectedIds.has(doc.id))) e.currentTarget.style.background = 'var(--surface2)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.background = selectMode && selectedIds.has(doc.id) ? 'rgba(139,92,246,0.08)' : 'transparent'; }}>
+                            onMouseLeave={(e) => { e.currentTarget.style.background = selectMode && selectedIds.has(doc.id) ? 'rgba(var(--accent-rgb),0.08)' : 'transparent'; }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
                                 {selectMode && (
                                     <input
@@ -183,7 +183,7 @@ export default function DocumentList({
                                         onChange={() => toggleSelect(doc.id)}
                                         disabled={isProcessing}
                                         title={isProcessing ? 'İşlenen belgeler seçilemez' : ''}
-                                        style={{ width: '16px', height: '16px', cursor: isProcessing ? 'not-allowed' : 'pointer', accentColor: '#a78bfa', flexShrink: 0 }}
+                                        style={{ width: '16px', height: '16px', cursor: isProcessing ? 'not-allowed' : 'pointer', accentColor: 'var(--accent-light)', flexShrink: 0 }}
                                     />
                                 )}
                                 <div style={{ width: '36px', height: '36px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, background: fi.bg }}>
@@ -216,7 +216,7 @@ export default function DocumentList({
                                     {isProcessing && <Spinner size={10} />}
                                     {st.label}
                                 </span>
-                                <IconButton onClick={() => handlePreview(doc)} title="Önizle" hoverColor="#a78bfa" hoverBg="rgba(167,139,250,0.1)">
+                                <IconButton onClick={() => handlePreview(doc)} title="Önizle" hoverColor="var(--accent-light)" hoverBg="rgba(var(--accent-light-rgb),0.1)">
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
                                 </IconButton>
                                 {doc.status === 'Ready' && (

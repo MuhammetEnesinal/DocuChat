@@ -48,7 +48,7 @@ export default function UserList({
     }, [selectedIds, onBatchDelete, exitSelectMode]);
 
     return (
-        <div style={{ borderRadius: '16px', overflow: 'hidden', background: 'rgba(32, 26, 58, 0.55)', border: '1px solid rgba(167,139,250,0.14)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', boxShadow: '0 8px 28px -10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)' }}>
+        <div style={{ borderRadius: '16px', overflow: 'hidden', background: 'rgba(32, 26, 58, 0.55)', border: '1px solid rgba(var(--accent-light-rgb),0.14)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', boxShadow: '0 8px 28px -10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)' }}>
             <div className="admin-list-header" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <h2 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Kullanıcılar</h2>
@@ -117,9 +117,9 @@ export default function UserList({
                 const isSelected = selectMode && selectedIds.has(u.id);
                 return (
                     <div key={u.id}
-                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid var(--border)', transition: 'background 0.15s', background: isSelected ? 'rgba(139,92,246,0.08)' : 'transparent' }}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid var(--border)', transition: 'background 0.15s', background: isSelected ? 'rgba(var(--accent-rgb),0.08)' : 'transparent' }}
                         onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = 'var(--surface2)'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = isSelected ? 'rgba(139,92,246,0.08)' : 'transparent'; }}>
+                        onMouseLeave={(e) => { e.currentTarget.style.background = isSelected ? 'rgba(var(--accent-rgb),0.08)' : 'transparent'; }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
                             {selectMode && (
                                 <input
@@ -128,7 +128,7 @@ export default function UserList({
                                     onChange={() => toggleSelect(u.id)}
                                     disabled={isAdmin}
                                     title={isAdmin ? 'Admin kullanıcı seçilemez' : ''}
-                                    style={{ width: '16px', height: '16px', cursor: isAdmin ? 'not-allowed' : 'pointer', accentColor: '#a78bfa', flexShrink: 0 }}
+                                    style={{ width: '16px', height: '16px', cursor: isAdmin ? 'not-allowed' : 'pointer', accentColor: 'var(--accent-light)', flexShrink: 0 }}
                                 />
                             )}
                             <div style={{ width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontWeight: 600, fontSize: '14px', background: isAdmin ? 'rgba(59,130,246,0.2)' : 'rgba(100,116,139,0.2)', color: isAdmin ? '#93c5fd' : '#94a3b8' }}>

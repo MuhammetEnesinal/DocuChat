@@ -27,7 +27,7 @@ export default function FormInput({
                         ...extraStyle,
                     }}
                     onFocus={(e) => {
-                        e.target.style.borderColor = error ? 'rgba(248,113,113,0.5)' : '#6366f1';
+                        e.target.style.borderColor = error ? 'rgba(248,113,113,0.5)' : 'var(--accent-deep)';
                         e.target.style.boxShadow = error
                             ? '0 0 0 3px rgba(248,113,113,0.12)'
                             : '0 0 0 3px rgba(99,102,241,0.2)';

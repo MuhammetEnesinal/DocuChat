@@ -4,14 +4,18 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Dark tema (varsayılan) ── */
-:root,
-[data-theme="dark"] {
+/* ── Tema token'ları (tek tema: koyu) ── */
+:root {
     --navy: #0a0f1a;
     --navy-mid: #131b2e;
     --navy-light: #1f2a44;
     --accent: #8b5cf6;
     --accent-light: #a78bfa;
+    --accent-deep: #6366f1;
+    /* RGB bileşenleri — opacity'li kullanım için: rgba(var(--accent-rgb), 0.2) */
+    --accent-rgb: 139, 92, 246;
+    --accent-light-rgb: 167, 139, 250;
+    --accent-deep-rgb: 99, 102, 241;
     --accent-2: #10b981;
     --accent-3: #06b6d4;
     --gray-dark: #14161e;
@@ -39,66 +43,20 @@
     --shadow-glow: 0 0 40px rgba(99, 102, 241, 0.25);
     --shadow-card: 0 20px 60px -15px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04);
     --gradient-bg: #0a0f1a;
-    --gradient-accent: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
-    --gradient-accent-soft: linear-gradient(135deg, rgba(139,92,246,0.18) 0%, rgba(99,102,241,0.14) 100%);
-    --gradient-user-bubble: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 50%, #6366f1 100%);
-}
-
-/* ── Light tema ── */
-[data-theme="light"] {
-    --navy: #f1f5fb;
-    --navy-mid: #e2eaf6;
-    --navy-light: #d4dff0;
-    --accent: #4f46e5;
-    --accent-light: #6366f1;
-    --accent-2: #7c3aed;
-    --accent-3: #0891b2;
-    --gray-dark: #e2eaf6;
-    --gray-mid: #cbd5e1;
-    --gray-light: #475569;
-    --border: rgba(79, 70, 229, 0.12);
-    --border-strong: rgba(71, 85, 105, 0.18);
-    --surface: rgba(255, 255, 255, 0.7);
-    --surface-solid: #ffffff;
-    --surface2: rgba(241, 245, 251, 0.85);
-    --surface2-solid: #eef2f9;
-    --glass-bg: rgba(255, 255, 255, 0.65);
-    --glass-border: rgba(71, 85, 105, 0.1);
-    --text-primary: #0f172a;
-    --text-secondary: #1e293b;
-    --text-muted: #64748b;
-    --prose-text: #334155;
-    --prose-heading: #0f172a;
-    --prose-code-bg: rgba(79, 70, 229, 0.1);
-    --prose-code-color: #4338ca;
-    --prose-thead-bg: rgba(79, 70, 229, 0.08);
-    --prose-tr-hover: rgba(79, 70, 229, 0.04);
-    --scrollbar-track: transparent;
-    --scrollbar-thumb: rgba(71, 85, 105, 0.2);
-    --shadow-glow: 0 0 40px rgba(79, 70, 229, 0.18);
-    --shadow-card: 0 20px 50px -15px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(15, 23, 42, 0.04);
-    --gradient-bg: radial-gradient(ellipse 80% 60% at 20% 0%, rgba(79, 70, 229, 0.1), transparent 60%), radial-gradient(ellipse 60% 50% at 100% 100%, rgba(124, 58, 237, 0.08), transparent 60%), radial-gradient(ellipse 50% 40% at 50% 100%, rgba(8, 145, 178, 0.05), transparent 70%), #f1f5fb;
-    --gradient-accent: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-    --gradient-accent-soft: linear-gradient(135deg, rgba(79,70,229,0.1) 0%, rgba(124,58,237,0.08) 100%);
+    --gradient-accent: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
+    --gradient-accent-soft: linear-gradient(135deg, rgba(var(--accent-rgb),0.18) 0%, rgba(var(--accent-deep-rgb),0.14) 100%);
+    --gradient-user-bubble: linear-gradient(135deg, var(--accent-light) 0%, var(--accent) 50%, var(--accent-deep) 100%);
 }
 
 * {
     box-sizing: border-box;
 }
 
-/* Input ve textarea placeholder rengi tema ile değişsin */
+/* Input ve textarea placeholder rengi */
 input::placeholder,
 textarea::placeholder {
     color: var(--text-muted);
     opacity: 1;
-}
-
-/* Light modda input arka planı */
-[data-theme="light"] input,
-[data-theme="light"] textarea {
-    background: var(--surface);
-    color: var(--text-primary);
-    border-color: var(--border);
 }
 
 body {
@@ -176,15 +134,15 @@ body {
 /* Primary: violet→indigo gradient + glow */
 .btn-primary,
 .btn-gradient {
-    background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
     color: #fff;
     border: 1px solid rgba(255,255,255,0.12);
-    box-shadow: 0 8px 24px -8px rgba(139, 92, 246, 0.55), inset 0 1px 0 rgba(255,255,255,0.15);
+    box-shadow: 0 8px 24px -8px rgba(var(--accent-rgb), 0.55), inset 0 1px 0 rgba(255,255,255,0.15);
 }
 .btn-primary:hover:not(:disabled),
 .btn-gradient:hover:not(:disabled) {
     transform: translateY(-1px);
-    box-shadow: 0 14px 32px -8px rgba(139, 92, 246, 0.75), inset 0 1px 0 rgba(255,255,255,0.2);
+    box-shadow: 0 14px 32px -8px rgba(var(--accent-rgb), 0.75), inset 0 1px 0 rgba(255,255,255,0.2);
     filter: brightness(1.08);
 }
 
@@ -198,7 +156,7 @@ body {
 }
 .btn-secondary:hover:not(:disabled) {
     background: rgba(255,255,255,0.08);
-    border-color: rgba(167, 139, 250, 0.4);
+    border-color: rgba(var(--accent-light-rgb), 0.4);
     color: #fff;
 }
 
@@ -280,8 +238,8 @@ body {
     aspect-ratio: 1;
     transform: translateX(-50%);
     background: radial-gradient(circle at center,
-        rgba(139, 92, 246, 0.85) 0%,
-        rgba(99, 102, 241, 0.55) 18%,
+        rgba(var(--accent-rgb), 0.85) 0%,
+        rgba(var(--accent-deep-rgb), 0.55) 18%,
         rgba(79, 70, 229, 0.25) 32%,
         transparent 55%);
     filter: blur(40px);
@@ -299,8 +257,8 @@ body {
     aspect-ratio: 1;
     transform: translateX(-50%);
     background: radial-gradient(circle at center,
-        rgba(167, 139, 250, 0.7) 0%,
-        rgba(139, 92, 246, 0.35) 12%,
+        rgba(var(--accent-light-rgb), 0.7) 0%,
+        rgba(var(--accent-rgb), 0.35) 12%,
         transparent 40%);
     filter: blur(30px);
     z-index: -1;
@@ -333,7 +291,7 @@ body {
     z-index: -1;
     pointer-events: none;
     background:
-        radial-gradient(ellipse 100% 60% at 50% 0%, rgba(139, 92, 246, 0.12), transparent 70%);
+        radial-gradient(ellipse 100% 60% at 50% 0%, rgba(var(--accent-rgb), 0.12), transparent 70%);
 }
 
 /* ── Aurora animated background ── */
@@ -355,9 +313,9 @@ body {
     opacity: 0.55;
     background:
         radial-gradient(ellipse 50% 40% at 20% 30%, #10b981 0%, transparent 60%),
-        radial-gradient(ellipse 40% 50% at 80% 20%, #8b5cf6 0%, transparent 60%),
+        radial-gradient(ellipse 40% 50% at 80% 20%, var(--accent) 0%, transparent 60%),
         radial-gradient(ellipse 50% 40% at 70% 80%, #06b6d4 0%, transparent 60%),
-        radial-gradient(ellipse 40% 40% at 30% 90%, #6366f1 0%, transparent 60%);
+        radial-gradient(ellipse 40% 40% at 30% 90%, var(--accent-deep) 0%, transparent 60%);
     animation: aurora-shift 22s ease-in-out infinite alternate;
 }
 
@@ -385,14 +343,14 @@ body {
     position: relative;
     height: 1px;
     width: 100%;
-    background: linear-gradient(to right, transparent, rgba(99,102,241,0.6), rgba(139,92,246,0.6), rgba(6,182,212,0.4), transparent);
+    background: linear-gradient(to right, transparent, rgba(var(--accent-deep-rgb),0.6), rgba(var(--accent-rgb),0.6), rgba(6,182,212,0.4), transparent);
 }
 
 .gradient-beam::before {
     content: '';
     position: absolute;
     inset: -1px 0;
-    background: linear-gradient(to right, transparent, rgba(99,102,241,0.4), rgba(139,92,246,0.3), transparent);
+    background: linear-gradient(to right, transparent, rgba(var(--accent-deep-rgb),0.4), rgba(var(--accent-rgb),0.3), transparent);
     filter: blur(2px);
 }
 

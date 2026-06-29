@@ -1,6 +1,6 @@
 export default function DocumentUpload({ uploads, dragOver, onDragOver, onDragLeave, onDrop, onClick, fileInputRef, onFileChange }) {
     return (
-        <div style={{ marginBottom: '24px', borderRadius: '16px', padding: '20px', background: 'rgba(32, 26, 58, 0.55)', border: '1px solid rgba(167,139,250,0.14)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', boxShadow: '0 8px 28px -10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)' }}>
+        <div style={{ marginBottom: '24px', borderRadius: '16px', padding: '20px', background: 'rgba(32, 26, 58, 0.55)', border: '1px solid rgba(var(--accent-light-rgb),0.14)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', boxShadow: '0 8px 28px -10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)' }}>
             <h2 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '6px' }}>Belge Yükle</h2>
             <p style={{ fontSize: '13px', color: 'var(--gray-light)', marginBottom: '16px' }}>
                 Birden fazla dosya seçebilir veya sürükleyip bırakabilirsiniz.

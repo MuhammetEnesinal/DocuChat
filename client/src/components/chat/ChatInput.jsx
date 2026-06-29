@@ -18,7 +18,7 @@ export default function ChatInput({ value, onChange, onSend, loading, onAbort, i
 
     return (
         <div className="chat-input-area" style={{ padding: '16px 24px 20px', position: 'relative', maxWidth: '900px', margin: '0 auto', width: '100%' }}>
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', padding: '14px 16px', borderRadius: '20px', background: 'rgba(20, 18, 32, 0.65)', backdropFilter: 'blur(28px) saturate(180%)', WebkitBackdropFilter: 'blur(28px) saturate(180%)', border: '1px solid rgba(167, 139, 250, 0.18)', boxShadow: '0 20px 60px -20px rgba(139, 92, 246, 0.4), inset 0 1px 0 rgba(255,255,255,0.05)' }}>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', padding: '14px 16px', borderRadius: '20px', background: 'rgba(20, 18, 32, 0.65)', backdropFilter: 'blur(28px) saturate(180%)', WebkitBackdropFilter: 'blur(28px) saturate(180%)', border: '1px solid rgba(var(--accent-light-rgb), 0.18)', boxShadow: '0 20px 60px -20px rgba(var(--accent-rgb), 0.4), inset 0 1px 0 rgba(255,255,255,0.05)' }}>
                 <textarea
                     ref={textareaRef}
                     value={value}

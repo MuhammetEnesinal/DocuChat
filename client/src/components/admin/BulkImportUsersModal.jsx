@@ -55,7 +55,7 @@ export default function BulkImportUsersModal({
             <div className="p-6 space-y-4">
                 {/* Şablon indir */}
                 <div className="rounded-lg p-4"
-                    style={{ background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.2)' }}>
+                    style={{ background: 'rgba(var(--accent-light-rgb),0.08)', border: '1px solid rgba(var(--accent-light-rgb),0.2)' }}>
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-sm font-medium" style={{ color: '#e9e5ff' }}>
@@ -69,13 +69,13 @@ export default function BulkImportUsersModal({
                             onClick={onDownloadTemplate}
                             className="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
                             style={{
-                                background: 'rgba(167,139,250,0.2)',
-                                border: '1px solid rgba(167,139,250,0.4)',
+                                background: 'rgba(var(--accent-light-rgb),0.2)',
+                                border: '1px solid rgba(var(--accent-light-rgb),0.4)',
                                 color: '#c4b5fd',
                                 cursor: 'pointer',
                             }}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(167,139,250,0.3)'; e.currentTarget.style.color = '#fff'; }}
-                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(167,139,250,0.2)'; e.currentTarget.style.color = '#c4b5fd'; }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(var(--accent-light-rgb),0.3)'; e.currentTarget.style.color = '#fff'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(var(--accent-light-rgb),0.2)'; e.currentTarget.style.color = '#c4b5fd'; }}
                         >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -94,12 +94,12 @@ export default function BulkImportUsersModal({
                     onDrop={handleDrop}
                     onClick={() => fileInputRef.current?.click()}
                     style={{
-                        border: '2px dashed ' + (dragOver ? '#a78bfa' : 'rgba(167,139,250,0.3)'),
+                        border: '2px dashed ' + (dragOver ? 'var(--accent-light)' : 'rgba(var(--accent-light-rgb),0.3)'),
                         borderRadius: '12px',
                         padding: '32px',
                         textAlign: 'center',
                         cursor: 'pointer',
-                        background: dragOver ? 'rgba(167,139,250,0.08)' : 'rgba(255,255,255,0.02)',
+                        background: dragOver ? 'rgba(var(--accent-light-rgb),0.08)' : 'rgba(255,255,255,0.02)',
                         transition: 'all 0.15s',
                     }}
                 >
@@ -111,7 +111,7 @@ export default function BulkImportUsersModal({
                         onChange={(e) => handleFileSelect(e.target.files?.[0])}
                     />
                     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
-                        style={{ color: dragOver ? '#a78bfa' : '#64748b', margin: '0 auto 8px' }}>
+                        style={{ color: dragOver ? 'var(--accent-light)' : '#64748b', margin: '0 auto 8px' }}>
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                         <polyline points="17 8 12 3 7 8" />
                         <line x1="12" y1="3" x2="12" y2="15" />
@@ -144,7 +144,7 @@ export default function BulkImportUsersModal({
                         disabled={loading}
                         className="w-full px-4 py-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-2"
                         style={{
-                            background: loading ? 'rgba(139,92,246,0.5)' : 'linear-gradient(135deg, #8b5cf6, #a78bfa)',
+                            background: loading ? 'rgba(var(--accent-rgb),0.5)' : 'linear-gradient(135deg, var(--accent), var(--accent-light))',
                             border: 'none',
                             color: 'white',
                             cursor: loading ? 'not-allowed' : 'pointer',
@@ -162,11 +162,11 @@ export default function BulkImportUsersModal({
                 {/* Progress — streaming sırasında per-row ilerleme */}
                 {progress && !result && (
                     <div className="rounded-lg p-4 space-y-3"
-                        style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.25)' }}>
+                        style={{ background: 'rgba(var(--accent-rgb),0.08)', border: '1px solid rgba(var(--accent-rgb),0.25)' }}>
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    strokeWidth="2.5" className="animate-spin" style={{ color: '#a78bfa' }}>
+                                    strokeWidth="2.5" className="animate-spin" style={{ color: 'var(--accent-light)' }}>
                                     <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                                 </svg>
                                 <span className="text-sm font-medium" style={{ color: '#e9e5ff' }}>
@@ -184,7 +184,7 @@ export default function BulkImportUsersModal({
                                 style={{
                                     height: '100%',
                                     width: progress.total > 0 ? `${Math.min(100, (progress.processed / progress.total) * 100)}%` : '0%',
-                                    background: 'linear-gradient(90deg, #8b5cf6, #a78bfa)',
+                                    background: 'linear-gradient(90deg, var(--accent), var(--accent-light))',
                                     transition: 'width 0.2s ease-out',
                                 }}
                             />

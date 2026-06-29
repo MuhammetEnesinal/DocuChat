@@ -96,14 +96,14 @@ export default function FeedbackModal({ open, onSubmit, onClose }) {
                     maxHeight: 'calc(100vh - 32px)',
                     overflowY: 'auto',
                     background: '#161a2b',
-                    border: '1px solid rgba(167,139,250,0.35)',
+                    border: '1px solid rgba(var(--accent-light-rgb),0.35)',
                     borderRadius: '16px',
                     padding: '22px',
                     // Çift gölge: derin shadow + dış mor accent glow → backdrop'tan net ayrılır
-                    boxShadow: '0 30px 80px rgba(0,0,0,0.85), 0 0 60px rgba(139,92,246,0.18), 0 0 0 1px rgba(255,255,255,0.05) inset',
+                    boxShadow: '0 30px 80px rgba(0,0,0,0.85), 0 0 60px rgba(var(--accent-rgb),0.18), 0 0 0 1px rgba(255,255,255,0.05) inset',
                     color: 'var(--text-primary)',
                     scrollbarWidth: 'thin',
-                    scrollbarColor: 'rgba(167,139,250,0.4) transparent',
+                    scrollbarColor: 'rgba(var(--accent-light-rgb),0.4) transparent',
                     animation: 'feedbackModalIn 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
                     position: 'relative',
                 }}
@@ -125,8 +125,8 @@ export default function FeedbackModal({ open, onSubmit, onClose }) {
                                     display: 'flex', alignItems: 'center', gap: '10px',
                                     padding: '7px 11px',
                                     borderRadius: '7px',
-                                    background: checked ? 'rgba(167,139,250,0.18)' : '#1f2438',
-                                    border: '1px solid ' + (checked ? 'rgba(167,139,250,0.5)' : 'rgba(255,255,255,0.08)'),
+                                    background: checked ? 'rgba(var(--accent-light-rgb),0.18)' : '#1f2438',
+                                    border: '1px solid ' + (checked ? 'rgba(var(--accent-light-rgb),0.5)' : 'rgba(255,255,255,0.08)'),
                                     cursor: 'pointer',
                                     fontSize: '13px',
                                     transition: 'all 0.15s',
@@ -137,7 +137,7 @@ export default function FeedbackModal({ open, onSubmit, onClose }) {
                                     checked={checked}
                                     onChange={() => toggleCategory(cat.key)}
                                     disabled={submitting}
-                                    style={{ accentColor: '#a78bfa' }}
+                                    style={{ accentColor: 'var(--accent-light)' }}
                                 />
                                 <span>{cat.label}</span>
                             </label>
@@ -167,7 +167,7 @@ export default function FeedbackModal({ open, onSubmit, onClose }) {
                         boxSizing: 'border-box',
                         outline: 'none',
                     }}
-                    onFocus={e => { e.currentTarget.style.borderColor = 'rgba(167,139,250,0.5)'; }}
+                    onFocus={e => { e.currentTarget.style.borderColor = 'rgba(var(--accent-light-rgb),0.5)'; }}
                     onBlur={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}
                 />
                 <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', textAlign: 'right', marginTop: '4px' }}>
@@ -211,14 +211,14 @@ export default function FeedbackModal({ open, onSubmit, onClose }) {
                         style={{
                             padding: '9px 16px',
                             borderRadius: '8px',
-                            background: 'var(--gradient-accent, linear-gradient(135deg, #8b5cf6, #a78bfa))',
+                            background: 'var(--gradient-accent, linear-gradient(135deg, var(--accent), var(--accent-light)))',
                             border: 'none',
                             color: 'white',
                             cursor: submitting ? 'not-allowed' : 'pointer',
                             fontSize: '13.5px',
                             fontWeight: 600,
                             opacity: submitting ? 0.7 : 1,
-                            boxShadow: '0 6px 18px -6px rgba(139,92,246,0.6)',
+                            boxShadow: '0 6px 18px -6px rgba(var(--accent-rgb),0.6)',
                             display: 'inline-flex', alignItems: 'center', gap: '6px',
                         }}
                     >
