@@ -255,7 +255,7 @@ public class DocumentUseCase : IDocumentUseCase
                 "[Caption][Quota] Belgede {Total} benzersiz görsel — quota {Limit} → {Skipped} görsel caption ALMAYACAK (chunk content'inde [IMG:N] marker'ları kalır, alt text boş gösterilir)",
                 allPaths.Count, _captionMaxPerDoc, skipped);
             processingNotes.Add(
-                $"Görsel quota aşıldı: {allPaths.Count} benzersiz görselden {skipped} tanesi otomatik açıklama almadı (quota: {_captionMaxPerDoc}).");
+                $"Belgedeki {allPaths.Count} görselden {skipped} tanesi, görsel açıklama sınırı ({_captionMaxPerDoc}) nedeniyle otomatik açıklama almadı. Bu görseller cevaplarda yine gösterilir, ancak içerikleriyle aramada eşleşmeyebilir.");
         }
 
         // [3] Path → bytes + hash: HER GÖRSEL DİSKTEN BİR KEZ OKUNUR. Bytes cache'lenir
@@ -984,7 +984,7 @@ public class DocumentUseCase : IDocumentUseCase
             if (skippedChunkCount > 0)
             {
                 processingNotes.Add(
-                    $"{skippedChunkCount}/{parsedList.Count} bölüm embedding hatası nedeniyle işlenemedi — bu bölümler aramada bulunamaz. Sorun geçici olabilir, 'Yeniden İşle' ile düzeltmeyi deneyin.");
+                    $"Belgedeki {parsedList.Count} bölümden {skippedChunkCount} tanesi teknik bir sorun nedeniyle işlenemedi — bu bölümler aramada bulunamaz. Sorun geçici olabilir, 'Yeniden İşle' ile düzeltmeyi deneyebilirsiniz.");
             }
 
             // Reprocess'te silinecek eski image path'leri DB save BAŞARILI olduktan sonra
