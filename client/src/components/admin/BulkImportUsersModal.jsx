@@ -14,9 +14,10 @@ import Modal from '../shared/Modal';
  *  - onImport: (file: File) => Promise
  *  - loading: bool
  *  - result: { totalRows, successCount, skippedCount, results: [...] } | null
+ *  - progress: { processed, total, successCount, skippedCount, lastRow, lastEmail, lastStatus } | null
  */
 export default function BulkImportUsersModal({
-    open, onClose, onDownloadTemplate, onImport, loading, result,
+    open, onClose, onDownloadTemplate, onImport, loading, result, progress,
 }) {
     const fileInputRef = useRef(null);
     const [dragOver, setDragOver] = useState(false);
@@ -137,7 +138,7 @@ export default function BulkImportUsersModal({
                 </div>
 
                 {/* Yükle butonu */}
-                {selectedFile && !result && (
+                {selectedFile && !result && !progress && (
                     <button
                         onClick={handleUpload}
                         disabled={loading}
@@ -154,8 +155,57 @@ export default function BulkImportUsersModal({
                                 <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                             </svg>
                         )}
-                        {loading ? 'Yükleniyor…' : 'Yükle ve İçeri Aktar'}
+                        {loading ? 'Başlatılıyor…' : 'Yükle ve İçeri Aktar'}
                     </button>
+                )}
+
+                {/* Progress — streaming sırasında per-row ilerleme */}
+                {progress && !result && (
+                    <div className="rounded-lg p-4 space-y-3"
+                        style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.25)' }}>
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    strokeWidth="2.5" className="animate-spin" style={{ color: '#a78bfa' }}>
+                                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                                </svg>
+                                <span className="text-sm font-medium" style={{ color: '#e9e5ff' }}>
+                                    İşleniyor — {progress.processed}/{progress.total || '?'}
+                                </span>
+                            </div>
+                            <span className="text-xs" style={{ color: 'var(--gray-light)' }}>
+                                {progress.total > 0 ? `%${Math.round((progress.processed / progress.total) * 100)}` : ''}
+                            </span>
+                        </div>
+
+                        {/* Progress bar */}
+                        <div style={{ height: '8px', background: 'rgba(255,255,255,0.06)', borderRadius: '999px', overflow: 'hidden' }}>
+                            <div
+                                style={{
+                                    height: '100%',
+                                    width: progress.total > 0 ? `${Math.min(100, (progress.processed / progress.total) * 100)}%` : '0%',
+                                    background: 'linear-gradient(90deg, #8b5cf6, #a78bfa)',
+                                    transition: 'width 0.2s ease-out',
+                                }}
+                            />
+                        </div>
+
+                        {/* Canlı sayaçlar */}
+                        <div className="flex gap-2 text-xs">
+                            <div style={{ color: '#86efac' }}>✓ {progress.successCount} başarılı</div>
+                            <div style={{ color: 'var(--gray-light)' }}>•</div>
+                            <div style={{ color: '#fb923c' }}>⚠ {progress.skippedCount} atlandı</div>
+                            {progress.lastEmail && (
+                                <>
+                                    <div style={{ color: 'var(--gray-light)' }}>•</div>
+                                    <div style={{ color: 'var(--gray-light)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' }}
+                                        title={progress.lastEmail}>
+                                        Son: {progress.lastEmail}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    </div>
                 )}
 
                 {/* Sonuç tablosu */}

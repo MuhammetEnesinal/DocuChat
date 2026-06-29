@@ -1,5 +1,7 @@
+using System.Text.Json;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using DocuChat.Application.Interfaces.Services;
@@ -154,5 +156,71 @@ public class AdminController : ControllerBase
         using var stream = file.OpenReadStream();
         var result = await _userManagement.BulkImportUsersFromExcelAsync(stream, ct);
         return result.ToActionResult();
+    }
+
+    // Streaming variant — SSE ile per-row ilerleme + final summary.
+    // ChatController.AskStream ile aynı pattern.
+    // Event tipleri: start | progress | done | error
+    [HttpPost("users/bulk-import/stream")]
+    [EnableRateLimiting("user-write")]
+    public async Task BulkImportUsersStream(IFormFile file, CancellationToken ct)
+    {
+        var response = Response;
+        response.ContentType = "text/event-stream";
+        response.Headers.CacheControl = "no-cache, no-transform";
+        response.Headers["X-Accel-Buffering"] = "no";
+        response.StatusCode = StatusCodes.Status200OK;
+
+        // ASP.NET response buffering kapat — yoksa flush etkisiz, tüm response tek sefer gelir
+        HttpContext.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
+
+        // File validation — hata event'i yolla, bağlantıyı kapat
+        if (file is null || file.Length == 0)
+        {
+            await WriteSseAsync(response, new { type = "error", message = "Dosya boş veya seçilmedi." }, ct);
+            return;
+        }
+
+        var ext = System.IO.Path.GetExtension(file.FileName)?.ToLowerInvariant();
+        if (ext != ".xlsx")
+        {
+            await WriteSseAsync(response, new { type = "error", message = "Sadece .xlsx formatı kabul edilir." }, ct);
+            return;
+        }
+
+        await using var stream = file.OpenReadStream();
+        try
+        {
+            await foreach (var evt in _userManagement.BulkImportUsersFromExcelStreamAsync(stream, ct))
+            {
+                await WriteSseAsync(response, evt, ct);
+                if (ct.IsCancellationRequested) break;
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Client bağlantıyı kapattı — normal
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                await WriteSseAsync(response, new { type = "error", message = ex.Message }, CancellationToken.None);
+            }
+            catch { /* response zaten kapalı olabilir */ }
+        }
+    }
+
+    private static readonly JsonSerializerOptions _sseJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
+
+    private static async Task WriteSseAsync(HttpResponse response, object payload, CancellationToken ct)
+    {
+        var json = JsonSerializer.Serialize(payload, _sseJsonOptions);
+        await response.WriteAsync($"data: {json}\n\n", ct);
+        await response.Body.FlushAsync(ct);
     }
 }

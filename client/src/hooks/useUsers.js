@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import {
     adminGetUsers, adminCreateUser, adminUpdateUser, adminDeleteUser, adminDeleteUsersBatch,
-    adminDownloadBulkImportTemplate, adminBulkImportUsers
+    adminDownloadBulkImportTemplate, adminBulkImportUsersStream
 } from '../services/api';
 import { useToast } from '../components/shared/Toast';
 import { showApiError, getApiErrorMessage } from '../utils/format';
@@ -107,14 +107,18 @@ export function useUsers() {
     const [showBulkImportModal, setShowBulkImportModal] = useState(false);
     const [bulkImportResult, setBulkImportResult] = useState(null);    // BulkImportUsersSummaryDto | null
     const [bulkImportLoading, setBulkImportLoading] = useState(false);
+    // Streaming sırasında progress state — { processed, total, successCount, skippedCount, lastRow }
+    const [bulkImportProgress, setBulkImportProgress] = useState(null);
 
     const openBulkImportModal = useCallback(() => {
         setShowBulkImportModal(true);
         setBulkImportResult(null);
+        setBulkImportProgress(null);
     }, []);
     const closeBulkImportModal = useCallback(() => {
         setShowBulkImportModal(false);
         setBulkImportResult(null);
+        setBulkImportProgress(null);
     }, []);
 
     const handleDownloadTemplate = useCallback(async () => {
@@ -137,23 +141,61 @@ export function useUsers() {
         if (!file) return;
         setBulkImportLoading(true);
         setBulkImportResult(null);
-        try {
-            const res = await adminBulkImportUsers(file);
-            const summary = res.data?.data;       // { totalRows, successCount, skippedCount, results }
-            setBulkImportResult(summary);
-            // Başarılı oluşturulanlar varsa listeyi yenile
-            if (summary?.successCount > 0) {
-                await fetchUsers();
+        // İlk progress state — start event gelmeden modal'da spinner gözüksün
+        setBulkImportProgress({ processed: 0, total: 0, successCount: 0, skippedCount: 0 });
+
+        // Local running totals — state setter'lar async olduğu için event içinde önceki değeri
+        // güvenilir okuyamayız; lokal sayaçlardan increment ederiz.
+        let runningSuccess = 0;
+        let runningSkipped = 0;
+
+        const res = await adminBulkImportUsersStream(file, (evt) => {
+            if (evt.type === 'start') {
+                setBulkImportProgress({
+                    processed: 0,
+                    total: evt.total ?? 0,
+                    successCount: 0,
+                    skippedCount: 0,
+                });
+            } else if (evt.type === 'progress') {
+                if (evt.status === 'success') runningSuccess++;
+                else runningSkipped++;
+                setBulkImportProgress({
+                    processed: evt.processed ?? 0,
+                    total: evt.total ?? 0,
+                    successCount: runningSuccess,
+                    skippedCount: runningSkipped,
+                    lastRow: evt.row,
+                    lastEmail: evt.email,
+                    lastStatus: evt.status,
+                });
             }
-            const success = summary?.successCount ?? 0;
-            const skipped = summary?.skippedCount ?? 0;
-            if (success > 0) toast.success(`${success} kullanıcı oluşturuldu.`);
-            if (skipped > 0) toast.info?.(`${skipped} satır atlandı (detay tabloda).`);
-        } catch (err) {
-            showApiError(toast, err, 'Toplu yükleme başarısız.');
-        } finally {
-            setBulkImportLoading(false);
+            // done & error son adımda handle edilir
+        });
+
+        setBulkImportLoading(false);
+
+        if (res.aborted) {
+            setBulkImportProgress(null);
+            return;
         }
+        if (!res.ok) {
+            setBulkImportProgress(null);
+            toast.error?.(res.error || 'Toplu yükleme başarısız.');
+            return;
+        }
+
+        const summary = res.summary;
+        setBulkImportResult(summary);
+        setBulkImportProgress(null);
+
+        if (summary?.successCount > 0) {
+            await fetchUsers();
+        }
+        const success = summary?.successCount ?? 0;
+        const skipped = summary?.skippedCount ?? 0;
+        if (success > 0) toast.success(`${success} kullanıcı oluşturuldu.`);
+        if (skipped > 0) toast.info?.(`${skipped} satır atlandı (detay tabloda).`);
     }, [toast, fetchUsers]);
 
     return {
@@ -177,6 +219,7 @@ export function useUsers() {
         showBulkImportModal,
         bulkImportResult,
         bulkImportLoading,
+        bulkImportProgress,
         openBulkImportModal,
         closeBulkImportModal,
         handleDownloadTemplate,

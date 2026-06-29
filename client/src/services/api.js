@@ -242,3 +242,86 @@ export const adminBulkImportUsers = (file) => {
         headers: { 'Content-Type': 'multipart/form-data' },
     });
 };
+
+// Excel ile toplu kullanıcı yükleme — SSE streaming variant.
+// Backend her satır işlendikçe progress event yollar. Büyük dosyalarda (2000+ satır)
+// "donmuş mu?" hissini engellemek için kullanılır.
+//
+// Event tipleri: start | progress | done | error
+//   start    : { type, total }
+//   progress : { type, row, email, status, reason, processed, total }
+//   done     : { type, summary: { totalRows, successCount, skippedCount, results } }
+//   error    : { type, message }
+//
+// Dönüş: { ok: true, summary } | { ok: false, error } | { aborted: true }
+export const adminBulkImportUsersStream = async (file, onEvent, signal = null) => {
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch(`${API_BASE}/api/admin/users/bulk-import/stream`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Accept': 'text/event-stream',
+                // Content-Type fetch tarafından boundary ile otomatik set edilir
+            },
+            body: formData,
+            signal,
+        });
+
+        if (response.status === 401) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            sessionStorage.setItem('session_expired', '1');
+            window.location.href = '/login';
+            return { ok: false, error: 'Oturum süresi doldu' };
+        }
+
+        if (!response.ok) {
+            const errText = await response.text().catch(() => '');
+            return { ok: false, error: `HTTP ${response.status}: ${errText || response.statusText}` };
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        let summary = null;
+        let errorMessage = null;
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+
+            let sepIdx;
+            while ((sepIdx = buffer.indexOf('\n\n')) !== -1) {
+                const rawEvent = buffer.slice(0, sepIdx);
+                buffer = buffer.slice(sepIdx + 2);
+
+                const dataLines = rawEvent
+                    .split('\n')
+                    .filter(l => l.startsWith('data:'))
+                    .map(l => l.slice(5).replace(/^ /, ''));
+                if (dataLines.length === 0) continue;
+
+                const payloadStr = dataLines.join('\n');
+                let payload;
+                try { payload = JSON.parse(payloadStr); }
+                catch { continue; }
+
+                onEvent?.(payload);
+                if (payload?.type === 'done') summary = payload.summary;
+                if (payload?.type === 'error') errorMessage = payload.message;
+            }
+        }
+
+        if (errorMessage) return { ok: false, error: errorMessage };
+        return { ok: true, summary };
+    } catch (err) {
+        if (err.name === 'AbortError') return { aborted: true };
+        console.error('[BulkImport SSE] Stream error:', err);
+        return { ok: false, error: err.message || String(err) };
+    }
+};

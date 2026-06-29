@@ -1,4 +1,5 @@
-﻿using ClosedXML.Excel;
+﻿using System.Runtime.CompilerServices;
+using ClosedXML.Excel;
 using FluentValidation;
 using Mapster;
 using Microsoft.AspNetCore.Identity;
@@ -244,89 +245,31 @@ public sealed class UserManagementService : IUserManagementService
     {
         var worksheet = workbook.Worksheets.FirstOrDefault();
         if (worksheet is null)
-        {
-            return Result<BulkImportUsersSummaryDto>.Failure(
-                Error.Validation("Excel dosyasında sayfa bulunamadı."));
-        }
+            return Result<BulkImportUsersSummaryDto>.Failure(Error.Validation("Excel dosyasında sayfa bulunamadı."));
 
-        // Header satırı (1) atlanır, 2. satırdan başla → kullanılan son satıra kadar.
         var firstRow = worksheet.FirstRowUsed();
         if (firstRow is null)
-        {
-            return Result<BulkImportUsersSummaryDto>.Failure(
-                Error.Validation("Excel dosyası boş."));
-        }
+            return Result<BulkImportUsersSummaryDto>.Failure(Error.Validation("Excel dosyası boş."));
 
         var lastRow = worksheet.LastRowUsed();
+        var dataStart = firstRow.RowNumber() + 1;
+        var dataEnd = lastRow!.RowNumber();
+
         var results = new List<BulkImportUserResultDto>();
         var successCount = 0;
         var skippedCount = 0;
         var totalRows = 0;
 
-        var dataStart = firstRow.RowNumber() + 1;  // header'dan sonra
-        var dataEnd = lastRow!.RowNumber();
-
         for (var rowNum = dataStart; rowNum <= dataEnd; rowNum++)
         {
             ct.ThrowIfCancellationRequested();
-
-            var row = worksheet.Row(rowNum);
-            var fullName = row.Cell(1).GetString().Trim();
-            var email = row.Cell(2).GetString().Trim();
-            var password = row.Cell(3).GetString();
-
-            // Tamamen boş satır → atla (sayma)
-            if (string.IsNullOrWhiteSpace(fullName)
-                && string.IsNullOrWhiteSpace(email)
-                && string.IsNullOrWhiteSpace(password))
-            {
-                continue;
-            }
+            var row = ReadRow(worksheet, rowNum);
+            if (row is null) continue;  // tamamen boş satır
 
             totalRows++;
-            var dto = new RegisterRequestDto(fullName, email, password);
-
-            // Validation (FullName + Email + Password kuralları)
-            var validation = await _registerValidator.ValidateAsync(dto, ct);
-            if (!validation.IsValid)
-            {
-                var reason = string.Join(", ", validation.Errors.Select(e => e.ErrorMessage));
-                results.Add(new BulkImportUserResultDto(rowNum, NullIfEmpty(email), "skipped", reason));
-                skippedCount++;
-                continue;
-            }
-
-            // Email DB'de zaten varsa skip
-            if (await _userManager.FindByEmailAsync(email) is not null)
-            {
-                results.Add(new BulkImportUserResultDto(rowNum, email, "skipped", "Bu e-posta zaten kayıtlı."));
-                skippedCount++;
-                continue;
-            }
-
-            // Kullanıcı oluştur
-            var user = new AppUser
-            {
-                UserName = email,
-                Email = email,
-                FullName = fullName,
-            };
-            var createResult = await _userManager.CreateAsync(user, password);
-            if (!createResult.Succeeded)
-            {
-                var reason = string.Join(", ", createResult.Errors.Select(e => e.Description));
-                results.Add(new BulkImportUserResultDto(rowNum, email, "skipped", reason));
-                skippedCount++;
-                continue;
-            }
-
-            await _userManager.AddToRoleAsync(user, Roles.User);
-
-            // Welcome mail fire-and-forget (SMTP hatası bulk'u durdurmaz)
-            _ = SendWelcomeEmailAsync(user, password, CancellationToken.None);
-
-            results.Add(new BulkImportUserResultDto(rowNum, email, "success", null));
-            successCount++;
+            var result = await ProcessImportRowAsync(rowNum, row.Value.FullName, row.Value.Email, row.Value.Password, ct);
+            results.Add(result);
+            if (result.Status == "success") successCount++; else skippedCount++;
         }
 
         _logger.LogInformation(
@@ -335,6 +278,149 @@ public sealed class UserManagementService : IUserManagementService
 
         return Result<BulkImportUsersSummaryDto>.Success(
             new BulkImportUsersSummaryDto(totalRows, successCount, skippedCount, results));
+    }
+
+    // Streaming variant — per satır SSE event yield eder.
+    // Pattern: start → progress × N → done. Hata olursa error event sonrası yield break.
+    public async IAsyncEnumerable<object> BulkImportUsersFromExcelStreamAsync(
+        Stream excelStream,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        XLWorkbook? workbook = null;
+        string? parseError = null;
+        try { workbook = new XLWorkbook(excelStream); }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[BulkImport][Stream] Excel parse hatası");
+            parseError = "Excel dosyası okunamadı. Geçerli bir .xlsx dosyası olduğundan emin olun.";
+        }
+
+        if (parseError is not null)
+        {
+            yield return new { type = "error", message = parseError };
+            yield break;
+        }
+
+        using (workbook!)
+        {
+            var worksheet = workbook!.Worksheets.FirstOrDefault();
+            if (worksheet is null)
+            {
+                yield return new { type = "error", message = "Excel dosyasında sayfa bulunamadı." };
+                yield break;
+            }
+
+            var firstRow = worksheet.FirstRowUsed();
+            if (firstRow is null)
+            {
+                yield return new { type = "error", message = "Excel dosyası boş." };
+                yield break;
+            }
+
+            var lastRow = worksheet.LastRowUsed();
+            var dataStart = firstRow.RowNumber() + 1;
+            var dataEnd = lastRow!.RowNumber();
+            // Tahmini toplam — gerçek toplam boş satırları çıkarınca farklı olabilir
+            var totalEstimate = Math.Max(0, dataEnd - dataStart + 1);
+
+            yield return new { type = "start", total = totalEstimate };
+
+            var results = new List<BulkImportUserResultDto>();
+            var successCount = 0;
+            var skippedCount = 0;
+            var processed = 0;
+            var totalRows = 0;
+
+            for (var rowNum = dataStart; rowNum <= dataEnd; rowNum++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var row = ReadRow(worksheet, rowNum);
+                if (row is null) continue;  // tamamen boş satır — sessiz atla, progress'e dahil etme
+
+                totalRows++;
+                processed++;
+                var result = await ProcessImportRowAsync(rowNum, row.Value.FullName, row.Value.Email, row.Value.Password, ct);
+                results.Add(result);
+                if (result.Status == "success") successCount++; else skippedCount++;
+
+                yield return new
+                {
+                    type = "progress",
+                    row = result.Row,
+                    email = result.Email,
+                    status = result.Status,
+                    reason = result.Reason,
+                    processed,
+                    total = totalEstimate
+                };
+            }
+
+            _logger.LogInformation(
+                "[BulkImport][Stream] Toplam {Total} satır işlendi: {Success} oluşturuldu, {Skipped} atlandı",
+                totalRows, successCount, skippedCount);
+
+            yield return new
+            {
+                type = "done",
+                summary = new BulkImportUsersSummaryDto(totalRows, successCount, skippedCount, results)
+            };
+        }
+    }
+
+    // Tek satır okur, tamamen boşsa null döner.
+    private static (string FullName, string Email, string Password)? ReadRow(
+        IXLWorksheet worksheet, int rowNum)
+    {
+        var row = worksheet.Row(rowNum);
+        var fullName = row.Cell(1).GetString().Trim();
+        var email = row.Cell(2).GetString().Trim();
+        var password = row.Cell(3).GetString();
+
+        if (string.IsNullOrWhiteSpace(fullName)
+            && string.IsNullOrWhiteSpace(email)
+            && string.IsNullOrWhiteSpace(password))
+        {
+            return null;
+        }
+        return (fullName, email, password);
+    }
+
+    // Tek satır işler — validate, email check, create user, mail. Sonuç DTO döner.
+    // Hem sync hem streaming variant bu metodu kullanır (DRY).
+    private async Task<BulkImportUserResultDto> ProcessImportRowAsync(
+        int rowNum, string fullName, string email, string password, CancellationToken ct)
+    {
+        var dto = new RegisterRequestDto(fullName, email, password);
+
+        var validation = await _registerValidator.ValidateAsync(dto, ct);
+        if (!validation.IsValid)
+        {
+            var reason = string.Join(", ", validation.Errors.Select(e => e.ErrorMessage));
+            return new BulkImportUserResultDto(rowNum, NullIfEmpty(email), "skipped", reason);
+        }
+
+        if (await _userManager.FindByEmailAsync(email) is not null)
+            return new BulkImportUserResultDto(rowNum, email, "skipped", "Bu e-posta zaten kayıtlı.");
+
+        var user = new AppUser
+        {
+            UserName = email,
+            Email = email,
+            FullName = fullName,
+        };
+        var createResult = await _userManager.CreateAsync(user, password);
+        if (!createResult.Succeeded)
+        {
+            var reason = string.Join(", ", createResult.Errors.Select(e => e.Description));
+            return new BulkImportUserResultDto(rowNum, email, "skipped", reason);
+        }
+
+        await _userManager.AddToRoleAsync(user, Roles.User);
+
+        // Welcome mail fire-and-forget (SMTP hatası bulk'u durdurmaz)
+        _ = SendWelcomeEmailAsync(user, password, CancellationToken.None);
+
+        return new BulkImportUserResultDto(rowNum, email, "success", null);
     }
 
     public byte[] GenerateBulkImportTemplate()

@@ -68,6 +68,7 @@ export default function Admin() {
         showBulkImportModal,
         bulkImportResult,
         bulkImportLoading,
+        bulkImportProgress,
         openBulkImportModal,
         closeBulkImportModal,
         handleDownloadTemplate,
@@ -317,6 +318,7 @@ export default function Admin() {
                 onImport={handleBulkImport}
                 loading={bulkImportLoading}
                 result={bulkImportResult}
+                progress={bulkImportProgress}
             />
 
             {confirmDoc && (
