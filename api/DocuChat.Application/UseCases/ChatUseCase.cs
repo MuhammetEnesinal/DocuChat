@@ -351,7 +351,7 @@ public class ChatUseCase : IChatUseCase
             };
             await _uow.Messages.AddAsync(noDataMsg, ct);
             await _uow.SaveChangesAsync(ct);
-            yield return new { type = "complete", messageId = noDataMsg.Id, chunks = Array.Empty<object>() };
+            yield return new { type = "complete", messageId = noDataMsg.Id };
             yield return new { type = "done" };
             yield break;
         }
