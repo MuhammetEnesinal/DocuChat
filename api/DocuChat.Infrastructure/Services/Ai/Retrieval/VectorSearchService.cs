@@ -89,9 +89,9 @@ public class VectorSearchService : IVectorSearch
             .Select(c => new
             {
                 c.Id,
+                c.DocumentId,                       // Per-document cache invalidation için
                 FileName = c.Document!.FileName,
                 c.Content,
-                c.ChunkIndex,
                 c.Header,
                 c.PageNumber,
                 c.PrevChunkId,
@@ -131,7 +131,7 @@ public class VectorSearchService : IVectorSearch
                 .Select(r =>
                 {
                     var c = candidates[r.OriginalIndex];
-                    return new MatchedChunk(c.Id, c.FileName, c.Content, c.Header,
+                    return new MatchedChunk(c.Id, c.DocumentId, c.FileName, c.Content, c.Header,
                         c.PageNumber, c.PrevChunkId, c.NextChunkId, c.ImagePaths);
                 })
                 .ToList();
@@ -146,7 +146,7 @@ public class VectorSearchService : IVectorSearch
         {
             matched = candidates
                 .Take(topK)
-                .Select(c => new MatchedChunk(c.Id, c.FileName, c.Content, c.Header,
+                .Select(c => new MatchedChunk(c.Id, c.DocumentId, c.FileName, c.Content, c.Header,
                     c.PageNumber, c.PrevChunkId, c.NextChunkId, c.ImagePaths))
                 .ToList();
         }
@@ -159,6 +159,7 @@ public class VectorSearchService : IVectorSearch
     // Tuple yerine named record — okunabilirlik için. Internal use only.
     private sealed record MatchedChunk(
         Guid Id,
+        Guid DocumentId,
         string FileName,
         string Content,
         string? Header,
@@ -178,7 +179,7 @@ public class VectorSearchService : IVectorSearch
         if (!_neighborExpansionEnabled || matches.Count == 0)
         {
             return matches
-                .Select(m => new ChunkResult(m.FileName, m.Content, SerializeImagePaths(m.ImagePaths), m.Header, m.PageNumber))
+                .Select(m => new ChunkResult(m.FileName, m.Content, SerializeImagePaths(m.ImagePaths), m.Header, m.PageNumber, m.DocumentId))
                 .ToList();
         }
 
@@ -194,7 +195,7 @@ public class VectorSearchService : IVectorSearch
         if (neighborIds.Count == 0)
         {
             return matches
-                .Select(m => new ChunkResult(m.FileName, m.Content, SerializeImagePaths(m.ImagePaths), m.Header))
+                .Select(m => new ChunkResult(m.FileName, m.Content, SerializeImagePaths(m.ImagePaths), m.Header, m.PageNumber, m.DocumentId))
                 .ToList();
         }
 
@@ -225,7 +226,7 @@ public class VectorSearchService : IVectorSearch
                 if (nextClean.Length > 0) sb.Append("\n\n").Append(nextClean);
             }
 
-            return new ChunkResult(m.FileName, sb.ToString(), SerializeImagePaths(m.ImagePaths), m.Header, m.PageNumber);
+            return new ChunkResult(m.FileName, sb.ToString(), SerializeImagePaths(m.ImagePaths), m.Header, m.PageNumber, m.DocumentId);
         }).ToList();
     }
 

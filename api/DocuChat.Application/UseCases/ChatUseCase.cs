@@ -437,12 +437,22 @@ public class ChatUseCase : IChatUseCase
         {
             try
             {
+                // Hangi belgelerin chunks'larından cevap üretildi — per-document cache invalidation için.
+                // Belge silinince DeleteByDocumentIdAsync selective çalışsın → tüm cache uçmasın.
+                var sourceDocIds = chunks
+                    .Where(c => c.DocumentId.HasValue)
+                    .Select(c => c.DocumentId!.Value.ToString())
+                    .Distinct()
+                    .ToList();
+                var sourceDocCsv = sourceDocIds.Count > 0 ? string.Join(",", sourceDocIds) : null;
+
                 await _uow.QuestionCache.UpsertAsync(new QuestionCache
                 {
                     QuestionText = searchQuestion,
                     QuestionVector = questionVector,
                     Answer = answer,
                     ImagesJson = imagesJson,
+                    SourceDocumentIds = sourceDocCsv,
                 }, ct);
             }
             catch (Exception ex)

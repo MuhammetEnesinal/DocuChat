@@ -82,6 +82,9 @@ public class QuestionCacheRepository : GenericRepository<QuestionCache>, IQuesti
             existing.Answer = entry.Answer;
             existing.ImagesJson = entry.ImagesJson;
             existing.QuestionVector = entry.QuestionVector;
+            // Yeni cevap farklı chunks'tan üretilmiş olabilir → source list de güncellenir.
+            // (Per-document invalidation doğru çalışsın diye.)
+            existing.SourceDocumentIds = entry.SourceDocumentIds;
             existing.HitCount += 1;
             existing.LastHitAt = DateTime.UtcNow;
             return;
