@@ -18,13 +18,22 @@ public class LlmService : ILlmService
 {
     private readonly MistralChatClient _client;
     private readonly IConfiguration _cfg;
+    private readonly ITokenCounter _tokenCounter;
     private readonly ILogger<LlmService> _logger;
 
-    public LlmService(HttpClient http, IHttpClientFactory httpFactory, IConfiguration cfg, ILogger<LlmService> logger)
+    // B5 — LLM'e gönderilecek context için chunk seçimi: sabit adet yerine token bütçesi.
+    private readonly int _llmContextTokenBudget;
+    private readonly int _llmMaxChunks;
+
+    public LlmService(HttpClient http, IHttpClientFactory httpFactory, IConfiguration cfg, ITokenCounter tokenCounter, ILogger<LlmService> logger)
     {
         _cfg = cfg;
+        _tokenCounter = tokenCounter;
         _logger = logger;
         _client = new MistralChatClient(http, httpFactory, cfg, logger);
+        // Context bütçesi: dinamik chunk seçimi tavanları (appsettings VectorSearch bölümü).
+        _llmContextTokenBudget = cfg.GetValue<int>("VectorSearch:LlmContextTokenBudget", 12000);
+        _llmMaxChunks = Math.Max(1, cfg.GetValue<int>("VectorSearch:LlmMaxChunks", 16));
     }
 
     // Streaming variant — token delta'larını üretir. OpenAI-compat dışındaki provider'lar için
@@ -37,16 +46,38 @@ public class LlmService : ILlmService
         string? feedbackContext = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        var chunkList = contextChunks
-            .Where(c => !string.IsNullOrWhiteSpace(c.Content) && c.Content.Trim().Length > 20)
-            .Take(8)  // 5 → 8: daha fazla kaynak, multi-doc kapsama artar
-            .ToList();
+        // B5 — TOKEN BÜTÇELİ DİNAMİK CHUNK SEÇİMİ:
+        // Eski: sabit .Take(8). Sorun → küçük chunk'lı çok-belge sorularında (örn "tüm
+        // departmanları karşılaştır") 8'de kesilip belgeler düşüyordu; tersine neighbor
+        // expansion'la şişmiş 8 chunk LLM context'ini zorlayabiliyordu.
+        // Yeni: chunk'ları sırayla ekle, toplam token bütçeyi (varsayılan 12K) veya adet
+        // tavanını (varsayılan 16) aşana kadar devam et. İlk chunk her zaman alınır (tek dev
+        // chunk olsa bile boş cevaba düşmesin). Sonuç: küçük chunk'larda 12+ kaynak sığar,
+        // büyük chunk'larda erken durup context taşmasını önler.
+        var candidateChunks = contextChunks
+            .Where(c => !string.IsNullOrWhiteSpace(c.Content) && c.Content.Trim().Length > 20);
+
+        var chunkList = new List<ChunkResult>();
+        var usedTokens = 0;
+        foreach (var c in candidateChunks)
+        {
+            var chunkTokens = _tokenCounter.Count(c.Content);
+            if (chunkList.Count > 0 &&
+                (usedTokens + chunkTokens > _llmContextTokenBudget || chunkList.Count >= _llmMaxChunks))
+                break;
+            chunkList.Add(c);
+            usedTokens += chunkTokens;
+        }
 
         if (chunkList.Count == 0)
         {
             yield return "Sisteme yuklenmis belgeler arasinda bu soruyla ilgili bilgi bulunamadi.";
             yield break;
         }
+
+        _logger.LogInformation(
+            "[LLM] Context seçimi: {Count} chunk, ~{Tokens} token (bütçe {Budget}, tavan {Max})",
+            chunkList.Count, usedTokens, _llmContextTokenBudget, _llmMaxChunks);
 
         var (context, imageUrls) = BuildContextAndImages(chunkList);
         var historyMessages = TrimHistory(history);
