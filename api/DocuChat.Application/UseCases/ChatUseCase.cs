@@ -328,6 +328,11 @@ public class ChatUseCase : IChatUseCase
         await _uow.SaveChangesAsync(ct);
 
         // === 6. Retrieval pipeline ===
+        // B3 — "Belgeler aranıyor…" göstergesi: embedding + cache + arama + rerank ilk token'a
+        // kadar 3-5sn sürüyor; kullanıcı boş imleç yerine aşamayı görsün. İlk token gelince
+        // frontend bu durumu temizler.
+        yield return new { type = "searching" };
+
         _logger.LogInformation("[Cache][Stream] IsCacheable kararı → {Result}", isCacheable);
         var chunks = (await _retrieval.SearchAsync(
             searchQuestion, history,
@@ -357,6 +362,9 @@ public class ChatUseCase : IChatUseCase
         }
 
         // === 7. LLM streaming ===
+        // B3 — "Cevap hazırlanıyor…": arama bitti, LLM yazmaya başlıyor. İlk token gelince temizlenir.
+        yield return new { type = "generating" };
+
         var answerBuilder = new StringBuilder();
         await foreach (var delta in _llm.AskStreamAsync(searchQuestion, chunks, history, feedbackContext, ct))
         {

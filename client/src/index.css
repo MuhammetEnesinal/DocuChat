@@ -617,3 +617,15 @@ input::-webkit-textfield-decoration-container {
     0%, 60%, 100% { opacity: 0.7; }
     30% { opacity: 0.15; }
 }
+
+/* B3 — "Düşünme" göstergesindeki noktalar (Belgeler aranıyor…) */
+@keyframes thinkingDots {
+    0%, 20% { opacity: 0.2; }
+    50% { opacity: 1; }
+    80%, 100% { opacity: 0.2; }
+}
+.thinking-dots {
+    display: inline-block;
+    margin-left: 1px;
+    animation: thinkingDots 1.4s ease-in-out infinite;
+}

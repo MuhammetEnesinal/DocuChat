@@ -102,6 +102,19 @@ export function useChatMessages(virtuosoRef) {
                     }
                     break;
                 }
+                // B3 — "Düşünme" göstergesi: ilk token gelene kadar arama/hazırlama aşamasını
+                // göster. content boşken MessageBubble statusText'i gösterir; ilk token content'i
+                // doldurunca otomatik kaybolur.
+                case 'searching': {
+                    setMessages(prev => prev.map(m => m.id === assistantMsgId
+                        ? { ...m, statusText: 'Belgeler aranıyor' } : m));
+                    break;
+                }
+                case 'generating': {
+                    setMessages(prev => prev.map(m => m.id === assistantMsgId
+                        ? { ...m, statusText: 'Cevap hazırlanıyor' } : m));
+                    break;
+                }
                 case 'cache_hit': {
                     receivedAnyToken = true;
                     receivedComplete = true;

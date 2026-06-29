@@ -136,6 +136,20 @@ function ClarificationBubble({ msg, onClarificationSelect, onClarificationDismis
     );
 }
 
+// B3 — "Düşünme" göstergesi: ilk token gelene kadar arama/hazırlama aşamasını gösterir
+// (dönen ikon + metin + animasyonlu noktalar). İçerik akmaya başlayınca MessageBubble bunu
+// göstermeyi keser.
+function StatusIndicator({ text }) {
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '9px', color: 'rgba(255,255,255,0.62)', fontSize: '14px' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="animate-spin" style={{ flexShrink: 0 }}>
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+            <span>{text}<span className="thinking-dots">…</span></span>
+        </div>
+    );
+}
+
 export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarificationSelect, onClarificationDismiss, onFollowUpSelect, onFeedbackGiven }) {
     const isUser = msg.role === 'User';
     const images = msg.images || [];
@@ -294,8 +308,11 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
                                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
                                         {sanitizeStreamingMarkdown(msg.content, msg.isStreaming)}
                                     </ReactMarkdown>
+                                ) : msg.statusText ? (
+                                    <StatusIndicator text={msg.statusText} />
                                 ) : null}
-                                {msg.isStreaming && (
+                                {/* İmleç sadece içerik akarken; arama/hazırlama aşamasında StatusIndicator gösterilir */}
+                                {msg.isStreaming && msg.content && (
                                     <span
                                         aria-label="cevap akıyor"
                                         style={{
