@@ -1,5 +1,8 @@
 import { useState, useCallback } from 'react';
-import { adminGetUsers, adminCreateUser, adminUpdateUser, adminDeleteUser, adminDeleteUsersBatch } from '../services/api';
+import {
+    adminGetUsers, adminCreateUser, adminUpdateUser, adminDeleteUser, adminDeleteUsersBatch,
+    adminDownloadBulkImportTemplate, adminBulkImportUsers
+} from '../services/api';
 import { useToast } from '../components/shared/Toast';
 import { showApiError, getApiErrorMessage } from '../utils/format';
 
@@ -100,6 +103,59 @@ export function useUsers() {
         }
     }, [users, toast, fetchUsers]);
 
+    // ── Bulk Import (Excel) ──
+    const [showBulkImportModal, setShowBulkImportModal] = useState(false);
+    const [bulkImportResult, setBulkImportResult] = useState(null);    // BulkImportUsersSummaryDto | null
+    const [bulkImportLoading, setBulkImportLoading] = useState(false);
+
+    const openBulkImportModal = useCallback(() => {
+        setShowBulkImportModal(true);
+        setBulkImportResult(null);
+    }, []);
+    const closeBulkImportModal = useCallback(() => {
+        setShowBulkImportModal(false);
+        setBulkImportResult(null);
+    }, []);
+
+    const handleDownloadTemplate = useCallback(async () => {
+        try {
+            const res = await adminDownloadBulkImportTemplate();
+            const url = URL.createObjectURL(res.data);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'kullanici-toplu-yukleme-sablonu.xlsx';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            showApiError(toast, err, 'Şablon indirilemedi.');
+        }
+    }, [toast]);
+
+    const handleBulkImport = useCallback(async (file) => {
+        if (!file) return;
+        setBulkImportLoading(true);
+        setBulkImportResult(null);
+        try {
+            const res = await adminBulkImportUsers(file);
+            const summary = res.data?.data;       // { totalRows, successCount, skippedCount, results }
+            setBulkImportResult(summary);
+            // Başarılı oluşturulanlar varsa listeyi yenile
+            if (summary?.successCount > 0) {
+                await fetchUsers();
+            }
+            const success = summary?.successCount ?? 0;
+            const skipped = summary?.skippedCount ?? 0;
+            if (success > 0) toast.success(`${success} kullanıcı oluşturuldu.`);
+            if (skipped > 0) toast.info?.(`${skipped} satır atlandı (detay tabloda).`);
+        } catch (err) {
+            showApiError(toast, err, 'Toplu yükleme başarısız.');
+        } finally {
+            setBulkImportLoading(false);
+        }
+    }, [toast, fetchUsers]);
+
     return {
         users,
         usersLoading,
@@ -117,5 +173,13 @@ export function useUsers() {
         handleSubmitUser,
         deleteUser,
         batchDeleteUsers,
+        // Bulk import
+        showBulkImportModal,
+        bulkImportResult,
+        bulkImportLoading,
+        openBulkImportModal,
+        closeBulkImportModal,
+        handleDownloadTemplate,
+        handleBulkImport,
     };
 }

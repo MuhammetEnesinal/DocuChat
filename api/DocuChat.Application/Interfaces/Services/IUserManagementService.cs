@@ -18,4 +18,16 @@ public interface IUserManagementService
     // Çoklu kullanıcı silme — tek HTTP isteği, N user. Her biri için DeleteUserAsync semantiği
     // (admin self-delete koruması, son admin koruması, vb.) korunur.
     Task<Result<int>> DeleteUsersBatchAsync(IEnumerable<string> userIds, CancellationToken ct = default);
+
+    // Excel'den toplu kullanıcı import.
+    // - Header satırı atlanır
+    // - Her satır validate edilir (FullName, Email, Password kuralları) — skip + report
+    // - Email DB'de varsa skip
+    // - Geçerli satırlar oluşturulur, welcome mail gönderilir (tek-tek CreateUserAsync gibi)
+    // - Max 500 satır sınırı (controller'da kontrol edilir)
+    Task<Result<BulkImportUsersSummaryDto>> BulkImportUsersFromExcelAsync(
+        Stream excelStream, CancellationToken ct = default);
+
+    // Boş Excel şablonu üretir (header satırı + 1 örnek satır).
+    byte[] GenerateBulkImportTemplate();
 }

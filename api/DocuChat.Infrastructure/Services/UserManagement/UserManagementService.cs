@@ -1,4 +1,6 @@
-﻿using Mapster;
+﻿using ClosedXML.Excel;
+using FluentValidation;
+using Mapster;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -19,15 +21,18 @@ public sealed class UserManagementService : IUserManagementService
 {
     private readonly UserManager<AppUser> _userManager;
     private readonly IEmailService _emailService;
+    private readonly IValidator<RegisterRequestDto> _registerValidator;
     private readonly ILogger<UserManagementService> _logger;
 
     public UserManagementService(
         UserManager<AppUser> userManager,
         IEmailService emailService,
+        IValidator<RegisterRequestDto> registerValidator,
         ILogger<UserManagementService> logger)
     {
         _userManager = userManager;
         _emailService = emailService;
+        _registerValidator = registerValidator;
         _logger = logger;
     }
 
@@ -210,6 +215,168 @@ public sealed class UserManagementService : IUserManagementService
         }
         return Result<int>.Success(deleted);
     }
+
+    // ====== Bulk Import (Excel) ======
+
+    public async Task<Result<BulkImportUsersSummaryDto>> BulkImportUsersFromExcelAsync(
+        Stream excelStream, CancellationToken ct = default)
+    {
+        XLWorkbook workbook;
+        try
+        {
+            workbook = new XLWorkbook(excelStream);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[BulkImport] Excel parse hatası");
+            return Result<BulkImportUsersSummaryDto>.Failure(
+                Error.Validation("Excel dosyası okunamadı. Geçerli bir .xlsx dosyası olduğundan emin olun."));
+        }
+
+        using (workbook)
+        {
+            return await BulkImportFromWorkbookAsync(workbook, ct);
+        }
+    }
+
+    private async Task<Result<BulkImportUsersSummaryDto>> BulkImportFromWorkbookAsync(
+        XLWorkbook workbook, CancellationToken ct)
+    {
+        var worksheet = workbook.Worksheets.FirstOrDefault();
+        if (worksheet is null)
+        {
+            return Result<BulkImportUsersSummaryDto>.Failure(
+                Error.Validation("Excel dosyasında sayfa bulunamadı."));
+        }
+
+        // Header satırı (1) atlanır, 2. satırdan başla → kullanılan son satıra kadar.
+        var firstRow = worksheet.FirstRowUsed();
+        if (firstRow is null)
+        {
+            return Result<BulkImportUsersSummaryDto>.Failure(
+                Error.Validation("Excel dosyası boş."));
+        }
+
+        var lastRow = worksheet.LastRowUsed();
+        var results = new List<BulkImportUserResultDto>();
+        var successCount = 0;
+        var skippedCount = 0;
+        var totalRows = 0;
+
+        var dataStart = firstRow.RowNumber() + 1;  // header'dan sonra
+        var dataEnd = lastRow!.RowNumber();
+
+        for (var rowNum = dataStart; rowNum <= dataEnd; rowNum++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var row = worksheet.Row(rowNum);
+            var fullName = row.Cell(1).GetString().Trim();
+            var email = row.Cell(2).GetString().Trim();
+            var password = row.Cell(3).GetString();
+
+            // Tamamen boş satır → atla (sayma)
+            if (string.IsNullOrWhiteSpace(fullName)
+                && string.IsNullOrWhiteSpace(email)
+                && string.IsNullOrWhiteSpace(password))
+            {
+                continue;
+            }
+
+            totalRows++;
+            var dto = new RegisterRequestDto(fullName, email, password);
+
+            // Validation (FullName + Email + Password kuralları)
+            var validation = await _registerValidator.ValidateAsync(dto, ct);
+            if (!validation.IsValid)
+            {
+                var reason = string.Join(", ", validation.Errors.Select(e => e.ErrorMessage));
+                results.Add(new BulkImportUserResultDto(rowNum, NullIfEmpty(email), "skipped", reason));
+                skippedCount++;
+                continue;
+            }
+
+            // Email DB'de zaten varsa skip
+            if (await _userManager.FindByEmailAsync(email) is not null)
+            {
+                results.Add(new BulkImportUserResultDto(rowNum, email, "skipped", "Bu e-posta zaten kayıtlı."));
+                skippedCount++;
+                continue;
+            }
+
+            // Kullanıcı oluştur
+            var user = new AppUser
+            {
+                UserName = email,
+                Email = email,
+                FullName = fullName,
+            };
+            var createResult = await _userManager.CreateAsync(user, password);
+            if (!createResult.Succeeded)
+            {
+                var reason = string.Join(", ", createResult.Errors.Select(e => e.Description));
+                results.Add(new BulkImportUserResultDto(rowNum, email, "skipped", reason));
+                skippedCount++;
+                continue;
+            }
+
+            await _userManager.AddToRoleAsync(user, Roles.User);
+
+            // Welcome mail fire-and-forget (SMTP hatası bulk'u durdurmaz)
+            _ = SendWelcomeEmailAsync(user, password, CancellationToken.None);
+
+            results.Add(new BulkImportUserResultDto(rowNum, email, "success", null));
+            successCount++;
+        }
+
+        _logger.LogInformation(
+            "[BulkImport] Toplam {Total} satır işlendi: {Success} oluşturuldu, {Skipped} atlandı",
+            totalRows, successCount, skippedCount);
+
+        return Result<BulkImportUsersSummaryDto>.Success(
+            new BulkImportUsersSummaryDto(totalRows, successCount, skippedCount, results));
+    }
+
+    public byte[] GenerateBulkImportTemplate()
+    {
+        using var workbook = new XLWorkbook();
+        var ws = workbook.Worksheets.Add("Kullanıcılar");
+
+        // Header satırı (1)
+        ws.Cell(1, 1).Value = "Ad Soyad";
+        ws.Cell(1, 2).Value = "E-posta";
+        ws.Cell(1, 3).Value = "Şifre";
+
+        var headerRange = ws.Range(1, 1, 1, 3);
+        headerRange.Style.Font.Bold = true;
+        headerRange.Style.Fill.BackgroundColor = XLColor.LightGray;
+        headerRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+        // Örnek satır (2) — admin görüp formatı anlasın
+        ws.Cell(2, 1).Value = "Ahmet Yılmaz";
+        ws.Cell(2, 2).Value = "ahmet@firma.com";
+        ws.Cell(2, 3).Value = "Gecici123!";
+
+        // Yardımcı satır (3) — kurallar
+        ws.Cell(4, 1).Value = "ŞIFRE KURALLARI:";
+        ws.Cell(4, 1).Style.Font.Bold = true;
+        ws.Cell(5, 1).Value = "• En az 8 karakter";
+        ws.Cell(6, 1).Value = "• En az 1 büyük harf";
+        ws.Cell(7, 1).Value = "• En az 1 küçük harf";
+        ws.Cell(8, 1).Value = "• En az 1 rakam";
+        ws.Cell(9, 1).Value = "• En az 1 özel karakter (!, @, #, vb.)";
+
+        // Sütun genişliklerini ayarla
+        ws.Column(1).Width = 30;
+        ws.Column(2).Width = 35;
+        ws.Column(3).Width = 20;
+
+        using var ms = new MemoryStream();
+        workbook.SaveAs(ms);
+        return ms.ToArray();
+    }
+
+    private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
 
     // ====== Email helpers ======
 

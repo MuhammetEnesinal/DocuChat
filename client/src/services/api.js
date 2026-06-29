@@ -229,3 +229,16 @@ export const adminDeleteUser = (id) =>
 // Çoklu kullanıcı silme — tek istek (admin self-delete + son admin koruması serverda).
 export const adminDeleteUsersBatch = (ids) =>
     api.post('/admin/users/batch-delete', { ids });
+
+// Excel şablonunu indir (boş template + örnek satır + şifre kuralları)
+export const adminDownloadBulkImportTemplate = () =>
+    api.get('/admin/users/bulk-import/template', { responseType: 'blob' });
+
+// Excel ile toplu kullanıcı yükleme — multipart upload, per-row sonuç raporu döner
+export const adminBulkImportUsers = (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/admin/users/bulk-import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+    });
+};

@@ -7,6 +7,7 @@ import DocumentUpload from '../components/admin/DocumentUpload';
 import DocumentList from '../components/admin/DocumentList';
 import UserList from '../components/admin/UserList';
 import UserModal from '../components/admin/UserModal';
+import BulkImportUsersModal from '../components/admin/BulkImportUsersModal';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import { useToast } from '../components/shared/Toast';
 import { showApiError } from '../utils/format';
@@ -63,6 +64,14 @@ export default function Admin() {
         handleSubmitUser,
         deleteUser,
         batchDeleteUsers,
+        // Bulk import (Excel)
+        showBulkImportModal,
+        bulkImportResult,
+        bulkImportLoading,
+        openBulkImportModal,
+        closeBulkImportModal,
+        handleDownloadTemplate,
+        handleBulkImport,
     } = useUsers();
 
     useEffect(() => { fetchDocs(); fetchUsers(); }, []);
@@ -227,6 +236,7 @@ export default function Admin() {
                         search={userSearch}
                         onSearchChange={setUserSearch}
                         onAdd={openAddModal}
+                        onBulkImport={openBulkImportModal}
                         onEdit={openEditModal}
                         onDelete={handleDeleteUser}
                         onBatchDelete={handleBatchDeleteUsers}
@@ -299,6 +309,15 @@ export default function Admin() {
                     isEdit={!!editingUser}
                 />
             )}
+
+            <BulkImportUsersModal
+                open={showBulkImportModal}
+                onClose={closeBulkImportModal}
+                onDownloadTemplate={handleDownloadTemplate}
+                onImport={handleBulkImport}
+                loading={bulkImportLoading}
+                result={bulkImportResult}
+            />
 
             {confirmDoc && (
                 <ConfirmDialog
