@@ -26,14 +26,12 @@ export function useChatMessages(virtuosoRef) {
     const [hasMoreMessages, setHasMoreMessages] = useState(false);
     const [messagesPage, setMessagesPage] = useState(1);
     const [loadingMore, setLoadingMore] = useState(false);
-    const [chunks, setChunks] = useState([]);
     const [copiedId, setCopiedId] = useState(null);
     const abortRef = useRef(null);
     const toast = useToast();
 
     const clearMessages = useCallback(() => {
         setMessages([]);
-        setChunks([]);
         setHasMoreMessages(false);
         setMessagesPage(1);
     }, []);
@@ -147,7 +145,6 @@ export function useChatMessages(virtuosoRef) {
                         badge: evt.badge || undefined,
                         isStreaming: false,
                     } : m));
-                    if (evt.chunks) setChunks(evt.chunks);
                     break;
                 }
                 case 'error': {
@@ -242,7 +239,6 @@ export function useChatMessages(virtuosoRef) {
         hasMoreMessages,
         messagesPage,
         loadingMore,
-        chunks, setChunks,
         copiedId,
         clearMessages,
         loadMessages,

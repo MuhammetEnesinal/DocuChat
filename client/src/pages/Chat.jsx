@@ -76,7 +76,6 @@ export default function Chat() {
         messagesLoading,
         hasMoreMessages,
         loadingMore,
-        chunks, setChunks,
         copiedId,
         clearMessages,
         loadMessages,

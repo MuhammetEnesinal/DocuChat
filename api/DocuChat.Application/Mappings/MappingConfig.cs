@@ -43,8 +43,5 @@ public static class MappingConfig
                    .OrderBy(il => il.PositionInChunk)
                    .Select(il => il.Image!.Path)
                    .ToList());
-
-        // Aynı şekil; tip ayrımı API yüzeyini internal model'den izole eder.
-        TypeAdapterConfig<ChunkResult, AnswerSourceChunkDto>.NewConfig();
     }
 }
