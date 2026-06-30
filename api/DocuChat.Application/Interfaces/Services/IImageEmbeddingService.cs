@@ -22,4 +22,11 @@ public interface IImageEmbeddingService
     /// Başarısızsa null.
     /// </summary>
     Task<float[]?> EmbedTextAsync(string text, CancellationToken ct = default);
+
+    /// <summary>
+    /// Birden çok metni tek istekte CLIP uzayına çevirir (tablo satır etiketleri gibi). Sonuç
+    /// input ile aynı sırada; başarısız eleman null.
+    /// </summary>
+    Task<IReadOnlyList<float[]?>> EmbedTextsAsync(
+        IReadOnlyList<string> texts, CancellationToken ct = default);
 }

@@ -57,26 +57,33 @@ public sealed class ClipImageEmbeddingService : IImageEmbeddingService
 
     public async Task<float[]?> EmbedTextAsync(string text, CancellationToken ct = default)
     {
-        if (!Enabled || string.IsNullOrWhiteSpace(text)) return null;
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        var vecs = await EmbedTextsAsync(new[] { text }, ct);
+        return vecs.Count > 0 ? vecs[0] : null;
+    }
+
+    public async Task<IReadOnlyList<float[]?>> EmbedTextsAsync(
+        IReadOnlyList<string> texts, CancellationToken ct = default)
+    {
+        if (!Enabled || texts.Count == 0) return Array.Empty<float[]?>();
 
         try
         {
-            using var resp = await _http.PostAsJsonAsync("/embed-text", new { texts = new[] { text } }, ct);
+            using var resp = await _http.PostAsJsonAsync("/embed-text", new { texts }, ct);
             if (!resp.IsSuccessStatusCode)
             {
                 _logger.LogWarning("[CLIP] /embed-text HTTP {S}", (int)resp.StatusCode);
-                return null;
+                return AllNull(texts.Count);
             }
 
             var body = await resp.Content.ReadFromJsonAsync<EmbedResponse>(cancellationToken: ct);
-            var vec = body?.Vectors is { Count: > 0 } ? body.Vectors[0] : null;
-            return vec is { Count: ExpectedDim } ? vec.ToArray() : null;
+            return ParseVectors(body, texts.Count);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[CLIP] /embed-text hatası");
-            return null;
+            return AllNull(texts.Count);
         }
     }
 
