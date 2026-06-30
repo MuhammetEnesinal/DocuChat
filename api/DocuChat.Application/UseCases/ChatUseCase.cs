@@ -97,15 +97,13 @@ public class ChatUseCase : IChatUseCase
         }
     }
 
-    // ========== STREAMING ASK ==========
-    // AskAsync ile aynı pipeline; tek farkı LLM cevabını token-by-token yield etmesi.
-    // Self-correct retry streaming yolunda yapılmaz (cevap zaten kullanıcıya akıyor); kalite
-    // skoru düşükse sadece cache yazılmaz, kullanıcı badge görür.
+    // LLM cevabını token token yield eden chat akışı. Kalite skoru düşükse cache yazılmaz,
+    // kullanıcıya uyarı badge'i gösterilir.
     public async IAsyncEnumerable<object> AskStreamAsync(
         AskRequestDto req,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        // === 1. Session resolve / create ===
+        // Oturumu bul veya yeni oluştur
         ChatSession session;
         if (req.SessionId.HasValue)
         {
@@ -137,10 +135,9 @@ public class ChatUseCase : IChatUseCase
 
         yield return new { type = "start", sessionId = session.Id };
 
-        // === 2. History load (sliding window + conversation summary) ===
-        // Son N mesajı ham tut, eski mesajları LLM ile özetle → "system" rolünde özet ekle.
-        // Anahtar bağlam (kullanıcı rolü, konu, terimler) bütçe dolduğunda da korunur.
-        // N = Chat:KeepRawMessages (config, default 6).
+        // Geçmiş yükleme: son N mesaj ham tutulur, daha eskiler LLM ile özetlenip system
+        // rolünde eklenir. Böylece anahtar bağlam (kullanıcı rolü, konu, terimler) bütçe
+        // dolduğunda da korunur. N = Chat:KeepRawMessages config'i.
         var history = new List<(string Role, string Content)>();
         var sessionWithMessages = await _uow.Sessions.GetWithMessagesAsync(session.Id, ct);
         if (sessionWithMessages?.Messages?.Any() == true)
@@ -192,17 +189,17 @@ public class ChatUseCase : IChatUseCase
 
         var searchQuestion = req.Question;
 
-        // === 3. Embedding ===
+        // Soru embedding'i
         var questionVector = await _embeddingService.GetEmbeddingAsync(searchQuestion, ct);
 
-        // === 4. Cache lookup (eager) ===
+        // Cache araması
         var cacheMatch = await _uow.QuestionCache.FindSimilarAsync(questionVector, _cacheSimilarityThreshold, ct);
         if (cacheMatch is not null)
         {
-            // User-scoped feedback net check (kişisel, global cache'i değiştirmez):
-            //   net > 0 → dislike baskın → cache atla, fresh cevap üret
-            //   net < 0 → like baskın    → validate atla, FAST cevap dön (kullanıcı zaten beğenmiş)
-            //   net = 0 → nötr           → mevcut davranış (sim'e göre FAST veya validate)
+            // Kullanıcıya özel feedback net skoru (global cache'i değiştirmez):
+            //   net > 0 → dislike baskın → cache atlanır, taze cevap üretilir
+            //   net < 0 → like baskın    → doğrulama atlanır, hızlı cevap döner
+            //   net = 0 → nötr           → benzerliğe göre hızlı veya doğrulamalı
             var feedbackNet = await _uow.Feedback.GetSimilarFeedbackNetAsync(
                 _currentUser.UserId, questionVector, _feedbackDislikeBypassThreshold, ct);
             if (feedbackNet > 0)
@@ -227,8 +224,8 @@ public class ChatUseCase : IChatUseCase
             }
             else
             {
-                // Validate öncesi: kullanıcının önceki dislike feedback'lerini topla, validate
-                // LLM'e inject et → LLM kararı şikayetleri dikkate alarak verir.
+                // Kullanıcının önceki dislike feedback'leri doğrulama LLM'ine verilir; karar
+                // bu şikayetleri dikkate alarak alınır.
                 var validateFeedbackCtx = await BuildUserFeedbackContextAsync(questionVector, ct);
                 validated = await _llm.ValidateCachedAnswerAsync(
                     searchQuestion, hit.QuestionText, hit.Answer, history, validateFeedbackCtx, ct);
@@ -267,7 +264,7 @@ public class ChatUseCase : IChatUseCase
                 yield return new
                 {
                     type = "cache_hit",
-                    messageId = assistantMsgCache.Id,  // ⭐ feedback için gerçek Guid
+                    messageId = assistantMsgCache.Id,  // feedback için gerçek mesaj Guid'i
                     answer = hit.Answer,
                     images = hitImgs.Count > 0 ? hitImgs : null,
                     followUps = hitFollowUps.Count > 0 ? hitFollowUps : null
@@ -275,16 +272,16 @@ public class ChatUseCase : IChatUseCase
                 yield return new { type = "done" };
                 yield break;
             }
-            }  // end else (dislike bypass değil)
+            }
         }
 
-        // === 5. Cache miss: IsCacheable + clarification ===
+        // Cache yok: önbelleğe alınabilirlik kontrolü + gerekirse netleştirme sorusu
         var docNamesWithSummary = await _uow.Documents.GetDocumentNamesAndSummariesAsync(ct);
         var docNameStrings = docNamesWithSummary.Select(d => d.FileName).ToList();
 
-        // IsCacheable LLM helper'a bağımlı. Helper down/timeout olursa tüm chat çökmesin →
-        // fail-open: history yoksa cacheable=true (zaten ilk soru), varsa cacheable=false
-        // (güvenli taraf — history'ye bağımlı sayalım, cache yazımı atlanır ama cevap üretilir).
+        // IsCacheable LLM helper'ına bağımlı. Helper çökerse chat'in tamamı durmasın diye
+        // fail-open: geçmiş yoksa cacheable=true (ilk soru), varsa cacheable=false
+        // (güvenli taraf — cache yazımı atlanır ama cevap yine üretilir).
         bool isCacheable;
         if (history.Count == 0)
         {
@@ -316,8 +313,8 @@ public class ChatUseCase : IChatUseCase
             }
         }
 
-        // Clarification yok → kullanıcı mesajını kaydet
-        // Asistan mesajını sonra ResponseToMessageId = userMsg.Id ile linkleyeceğiz.
+        // Netleştirme yok: kullanıcı mesajını kaydet. Asistan mesajı sonra
+        // ResponseToMessageId = userMsg.Id ile buna bağlanır.
         var userMsg = new ChatMessage
         {
             SessionId = session.Id,
@@ -327,10 +324,8 @@ public class ChatUseCase : IChatUseCase
         await _uow.Messages.AddAsync(userMsg, ct);
         await _uow.SaveChangesAsync(ct);
 
-        // === 6. Retrieval pipeline ===
-        // B3 — "Belgeler aranıyor…" göstergesi: embedding + cache + arama + rerank ilk token'a
-        // kadar 3-5sn sürüyor; kullanıcı boş imleç yerine aşamayı görsün. İlk token gelince
-        // frontend bu durumu temizler.
+        // Arama göstergesi: arama+rerank ilk token'a kadar birkaç saniye sürer; kullanıcı
+        // boş imleç yerine "Belgeler aranıyor" görür. İlk token gelince frontend temizler.
         yield return new { type = "searching" };
 
         _logger.LogInformation("[Cache][Stream] IsCacheable kararı → {Result}", isCacheable);
@@ -339,8 +334,8 @@ public class ChatUseCase : IChatUseCase
             isStandalone: isCacheable,
             ct: ct)).ToList();
 
-        // === 6.5 Personal Question-Similarity Feedback Check ===
-        // Helper'a taşındı: cache hit validate yolu da aynı context'i kullanabilsin (DRY).
+        // Kullanıcının soru-benzerliğine göre geçmiş feedback bağlamı (cache hit doğrulama
+        // yolu da aynı yardımcıyı kullanır).
         var feedbackContext = await BuildUserFeedbackContextAsync(questionVector, ct);
 
         if (chunks.Count == 0)
@@ -361,8 +356,7 @@ public class ChatUseCase : IChatUseCase
             yield break;
         }
 
-        // === 7. LLM streaming ===
-        // B3 — "Cevap hazırlanıyor…": arama bitti, LLM yazmaya başlıyor. İlk token gelince temizlenir.
+        // Üretim göstergesi: arama bitti, LLM yazmaya başlıyor. İlk token gelince temizlenir.
         yield return new { type = "generating" };
 
         var answerBuilder = new StringBuilder();
@@ -372,10 +366,8 @@ public class ChatUseCase : IChatUseCase
             yield return new { type = "token", delta };
         }
 
-        // Stream tamamlandı AMA bu noktada client kapanmış olabilir (TCP RST veya CT trigger).
-        // Yarım cevabı DB'ye ve cache'e yazmamak için CT check + erken çıkış.
-        // (foreach içindeki OCE zaten propagate eder; bu guard EK güvence — yield sırasında
-        // network kopması gibi durumlarda foreach hata atmadan biter ama ct işaretlenir.)
+        // Stream bittiğinde client kopmuş olabilir (TCP RST / iptal). Yarım cevabı DB'ye ve
+        // cache'e yazmamak için iptal kontrolü ile erken çıkış yapılır.
         if (ct.IsCancellationRequested)
         {
             _logger.LogInformation(
@@ -384,9 +376,8 @@ public class ChatUseCase : IChatUseCase
         }
         var answer = answerBuilder.ToString();
 
-        // === 8. Post-process ÖNCE → Quality validation SONRA ===
-        // Validate, kullanıcıya gösterilen (cleaned) cevabı değerlendirsin: skor ile içerik tutarlı.
-        // Eskiden quality önce çalışıyordu, marker'lı/bozuk markdown'lı raw answer'ı skorluyordu.
+        // Önce post-process, sonra kalite doğrulama: doğrulama kullanıcıya gösterilen temiz
+        // cevabı değerlendirir, böylece skor ile içerik tutarlı olur.
         var llmRejected = LooksLikeRejection(answer);
         answer = StripNoAnswerMarker(answer);
         answer = StripKaynakReferences(answer);
@@ -405,10 +396,8 @@ public class ChatUseCase : IChatUseCase
             badge = "ℹ️ Bu cevabın bazı detayları belgelerden tam doğrulanamadı; teyit etmek için kaynaklara göz atabilirsiniz.";
         }
 
-        // === 9. Images + follow-ups (parallel) ===
-        // Önceden: tüm chunk imagelarını gallery'e yolluyorduk (LLM bahsetmese bile) → görsel kirlilik.
-        // Şimdi: SADECE cevap içinde ![alt](path) markdown'ı geçen path'ler frontend gallery'sine gider.
-        // Chunk image'ları LLM context'e zaten gitti; UI'da göstermek için LLM kararı belirleyici.
+        // Görseller + takip soruları. Galeriye yalnızca cevap içinde ![alt](path) markdown'ı
+        // geçen görseller gönderilir; hangisinin gösterileceğine LLM'in cevabı karar verir.
         List<string> allImagePaths;
         string? imagesJson;
         if (llmRejected)
@@ -427,7 +416,7 @@ public class ChatUseCase : IChatUseCase
             ? Task.FromResult(new List<string>())
             : SafeFollowUpsAsync(searchQuestion, answer, chunks, ct);
 
-        // === 10. Save assistant message + cache write decision ===
+        // Asistan mesajını kaydet + cache yazma kararı
         var assistantMsg = new ChatMessage
         {
             SessionId = session.Id,
@@ -445,8 +434,8 @@ public class ChatUseCase : IChatUseCase
         {
             try
             {
-                // Hangi belgelerin chunks'larından cevap üretildi — per-document cache invalidation için.
-                // Belge silinince DeleteByDocumentIdAsync selective çalışsın → tüm cache uçmasın.
+                // Cevabın hangi belgelerden üretildiği kaydedilir; belge silindiğinde sadece
+                // ilgili cache entry'leri temizlenir, tüm cache uçmaz.
                 var sourceDocIds = chunks
                     .Where(c => c.DocumentId.HasValue)
                     .Select(c => c.DocumentId!.Value.ToString())
@@ -483,11 +472,10 @@ public class ChatUseCase : IChatUseCase
 
         var followUps = await followUpTaskFinal;
 
-        // === 11. Complete + done ===
         yield return new
         {
             type = "complete",
-            messageId = assistantMsg.Id,  // ⭐ feedback için gerçek Guid
+            messageId = assistantMsg.Id,  // feedback için gerçek mesaj Guid'i
             images = allImagePaths.Count > 0 ? allImagePaths : null,
             followUps = followUps.Count > 0 ? followUps : null,
             badge,
@@ -797,8 +785,8 @@ public class ChatUseCase : IChatUseCase
             return Result<FeedbackResponseDto>.Failure(
                 Error.Conflict("Bu mesaja zaten geri bildirim verdiniz."));
 
-        // 3. Soru metnini çek — ResponseToMessageId FK ile DİREKT bağlantı.
-        //    Migration öncesi eski mesajlarda FK null → feedback verilemez (kullanıcı sohbeti siler).
+        // 3. Soru metnini ResponseToMessageId FK üzerinden çek. FK boşsa (çok eski mesaj)
+        //    feedback verilemez.
         if (!message.ResponseToMessageId.HasValue)
             return Result<FeedbackResponseDto>.Failure(
                 Error.Validation("Bu mesaja geri bildirim verilemez (eski mesaj). Sohbeti silip yeniden sorabilirsiniz."));
@@ -813,9 +801,7 @@ public class ChatUseCase : IChatUseCase
         // 4. Soru metnini embed et — gelecek sorgularda similarity matching için
         var questionVector = await _embeddingService.GetEmbeddingAsync(questionText, ct);
 
-        // 5. Feedback kaydet (chunk match yok, sadece question similarity ile çalışır)
-        // SessionId kolonu kaldırıldı — feedback'in session bağı zaten Message → Session
-        // navigation üzerinden dolaylı çekilebilir; ayrı denormalized kolon gereksizdi.
+        // 5. Feedback kaydet (soru benzerliği ile eşleşir, chunk eşleşmesi tutulmaz)
         var feedback = new ChatMessageFeedback
         {
             UserId = _currentUser.UserId,
@@ -848,11 +834,9 @@ public class ChatUseCase : IChatUseCase
             new FeedbackResponseDto(feedback.Id, feedback.CreatedAt));
     }
 
-    // Feedback clustering için BGE-M3 vector benzerliği (1024-dim).
-    // İki feedback'in QuestionVector'ünden cosine similarity.
-    // Kullanıcının son 6 ayındaki dislike feedback'lerini soru-benzerliği ile kümele, en çok şikayet
-    // edilen N cluster'ı LLM system prompt section'ı olarak hazırla. Hem MISS yolunda (AskStreamAsync
-    // ana cevap üretme) hem cache HIT validate adımında kullanılır.
+    // Kullanıcının son 6 aydaki dislike feedback'lerini soru-benzerliğine göre kümeler ve en
+    // çok şikayet edilen kümeleri LLM system prompt bölümü olarak hazırlar. Benzerlik için
+    // QuestionVector'ler üzerinden cosine similarity kullanılır.
     private async Task<string?> BuildUserFeedbackContextAsync(float[] questionVector, CancellationToken ct)
     {
         const double SimilarityThreshold = 0.75;
