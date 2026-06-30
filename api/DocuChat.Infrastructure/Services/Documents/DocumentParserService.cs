@@ -149,7 +149,7 @@ public class DocumentParserService : IDocumentParser
         }
 
         // PDF için sayfa-bazlı PdfPig fallback (Mistral'in kaçırdığı dijital embedded'ler).
-        // 🆕 Mistral hash'leri PdfPig'e gönderilir — aynı görseli iki kez diske yazma + duplicate marker bug yok.
+        // Mistral'in görsel hash'leri PdfPig'e verilir; aynı görsel iki kez diske yazılmaz.
         IReadOnlyList<List<string>> pdfEmbeddedPerPage = Array.Empty<List<string>>();
         if (fileType == FileType.Pdf)
         {
@@ -564,7 +564,7 @@ public class DocumentParserService : IDocumentParser
     }
 
     // ImageHashes: Mistral'in bu sayfada yakaladığı görsellerin SHA256 hash'leri.
-    // PdfPig fallback aynı hash'li görselleri SKIP eder → disk israfı + duplicate marker bug yok.
+    // PdfPig fallback'i aynı hash'li görselleri atlar, böylece disk israfı olmaz.
     private record MistralPage(int Index, string Markdown, List<string> FigurePaths, HashSet<string> ImageHashes);
 
     // 20MB üstü belgeleri /v1/files endpoint'ine multipart upload eder; base64 inline yerine
@@ -676,7 +676,7 @@ public class DocumentParserService : IDocumentParser
                     }
                     if (imgBytes.Length < 64) continue;
 
-                    // 🆕 Hash hesapla — PdfPig fallback ile dedup için kullanılacak
+                    // Hash, PdfPig fallback ile dedup için hesaplanır
                     var hash = Convert.ToHexString(SHA256.HashData(imgBytes));
                     hashes.Add(hash);
 
@@ -784,7 +784,7 @@ public class DocumentParserService : IDocumentParser
                     .ToList();
                 var pagePaths = new List<string>();
 
-                // 🆕 Mistral'in bu sayfada yakaladığı hashes — duplicate skip için
+                // Mistral'in bu sayfada yakaladığı hash'ler — duplicate atlamak için
                 mistralHashesByPage?.TryGetValue(pageNum - 1, out var mistralHashes);
                 var mistralHashesSet = mistralHashesByPage != null
                     && mistralHashesByPage.TryGetValue(pageNum - 1, out var h) ? h : null;
@@ -797,7 +797,7 @@ public class DocumentParserService : IDocumentParser
                     else if (img.RawMemory.Length > 0) imgBytes = img.RawMemory.ToArray();
                     if (imgBytes is null || imgBytes.Length < 64) continue;
 
-                    // 🆕 Hash check — Mistral aynı görseli yakaladıysa diske YAZMA
+                    // Mistral aynı görseli zaten yakaladıysa diske yazma
                     var hash = Convert.ToHexString(SHA256.HashData(imgBytes));
                     if (mistralHashesSet != null && mistralHashesSet.Contains(hash))
                     {

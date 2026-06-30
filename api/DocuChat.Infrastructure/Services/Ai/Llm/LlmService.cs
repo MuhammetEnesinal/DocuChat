@@ -21,7 +21,7 @@ public class LlmService : ILlmService
     private readonly ITokenCounter _tokenCounter;
     private readonly ILogger<LlmService> _logger;
 
-    // B5 — LLM'e gönderilecek context için chunk seçimi: sabit adet yerine token bütçesi.
+    // LLM'e gönderilecek context için chunk seçim tavanları (sabit adet yerine token bütçesi).
     private readonly int _llmContextTokenBudget;
     private readonly int _llmMaxChunks;
 
@@ -46,14 +46,10 @@ public class LlmService : ILlmService
         string? feedbackContext = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        // B5 — TOKEN BÜTÇELİ DİNAMİK CHUNK SEÇİMİ:
-        // Eski: sabit .Take(8). Sorun → küçük chunk'lı çok-belge sorularında (örn "tüm
-        // departmanları karşılaştır") 8'de kesilip belgeler düşüyordu; tersine neighbor
-        // expansion'la şişmiş 8 chunk LLM context'ini zorlayabiliyordu.
-        // Yeni: chunk'ları sırayla ekle, toplam token bütçeyi (varsayılan 12K) veya adet
-        // tavanını (varsayılan 16) aşana kadar devam et. İlk chunk her zaman alınır (tek dev
-        // chunk olsa bile boş cevaba düşmesin). Sonuç: küçük chunk'larda 12+ kaynak sığar,
-        // büyük chunk'larda erken durup context taşmasını önler.
+        // Token bütçeli dinamik chunk seçimi: chunk'lar sırayla eklenir, toplam token bütçesi
+        // veya adet tavanı aşılana kadar devam edilir. İlk chunk her zaman alınır (tek büyük
+        // chunk olsa bile boş cevaba düşmemek için). Böylece küçük chunk'larda daha çok kaynak
+        // sığar, büyük chunk'larda context taşması önlenir.
         var candidateChunks = contextChunks
             .Where(c => !string.IsNullOrWhiteSpace(c.Content) && c.Content.Trim().Length > 20);
 
@@ -748,9 +744,8 @@ public class LlmService : ILlmService
             messages = new object[] { new { role = "user", content = userContent } }
         };
 
-        // 🆕 RETRY mekanizması — 3 deneme, exponential backoff (1s, 2s, 4s).
-        // Network glitch, rate limit (429), transient 5xx olunca tekrar dene.
-        // 400/401/403 gibi kalıcı hatalarda retry yapma.
+        // Retry: 3 deneme, exponential backoff (1s, 2s, 4s). Geçici hatalarda (429, 5xx, ağ)
+        // tekrar denenir; 400/401/403 gibi kalıcı hatalarda denenmez.
         for (var attempt = 1; attempt <= 3; attempt++)
         {
             var response = await _client.PostCaptionAsync(payload, ct);
