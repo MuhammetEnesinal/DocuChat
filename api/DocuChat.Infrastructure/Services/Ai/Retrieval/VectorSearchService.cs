@@ -81,15 +81,15 @@ public class VectorSearchService : IVectorSearch
             ? FuseRrf(denseRanked, bm25Ranked, _rerankCandidates)
             : denseRanked.Select(d => d.Id).ToList();
 
-        // Top RRF aday'larını DB'den çek (chunk + doc metadata + image join'leri)
-        // Görsel kaynağı: ChunkImages → DocumentImages join (artık chunk.ImagePath JSON DEĞİL).
-        // PrevChunkId/NextChunkId: rerank sonrası komşu chunk genişletme (Anthropic RAG pattern).
+        // RRF adaylarını DB'den çeker (chunk + belge metadata + görsel join'leri).
+        // Görseller ChunkImages → DocumentImages join'inden gelir. PrevChunkId/NextChunkId
+        // rerank sonrası komşu chunk genişletme için kullanılır.
         var candidates = await _db.DocumentChunks
             .Where(c => fusedIds.Contains(c.Id))
             .Select(c => new
             {
                 c.Id,
-                c.DocumentId,                       // Per-document cache invalidation için
+                c.DocumentId,                       // belge bazlı cache temizliği için
                 FileName = c.Document!.FileName,
                 c.Content,
                 c.Header,
@@ -123,12 +123,10 @@ public class VectorSearchService : IVectorSearch
         {
             var docs = candidates.Select(c => c.Content).ToList();
 
-            // Çözüm 3 (B4) — Reranker'a ENRICHED query: dense/BM25 zenginleştirilmiş query
-            //   kullanırken reranker ham 'question' alıyordu. Follow-up'ta ("peki ya o?")
-            //   reranker bağlamsız skorluyordu. bm25Text = enriched (varsa) ya da ham → tutarlı.
-            // Çözüm 2 — Reranker'a topK DEĞİL, TÜM adayları skorlat (candidates.Count): belge
-            //   çeşitliliğini biz seçelim. Reranker'ın ilk-N kesimi belge dominasyonunu önlemez;
-            //   örn. 12 slotun 9'unu tek belge kapabilir. Önce hepsi skorlanır, sonra round-robin.
+            // Reranker'a zenginleştirilmiş query verilir (bm25Text), böylece takip sorularında
+            // bağlamsız skorlama olmaz. Ayrıca topK değil tüm adaylar skorlanır; belge çeşitliliği
+            // sonradan seçilir, çünkü reranker'ın ilk-N kesimi tek bir belgenin tüm slotları
+            // kapmasını engellemez.
             var reranked = await _reranker.RerankAsync(bm25Text, docs, candidates.Count, ct);
 
             var allMatched = reranked
@@ -142,9 +140,8 @@ public class VectorSearchService : IVectorSearch
                 })
                 .ToList();
 
-            // Çözüm 2 — BELGE ÇEŞİTLİLİĞİ: havuzda 2+ belge varsa round-robin ile dengele
-            //   (her belgeden sırayla 1 chunk), sonra topK kes. Tek belge sorusunda dokunmaz
-            //   (skor sırası aynen korunur) → tek-belge kalitesi düşmez.
+            // Belge çeşitliliği: havuzda 2+ belge varsa round-robin ile dengelenir (her belgeden
+            // sırayla 1 chunk), sonra topK'ya kesilir. Tek belge varsa skor sırası korunur.
             matched = ApplyDocumentDiversity(allMatched).Take(topK).ToList();
 
             var docDist = matched.GroupBy(c => c.FileName)
@@ -162,9 +159,9 @@ public class VectorSearchService : IVectorSearch
                 .ToList();
         }
 
-        // Çözüm 4 — KOMŞU GENİŞLETMEYİ ÖLÇEKLE: çok-belge sonucunda (3+ farklı belge) her
-        //   chunk'a prev+next eklemek token bütçesini şişirir → B5 daha az AYRI belge alır,
-        //   çeşitlilik düşer. Tek/iki belgede komşu bağlamı değerli; 3+ belgede çeşitlilik öncelikli.
+        // Komşu genişletme belge sayısına göre ölçeklenir: 3+ farklı belge dönüyorsa her chunk'a
+        // prev+next eklemek token bütçesini şişirip çeşitliliği düşürür, bu yüzden atlanır.
+        // Tek/iki belgede komşu bağlamı değerlidir, korunur.
         var distinctDocs = matched.Select(m => m.FileName).Distinct().Count();
         if (distinctDocs >= 3)
         {

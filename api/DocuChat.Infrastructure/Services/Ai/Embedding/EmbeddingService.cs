@@ -143,7 +143,7 @@ public class EmbeddingService : IEmbeddingService
             }
             else
             {
-                // Fallback: tekil endpoint (eski Ollama / batch desteklenmiyorsa). Çalışmaya devam.
+                // Fallback: batch desteklenmiyorsa tekil endpoint ile devam edilir.
                 _logger.LogInformation(
                     "[Embedding] Batch sonuç alınamadı — {N} metin tekil işlenecek", sliceTexts.Count);
                 for (var j = 0; j < sliceTexts.Count; j++)
