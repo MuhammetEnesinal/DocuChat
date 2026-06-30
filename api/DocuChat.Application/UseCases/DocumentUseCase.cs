@@ -1,4 +1,4 @@
-﻿
+
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
@@ -33,7 +33,6 @@ public class DocumentUseCase : IDocumentUseCase
     private readonly IUnitOfWork _uow;
     private readonly IDocumentParser _parser;
     private readonly IEmbeddingService _embedder;
-    private readonly IImageEmbeddingService _imageEmbedder;
     private readonly IFileStorage _fileStorage;
     private readonly ICurrentUser _currentUser;
     private readonly ILlmService _llm;
@@ -55,7 +54,6 @@ public class DocumentUseCase : IDocumentUseCase
         IUnitOfWork uow,
         IDocumentParser parser,
         IEmbeddingService embedder,
-        IImageEmbeddingService imageEmbedder,
         IFileStorage fileStorage,
         ICurrentUser currentUser,
         ILlmService llm,
@@ -70,7 +68,6 @@ public class DocumentUseCase : IDocumentUseCase
         _uow = uow;
         _parser = parser;
         _embedder = embedder;
-        _imageEmbedder = imageEmbedder;
         _fileStorage = fileStorage;
         _currentUser = currentUser;
         _llm = llm;
@@ -384,177 +381,6 @@ public class DocumentUseCase : IDocumentUseCase
         }
     }
 
-    // Belgedeki her benzersiz görseli CLIP ile embed eder → path → 512-dim görsel vektör.
-    // Bu vektörler DocumentImage.VisualEmbedding'e yazılır; soru-cevap'ta soru-görsel
-    // benzerliğiyle hangi resmin gösterileceğine karar verilir. Servis kapalı/erişilemezse
-    // boş sözlük döner (CLIP'siz davranışa düşülür, hata olmaz).
-    private async Task<Dictionary<string, float[]>> ComputeImageEmbeddingsAsync(
-        IReadOnlyList<ParsedChunk> parsedList, CancellationToken ct)
-    {
-        var result = new Dictionary<string, float[]>(StringComparer.Ordinal);
-        if (!_imageEmbedder.Enabled) return result;
-
-        // Benzersiz path'leri topla
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var allPaths = new List<string>();
-        foreach (var parsed in parsedList)
-        {
-            if (string.IsNullOrWhiteSpace(parsed.ImagePath)) continue;
-            try
-            {
-                var paths = JsonSerializer.Deserialize<List<string>>(parsed.ImagePath) ?? new();
-                foreach (var p in paths)
-                    if (!string.IsNullOrWhiteSpace(p) && seen.Add(p)) allPaths.Add(p);
-            }
-            catch (Exception ex) { _logger.LogDebug(ex, "[CLIP] ImagePath JSON parse atlandı"); }
-        }
-        if (allPaths.Count == 0) return result;
-
-        // Byte'ları oku (paralel, 8 eşzamanlı)
-        var pathBytes = new (string Path, byte[] Bytes)[allPaths.Count];
-        using (var sem = new SemaphoreSlim(8))
-        {
-            var tasks = allPaths.Select(async (path, idx) =>
-            {
-                await sem.WaitAsync(ct);
-                try
-                {
-                    var b = await ReadImageBytesAsync(path, ct);
-                    if (b is { Length: >= 64 }) pathBytes[idx] = (path, b);
-                }
-                finally { sem.Release(); }
-            });
-            await Task.WhenAll(tasks);
-        }
-
-        var validPaths = new List<string>();
-        var validBytes = new List<byte[]>();
-        foreach (var pb in pathBytes)
-            if (pb.Bytes is { Length: >= 64 }) { validPaths.Add(pb.Path); validBytes.Add(pb.Bytes); }
-        if (validBytes.Count == 0) return result;
-
-        // CLIP batch embed (servis içeride batch'ler)
-        var vectors = await _imageEmbedder.EmbedImagesAsync(validBytes, ct);
-        for (var i = 0; i < validPaths.Count && i < vectors.Count; i++)
-            if (vectors[i] is { } vec) result[validPaths[i]] = vec;
-
-        _logger.LogInformation("[CLIP] {Done}/{Total} görsel embed edildi", result.Count, allPaths.Count);
-        return result;
-    }
-
-    // Resimleri CLIP ile doğru satıra dizer. Her chunk'ta [IMG:N] markerının bulunduğu satırın
-    // metni (ürün adı) ile resimlerin görsel vektörleri eşleştirilir; ImagePath listesi en iyi
-    // eşleşmeye göre yeniden sıralanır. Böylece parse'ın koordinat tahminiyle yanlış satıra düşen
-    // resim, görsel-anlam benzerliğiyle doğru hücreye gelir. CLIP yoksa parsedList olduğu gibi döner.
-    private async Task<List<ParsedChunk>> ReorderImagesByClipAsync(
-        IReadOnlyList<ParsedChunk> parsedList,
-        IReadOnlyDictionary<string, float[]> visualEmbeddings,
-        CancellationToken ct)
-    {
-        if (!_imageEmbedder.Enabled || visualEmbeddings.Count == 0)
-            return parsedList.ToList();
-
-        var result = new List<ParsedChunk>(parsedList.Count);
-        var reorderedCount = 0;
-        foreach (var parsed in parsedList)
-        {
-            var (chunk, changed) = await ReorderChunkImagesAsync(parsed, visualEmbeddings, ct);
-            result.Add(chunk);
-            if (changed) reorderedCount++;
-        }
-        if (reorderedCount > 0)
-            _logger.LogInformation("[CLIP] {N} chunk'ta resim sırası düzeltildi", reorderedCount);
-        return result;
-    }
-
-    private async Task<(ParsedChunk Chunk, bool Changed)> ReorderChunkImagesAsync(
-        ParsedChunk parsed,
-        IReadOnlyDictionary<string, float[]> visualEmbeddings,
-        CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(parsed.ImagePath)) return (parsed, false);
-
-        List<string> paths;
-        try { paths = JsonSerializer.Deserialize<List<string>>(parsed.ImagePath) ?? new(); }
-        catch { return (parsed, false); }
-        if (paths.Count <= 1) return (parsed, false);  // tek/sıfır resim → reorder anlamsız
-
-        // [IMG:N] markerlarının satır metinleri (label), N sırasında
-        var labels = ExtractImageMarkerLabels(parsed.Content, paths.Count);
-        if (labels.Count != paths.Count) return (parsed, false);  // marker/path uyumsuz → dokunma
-
-        // Resim vektörleri — biri bile eksikse güvenilir eşleştirme yapamayız
-        var pathVecs = paths.Select(p => visualEmbeddings.TryGetValue(p, out var v) ? v : null).ToList();
-        if (pathVecs.Any(v => v is null)) return (parsed, false);
-
-        // Label vektörleri (CLIP-text, tek istekte)
-        var labelVecs = await _imageEmbedder.EmbedTextsAsync(labels, ct);
-        if (labelVecs.Count != labels.Count || labelVecs.Any(v => v is null)) return (parsed, false);
-
-        // Greedy optimal atama: en yüksek cosine'dan başlayarak label→path eşle
-        var n = paths.Count;
-        var assigned = new int[n];
-        Array.Fill(assigned, -1);
-        var usedPath = new bool[n];
-        var pairs = new List<(int Label, int Path, double Score)>(n * n);
-        for (var i = 0; i < n; i++)
-            for (var j = 0; j < n; j++)
-                pairs.Add((i, j, CosineSimilarity(labelVecs[i]!, pathVecs[j]!)));
-
-        foreach (var pair in pairs.OrderByDescending(p => p.Score))
-        {
-            if (assigned[pair.Label] != -1 || usedPath[pair.Path]) continue;
-            assigned[pair.Label] = pair.Path;
-            usedPath[pair.Path] = true;
-        }
-
-        // Yeni sıra: [IMG:i+1] → paths[assigned[i]]
-        var newPaths = new List<string>(n);
-        for (var i = 0; i < n; i++) newPaths.Add(paths[assigned[i]]);
-
-        if (newPaths.SequenceEqual(paths, StringComparer.Ordinal)) return (parsed, false);
-
-        return (parsed with { ImagePath = JsonSerializer.Serialize(newPaths) }, true);
-    }
-
-    // Content'teki [IMG:N] markerlarının bulunduğu satırların metnini (label) N sırasında döner.
-    // Label: satırdan [IMG:...] markerları + tablo pipe'ları temizlenmiş hâli (ürün adı kalır).
-    // Herhangi bir marker eksik/labelsız ise boş liste → caller reorder yapmaz.
-    private static List<string> ExtractImageMarkerLabels(string content, int expectedCount)
-    {
-        if (string.IsNullOrEmpty(content)) return new List<string>();
-
-        var byNum = new Dictionary<int, string>();
-        foreach (var line in content.Split('\n'))
-        {
-            foreach (System.Text.RegularExpressions.Match m in ImgMarkerWithSuffixRegex.Matches(line))
-            {
-                if (!int.TryParse(m.Groups[1].Value, out var num) || byNum.ContainsKey(num)) continue;
-                var label = ImgMarkerWithSuffixRegex.Replace(line, " ").Replace("|", " ");
-                label = System.Text.RegularExpressions.Regex.Replace(label, @"\s+", " ").Trim();
-                byNum[num] = label;
-            }
-        }
-
-        var labels = new List<string>(expectedCount);
-        for (var i = 1; i <= expectedCount; i++)
-        {
-            if (!byNum.TryGetValue(i, out var lbl) || string.IsNullOrWhiteSpace(lbl))
-                return new List<string>();  // eksik label → güvenilir değil
-            labels.Add(lbl);
-        }
-        return labels;
-    }
-
-    private static double CosineSimilarity(float[] a, float[] b)
-    {
-        if (a.Length != b.Length || a.Length == 0) return 0.0;
-        double dot = 0, na = 0, nb = 0;
-        for (var i = 0; i < a.Length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
-        var denom = Math.Sqrt(na) * Math.Sqrt(nb);
-        return denom == 0 ? 0.0 : dot / denom;
-    }
-
     // Pre-loaded bytes ile Pixtral caption — disk read yok.
     private async Task<string?> GenerateCaptionFromBytesAsync(byte[]? bytes, string path, string context, CancellationToken ct)
     {
@@ -797,7 +623,6 @@ public class DocumentUseCase : IDocumentUseCase
         IReadOnlyList<ParsedChunk> parsedList,
         IReadOnlyList<List<string?>> captionsByChunk,
         IReadOnlyDictionary<string, string?> precomputedPathToHash,
-        IReadOnlyDictionary<string, float[]> visualEmbeddings,
         CancellationToken ct)
     {
         var pathToImage = new Dictionary<string, DocumentImage>(StringComparer.Ordinal);
@@ -859,7 +684,6 @@ public class DocumentUseCase : IDocumentUseCase
                     Path = path,
                     PageNumber = chunk.PageNumber,
                     ContentHash = hash,  // belge içi görsel dedup için
-                    VisualEmbedding = visualEmbeddings.TryGetValue(path, out var vec) ? vec : null,
                 };
                 pathToImage[path] = image;
                 if (hash != null) hashToImage[hash] = image;
@@ -1097,16 +921,6 @@ public class DocumentUseCase : IDocumentUseCase
             using var stream = _fileStorage.OpenRead(doc.StoragePath);
             var parsedList = (await _parser.ParseAsync(stream, doc.FileType, ct)).ToList();
 
-            // CLIP görsel embedding'leri (path → 512-dim vektör). Hem tablo resim-satır
-            // eşleştirmesinde hem DocumentImage.VisualEmbedding kaydında kullanılır.
-            var visualEmbeddings = await ComputeImageEmbeddingsAsync(parsedList, ct);
-
-            // Resimleri CLIP ile doğru satıra diz: parse, resimleri sayfadaki konuma (Y-koordinat)
-            // göre satırlara dağıtır; sıra kayınca resim yanlış satıra düşer. Burada her [IMG:N]'in
-            // bulunduğu satırın metni (ürün adı) ile resimlerin görsel vektörleri eşleştirilip
-            // ImagePath listesi yeniden dizilir → doğru resim doğru hücreye gelir.
-            parsedList = await ReorderImagesByClipAsync(parsedList, visualEmbeddings, ct);
-
             // Contextual Retrieval: BAŞ + ORTA + SON chunk'lardan özet (TOC/kapak sayfasına saplanmaz).
             // parsedList zaten chunk sırasında — fake DocumentChunk wrapping'e gerek yok.
             var sampleContents = parsedList.Select(c => c.Content).ToList();
@@ -1155,7 +969,7 @@ public class DocumentUseCase : IDocumentUseCase
                 foreach (var old in existingChunks) _uow.Chunks.Delete(old);
                 foreach (var img in existingImages) _uow.Images.Delete(img);
                 foreach (var chunk in newChunks) await _uow.Chunks.AddAsync(chunk, ct);
-                await PersistImagesAndLinksAsync(doc, newChunks, parsedList, captionsByChunk, pathToHash, visualEmbeddings, ct);
+                await PersistImagesAndLinksAsync(doc, newChunks, parsedList, captionsByChunk, pathToHash, ct);
                 _logger.LogInformation(
                     "[Process] Reprocess: {OldC}→{NewC} chunk, {OldI} görsel DB'den silindi (disk cleanup SaveChanges sonrası)",
                     existingChunks.Count, newChunks.Count, existingImages.Count);
@@ -1165,7 +979,7 @@ public class DocumentUseCase : IDocumentUseCase
                 // İlk upload: batch commit (memory efficiency; chat zaten ilk uploadda hiç çalışmıyor)
                 await AddAndCommitInBatchesAsync(newChunks, ct);
                 // Görsel + link'ler ayrıca yazılır (chunks committed, ID'ler var)
-                await PersistImagesAndLinksAsync(doc, newChunks, parsedList, captionsByChunk, pathToHash, visualEmbeddings, ct);
+                await PersistImagesAndLinksAsync(doc, newChunks, parsedList, captionsByChunk, pathToHash, ct);
             }
 
             doc.Status = DocumentStatus.Ready;

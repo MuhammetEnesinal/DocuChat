@@ -118,15 +118,6 @@ public static class DependencyInjection
             client.Timeout = TimeSpan.FromSeconds(timeout);
         });
 
-        // HttpClient — CLIP görsel embedding (aynı sidecar, port 8085)
-        services.AddHttpClient<IImageEmbeddingService, ClipImageEmbeddingService>(client =>
-        {
-            client.BaseAddress = new Uri(
-                cfg["ImageEmbedding:BaseUrl"] ?? cfg["Reranker:BaseUrl"] ?? "http://127.0.0.1:8085");
-            var timeout = cfg.GetValue<int>("ImageEmbedding:TimeoutSeconds", 120);
-            client.Timeout = TimeSpan.FromSeconds(timeout);
-        });
-
         // Memory cache — SizeLimit yoksa entry'lerin Size = N ayarı IGNORE edilir, cache sınırsız büyür.
         // 100K entry × ~5 KB (1024-dim BGE embedding) ≈ ~500 MB tavan. Eviction LRU mantığında çalışır.
         services.AddMemoryCache(o => o.SizeLimit = 100_000);
