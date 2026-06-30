@@ -88,9 +88,8 @@ public class DocumentUseCase : IDocumentUseCase
         _chunkContextMaxParallel = Math.Max(1, cfg.GetValue<int>("ChunkContext:MaxParallelBatches", 5));
     }
 
-    // 🆕 Bounded Channel Queue üzerinden — DocumentProcessingConsumer paralel max N işler.
-    // Task.Run+Scope eskisi gibi DEĞİL: SemaphoreSlim ile resource exhaustion'a karşı koruma.
-    // Persistence: DocumentRecoveryService startup'ta Pending/Processing'i tekrar enqueue eder.
+    // Belgeyi işleme kuyruğuna ekler; DocumentProcessingConsumer paralel en fazla N belge işler.
+    // App yeniden başlarsa DocumentRecoveryService Pending/Processing belgeleri tekrar kuyruğa atar.
     private async ValueTask ScheduleBackgroundProcessingAsync(Guid documentId, CancellationToken ct = default)
     {
         // Upload HTTP path'inde timeout-aware enqueue → browser timeout'a kalmadan vazgeç.
@@ -109,13 +108,9 @@ public class DocumentUseCase : IDocumentUseCase
         }
     }
 
-    // ChunkContext PARALEL BATCH üretimi — DYNAMIC token-budget batching.
-    // Eski: sabit 10 chunk/batch → büyük chunk'larda taşma (Mistral Small 32K limit).
-    // Yeni: chunk token sayısına göre batch oluştur → ortalama 18K input/batch.
-    //   - Küçük chunk'lı belgelerde daha az batch (~3 vs 5) → cost ↓
-    //   - Tablo yoğun belgelerde batch sayısı korunur → crash riski sıfır
-    //   - Tek chunk bütçeyi aşarsa: kendi başına batch olur (LLM 32K limitine girer)
-    // Failure: o batch için boş context (sistem normal çalışır).
+    // Chunk context'lerini paralel batch'ler halinde üretir. Batch'ler chunk token sayısına
+    // göre oluşturulur (ortalama ~18K input/batch) → Mistral Small 32K limitini aşmaz. Bir
+    // batch başarısız olursa o chunk'lar boş context alır, sistem normal çalışmaya devam eder.
     private async Task<string[]> ComputeChunkContextsAsync(
         IReadOnlyList<ParsedChunk> parsedList,
         string earlySummary,
@@ -428,10 +423,8 @@ public class DocumentUseCase : IDocumentUseCase
         // Pre-compute: tüm chunk context'leri paralel batch (50 chunk → 5 batch ≈ 10sn)
         var precomputedContexts = await ComputeChunkContextsAsync(parsedList, earlySummary, ct);
 
-        // ════════════════ FAZ 1 — HAZIRLIK (paralel, embed YOK) ════════════════
-        // Her chunk için embedText + DB content + caption hazırlanır. Embedding bu aşamada
-        // yapılmaz; tüm embedText'ler toplanıp FAZ 2'de TEK SEFERDE batch'lenir (A1).
-        // Eski: her chunk burada ayrı GetEmbeddingAsync çağırıyordu → 600 chunk = 600 HTTP.
+        // Faz 1 — Hazırlık (paralel, embedding yok): her chunk için embedText, DB içeriği ve
+        // caption hazırlanır. Embedding'ler toplanıp faz 2'de tek seferde batch'lenir.
         var prepTasks = parsedList.Select(async (parsed, idx) =>
         {
             await sem.WaitAsync(ct);
@@ -500,15 +493,13 @@ public class DocumentUseCase : IDocumentUseCase
                 Content = finalContents[idx],
                 ChunkIndex = idx,
                 Embedding = vec,
-                // ImagePath kaldırıldı — görseller DocumentImages + ChunkImages join'de.
-                // Summary kolonu da kaldırıldı — captionSummary zaten embedText'in içinde.
                 Header = parsedList[idx].Header,
                 CleanContent = parsedList[idx].CleanContent,
                 PageNumber = parsedList[idx].PageNumber,
             };
         }
 
-        // 🆕 Null chunk'ları (embedding fail olanlar) filtrele + uyarı logu
+        // Embedding'i alınamayıp null kalan chunk'ları filtrele + uyarı logu
         var validChunks = results.Where(c => c != null).ToList();
         var skipped = total - validChunks.Count;
         if (skipped > 0)
@@ -621,9 +612,8 @@ public class DocumentUseCase : IDocumentUseCase
     }
 
     /// <summary>
-    /// DocumentImage + ChunkImage entity'lerini chunks'lardan inşa eder.
-    /// Görsel path'leri parsedList'ten alınır (chunk.ImagePath artık kaldırıldı).
-    /// İki seviye dedupe:
+    /// DocumentImage + ChunkImage entity'lerini chunk'lardan inşa eder.
+    /// Görsel path'leri parsedList'ten alınır. İki seviye dedupe:
     ///   1. PATH (aynı dosya path'i → aynı image)
     ///   2. CONTENT HASH (farklı path ama aynı byte içerik → aynı image)
     /// </summary>
@@ -692,12 +682,8 @@ public class DocumentUseCase : IDocumentUseCase
                 {
                     DocumentId = doc.Id,
                     Path = path,
-                    // Caption + Source kolonları kaldırıldı:
-                    // - caption chunk content'ine inline gömülü, embedding'de yer alıyor
-                    // - Source debug için tutuluyordu ama hiç sorgulanmadı + detection mantığı
-                    //   bozuktu (path'te "pdfpig"/"xlsx" geçmediği için hepsi "Mistral" oluyordu)
                     PageNumber = chunk.PageNumber,
-                    ContentHash = hash,  // dedup için kullanılıyor
+                    ContentHash = hash,  // belge içi görsel dedup için
                 };
                 pathToImage[path] = image;
                 if (hash != null) hashToImage[hash] = image;
@@ -777,12 +763,9 @@ public class DocumentUseCase : IDocumentUseCase
         });
     }
 
-    // Belgenin BAŞ + ORTA + SON chunk'larından LLM ile 1-2 cümle özet (best-effort).
-    // İlk 3 chunk yerine: ilk 2 + orta 2 + son 2 sample → TOC/kapak sayfasında saplanmaz,
-    // gerçek içeriği temsil eder. Anthropic Contextual Retrieval için daha iyi globalContext.
-    //
-    // contents: chunk içerikleri ChunkIndex sırasında (caller sıralı geçer). Fake DocumentChunk
-    // wrapping'i kaldırıldı — saf string sequence yeterli, allocation tasarrufu.
+    // Belgenin baş + orta + son bölgelerinden örnek chunk'lar alıp LLM ile 1-2 cümlelik özet
+    // üretir. Baş/orta/son örnekleme, kapak veya içindekiler sayfasına takılıp kalmayı önler ve
+    // belgeyi daha iyi temsil eder. contents, chunk içeriklerini ChunkIndex sırasında alır.
     private async Task<string?> TryGenerateSummaryAsync(IReadOnlyList<string> contents, CancellationToken ct)
     {
         try
@@ -954,11 +937,9 @@ public class DocumentUseCase : IDocumentUseCase
                 doc, parsedList, earlySummary, captionMap, pathToHash, ct);
 
             // A2 — SESSİZ CHUNK KAYBINI GÖRÜNÜR KIL:
-            // BuildChunksAndCollectCaptionsAsync embedding'i 3 denemede de başarısız olan chunk'ları
-            // sessizce atlar (belge yine Ready olur). Eskiden bu kayıp sadece log'a yazılırdı →
-            // admin hangi içeriğin aranamaz olduğunu bilemezdi. parsedList.Count - newChunks.Count
-            // tam olarak embed edilemeyip DB'ye yazılmayan chunk sayısıdır; ProcessingNotes'a
-            // yansıtıyoruz → DocumentList'te turuncu "⚠" uyarısı olarak görünür, admin Yeniden İşle yapabilir.
+            // Embedding'i alınamayan chunk'lar atlanır (belge yine Ready olur). Atlanan sayı
+            // (parsedList.Count - newChunks.Count) ProcessingNotes'a yazılır → DocumentList'te
+            // uyarı olarak görünür, admin hangi içeriğin aranamaz olduğunu görüp Yeniden İşle yapabilir.
             var skippedChunkCount = parsedList.Count - newChunks.Count;
             if (skippedChunkCount > 0)
             {
@@ -977,8 +958,8 @@ public class DocumentUseCase : IDocumentUseCase
                 // eski chunks ile çalışmaya devam eder, swap anında yeni chunks aktif olur.
                 var existingImages = await _uow.Images.GetByDocumentIdAsync(doc.Id, ct);
 
-                // 🆕 DİSK SİLMEYİ ERTELE — SaveChanges başarılı olduktan sonra silinecek.
-                // (Eskiden: önce disk silinirdi, SaveChanges fail ederse DB path'leri orphan kalırdı)
+                // Disk silme, DB SaveChanges başarılı olduktan sonraya ertelenir; aksi halde
+                // SaveChanges başarısız olursa DB'deki path'ler diskte karşılıksız kalır.
                 foreach (var img in existingImages)
                 {
                     if (!string.IsNullOrWhiteSpace(img.Path))
@@ -1011,10 +992,10 @@ public class DocumentUseCase : IDocumentUseCase
                 ? string.Join(" | ", processingNotes)
                 : null;
 
-            // 🆕 ÖNCE DB save — eğer fail ederse disk dosyaları korunur (broken refs YOK)
+            // Önce DB kaydedilir; başarısız olursa disk dosyaları korunur (karşılıksız referans olmaz).
             await _uow.SaveChangesAsync(ct);
 
-            // 🆕 DB başarıyla commit edildi → orphan disk dosyalarını şimdi sil
+            // DB commit başarılı olduğuna göre artık karşılıksız kalan disk dosyaları silinebilir.
             if (pendingDiskDeletes.Count > 0)
             {
                 var deletedDiskCount = 0;
@@ -1034,9 +1015,8 @@ public class DocumentUseCase : IDocumentUseCase
                 await _uow.SaveChangesAsync(ct);
             }
 
-            // 🆕 PER-DOCUMENT CACHE INVALIDATION:
-            //   - İlk upload: chunks DAHA ÖNCE cache'e refere edilemezdi (belge yeniydi) → temizleme GEREKMEZ
-            //   - Reprocess: bu belgenin chunks'larıyla cevap üretmiş entries silinmeli + untracked (eski) fallback
+            // Belge bazlı cache temizliği: ilk upload'da gerekmez (yeni belge eski cache'i
+            // etkilemez); reprocess'te bu belgenin chunk'larından üretilmiş cache entry'leri silinir.
             if (isReprocess)
             {
                 var deletedCacheCount = await _uow.QuestionCache.DeleteByDocumentIdAsync(doc.Id, includeUntracked: true, ct);
@@ -1162,7 +1142,7 @@ public class DocumentUseCase : IDocumentUseCase
         _uow.Documents.Delete(doc);
         await _uow.SaveChangesAsync(ct);
 
-        // 🆕 Per-document invalidation
+        // Bu belgeye ait cache entry'lerini temizle
         var deletedCacheCount = await _uow.QuestionCache.DeleteByDocumentIdAsync(docId, includeUntracked: true, ct);
         await RemoveDeletedImagesFromChatHistoryAsync(deletedImagePaths, ct);
         await _uow.SaveChangesAsync(ct);
@@ -1294,7 +1274,7 @@ public class DocumentUseCase : IDocumentUseCase
     private async Task<List<string>> DeleteChunkImagesAsync(Guid docId, CancellationToken ct)
     {
         var deletedPaths = new List<string>();
-        // Yeni mimari: DocumentImages tablosundan diskteki path'leri al, dedup zaten kayıtta var.
+        // DocumentImages tablosundaki disk path'lerini alıp dosyaları siler.
         var images = await _uow.Images.GetByDocumentIdAsync(docId, ct);
         foreach (var img in images)
         {
