@@ -17,6 +17,13 @@ public class DocumentImage : BaseEntity
     /// <summary>SHA256 görsel byte'larından — duplicate tespit için.</summary>
     public string? ContentHash { get; set; }
 
+    /// <summary>
+    /// CLIP görsel embedding'i (512-dim). Resmi ve metni aynı vektör uzayına koyar;
+    /// soru-görsel benzerliğiyle hangi resmin gösterileceğine deterministik karar verilir.
+    /// Null = henüz embed edilmemiş (eski kayıt; yeniden işleme ile doldurulur).
+    /// </summary>
+    public float[]? VisualEmbedding { get; set; }
+
     public Document? Document { get; set; }
     public List<ChunkImage> ChunkLinks { get; set; } = new();
 }

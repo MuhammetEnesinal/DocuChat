@@ -33,6 +33,7 @@ public class DocumentUseCase : IDocumentUseCase
     private readonly IUnitOfWork _uow;
     private readonly IDocumentParser _parser;
     private readonly IEmbeddingService _embedder;
+    private readonly IImageEmbeddingService _imageEmbedder;
     private readonly IFileStorage _fileStorage;
     private readonly ICurrentUser _currentUser;
     private readonly ILlmService _llm;
@@ -54,6 +55,7 @@ public class DocumentUseCase : IDocumentUseCase
         IUnitOfWork uow,
         IDocumentParser parser,
         IEmbeddingService embedder,
+        IImageEmbeddingService imageEmbedder,
         IFileStorage fileStorage,
         ICurrentUser currentUser,
         ILlmService llm,
@@ -68,6 +70,7 @@ public class DocumentUseCase : IDocumentUseCase
         _uow = uow;
         _parser = parser;
         _embedder = embedder;
+        _imageEmbedder = imageEmbedder;
         _fileStorage = fileStorage;
         _currentUser = currentUser;
         _llm = llm;
@@ -381,6 +384,64 @@ public class DocumentUseCase : IDocumentUseCase
         }
     }
 
+    // Belgedeki her benzersiz görseli CLIP ile embed eder → path → 512-dim görsel vektör.
+    // Bu vektörler DocumentImage.VisualEmbedding'e yazılır; soru-cevap'ta soru-görsel
+    // benzerliğiyle hangi resmin gösterileceğine karar verilir. Servis kapalı/erişilemezse
+    // boş sözlük döner (CLIP'siz davranışa düşülür, hata olmaz).
+    private async Task<Dictionary<string, float[]>> ComputeImageEmbeddingsAsync(
+        IReadOnlyList<ParsedChunk> parsedList, CancellationToken ct)
+    {
+        var result = new Dictionary<string, float[]>(StringComparer.Ordinal);
+        if (!_imageEmbedder.Enabled) return result;
+
+        // Benzersiz path'leri topla
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var allPaths = new List<string>();
+        foreach (var parsed in parsedList)
+        {
+            if (string.IsNullOrWhiteSpace(parsed.ImagePath)) continue;
+            try
+            {
+                var paths = JsonSerializer.Deserialize<List<string>>(parsed.ImagePath) ?? new();
+                foreach (var p in paths)
+                    if (!string.IsNullOrWhiteSpace(p) && seen.Add(p)) allPaths.Add(p);
+            }
+            catch (Exception ex) { _logger.LogDebug(ex, "[CLIP] ImagePath JSON parse atlandı"); }
+        }
+        if (allPaths.Count == 0) return result;
+
+        // Byte'ları oku (paralel, 8 eşzamanlı)
+        var pathBytes = new (string Path, byte[] Bytes)[allPaths.Count];
+        using (var sem = new SemaphoreSlim(8))
+        {
+            var tasks = allPaths.Select(async (path, idx) =>
+            {
+                await sem.WaitAsync(ct);
+                try
+                {
+                    var b = await ReadImageBytesAsync(path, ct);
+                    if (b is { Length: >= 64 }) pathBytes[idx] = (path, b);
+                }
+                finally { sem.Release(); }
+            });
+            await Task.WhenAll(tasks);
+        }
+
+        var validPaths = new List<string>();
+        var validBytes = new List<byte[]>();
+        foreach (var pb in pathBytes)
+            if (pb.Bytes is { Length: >= 64 }) { validPaths.Add(pb.Path); validBytes.Add(pb.Bytes); }
+        if (validBytes.Count == 0) return result;
+
+        // CLIP batch embed (servis içeride batch'ler)
+        var vectors = await _imageEmbedder.EmbedImagesAsync(validBytes, ct);
+        for (var i = 0; i < validPaths.Count && i < vectors.Count; i++)
+            if (vectors[i] is { } vec) result[validPaths[i]] = vec;
+
+        _logger.LogInformation("[CLIP] {Done}/{Total} görsel embed edildi", result.Count, allPaths.Count);
+        return result;
+    }
+
     // Pre-loaded bytes ile Pixtral caption — disk read yok.
     private async Task<string?> GenerateCaptionFromBytesAsync(byte[]? bytes, string path, string context, CancellationToken ct)
     {
@@ -623,6 +684,7 @@ public class DocumentUseCase : IDocumentUseCase
         IReadOnlyList<ParsedChunk> parsedList,
         IReadOnlyList<List<string?>> captionsByChunk,
         IReadOnlyDictionary<string, string?> precomputedPathToHash,
+        IReadOnlyDictionary<string, float[]> visualEmbeddings,
         CancellationToken ct)
     {
         var pathToImage = new Dictionary<string, DocumentImage>(StringComparer.Ordinal);
@@ -684,6 +746,7 @@ public class DocumentUseCase : IDocumentUseCase
                     Path = path,
                     PageNumber = chunk.PageNumber,
                     ContentHash = hash,  // belge içi görsel dedup için
+                    VisualEmbedding = visualEmbeddings.TryGetValue(path, out var vec) ? vec : null,
                 };
                 pathToImage[path] = image;
                 if (hash != null) hashToImage[hash] = image;
@@ -947,6 +1010,9 @@ public class DocumentUseCase : IDocumentUseCase
                     $"Belgedeki {parsedList.Count} bölümden {skippedChunkCount} tanesi teknik bir sorun nedeniyle işlenemedi — bu bölümler aramada bulunamaz. Sorun geçici olabilir, 'Yeniden İşle' ile düzeltmeyi deneyebilirsiniz.");
             }
 
+            // CLIP görsel embedding'leri (path → 512-dim vektör). Soru-cevap'ta resim seçimi için.
+            var visualEmbeddings = await ComputeImageEmbeddingsAsync(parsedList, ct);
+
             // Reprocess'te silinecek eski image path'leri DB save BAŞARILI olduktan sonra
             // diskten silinecek (önce silersek SaveChanges fail ederse broken references kalır).
             List<string> pendingDiskDeletes = new();
@@ -969,7 +1035,7 @@ public class DocumentUseCase : IDocumentUseCase
                 foreach (var old in existingChunks) _uow.Chunks.Delete(old);
                 foreach (var img in existingImages) _uow.Images.Delete(img);
                 foreach (var chunk in newChunks) await _uow.Chunks.AddAsync(chunk, ct);
-                await PersistImagesAndLinksAsync(doc, newChunks, parsedList, captionsByChunk, pathToHash, ct);
+                await PersistImagesAndLinksAsync(doc, newChunks, parsedList, captionsByChunk, pathToHash, visualEmbeddings, ct);
                 _logger.LogInformation(
                     "[Process] Reprocess: {OldC}→{NewC} chunk, {OldI} görsel DB'den silindi (disk cleanup SaveChanges sonrası)",
                     existingChunks.Count, newChunks.Count, existingImages.Count);
@@ -979,7 +1045,7 @@ public class DocumentUseCase : IDocumentUseCase
                 // İlk upload: batch commit (memory efficiency; chat zaten ilk uploadda hiç çalışmıyor)
                 await AddAndCommitInBatchesAsync(newChunks, ct);
                 // Görsel + link'ler ayrıca yazılır (chunks committed, ID'ler var)
-                await PersistImagesAndLinksAsync(doc, newChunks, parsedList, captionsByChunk, pathToHash, ct);
+                await PersistImagesAndLinksAsync(doc, newChunks, parsedList, captionsByChunk, pathToHash, visualEmbeddings, ct);
             }
 
             doc.Status = DocumentStatus.Ready;

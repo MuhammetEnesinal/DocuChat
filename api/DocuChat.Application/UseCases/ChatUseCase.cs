@@ -23,9 +23,11 @@ public class ChatUseCase : IChatUseCase
     private readonly ILlmService _llm;
     private readonly ICurrentUser _currentUser;
     private readonly IEmbeddingService _embeddingService;
+    private readonly IImageEmbeddingService _imageEmbedder;
     private readonly ITokenCounter _tokenCounter;
     private readonly IDbExceptionInspector _dbExceptionInspector;
     private readonly ILogger<ChatUseCase> _logger;
+    private readonly double _imageRelevanceThreshold;
     private readonly double _cacheSimilarityThreshold;
     private readonly double _cacheHighConfidenceThreshold;
     private readonly double _feedbackDislikeBypassThreshold;
@@ -40,6 +42,7 @@ public class ChatUseCase : IChatUseCase
         ILlmService llm,
         ICurrentUser currentUser,
         IEmbeddingService embeddingService,
+        IImageEmbeddingService imageEmbedder,
         ITokenCounter tokenCounter,
         IDbExceptionInspector dbExceptionInspector,
         ILogger<ChatUseCase> logger,
@@ -50,6 +53,7 @@ public class ChatUseCase : IChatUseCase
         _llm = llm;
         _currentUser = currentUser;
         _embeddingService = embeddingService;
+        _imageEmbedder = imageEmbedder;
         _tokenCounter = tokenCounter;
         _dbExceptionInspector = dbExceptionInspector;
         _logger = logger;
@@ -64,6 +68,9 @@ public class ChatUseCase : IChatUseCase
         // Son N mesaj HAM gönderilir, öncesi LLM ile özetlenir. 6 = 3 turn (3 user + 3 assistant)
         _historyKeepRawCount = Math.Max(2, configuration.GetValue("Chat:KeepRawMessages", 6));
         _followUpsEnabled = configuration.GetValue("Chat:FollowUpsEnabled", true);
+        // CLIP görsel benzerlik eşiği — bu değerin üstündeki resimler cevapta gösterilir.
+        // CLIP text-image cosine değerleri düşük absolüt aralıktadır; deneyle ayarlanır.
+        _imageRelevanceThreshold = configuration.GetValue("ImageEmbedding:RelevanceThreshold", 0.21);
     }
 
 
@@ -407,8 +414,11 @@ public class ChatUseCase : IChatUseCase
         }
         else
         {
-            var referenced = ExtractReferencedImagePaths(answer);
-            allImagePaths = referenced.ToList();
+            // Deterministik resim seçimi (CLIP görsel benzerliği): soru-görsel cosine ile
+            // hangi resimlerin gösterileceğine karar verilir, LLM'in markdown yazmasına bağlı
+            // değildir. CLIP devre dışı / görsel embedding yoksa eski LLM-markdown çıkarımına düşülür.
+            var clipSelected = await SelectRelevantImagesAsync(searchQuestion, chunks, ct);
+            allImagePaths = clipSelected ?? ExtractReferencedImagePaths(answer).ToList();
             imagesJson = allImagePaths.Count > 0 ? JsonSerializer.Serialize(allImagePaths) : null;
         }
 
@@ -529,6 +539,52 @@ public class ChatUseCase : IChatUseCase
             if (seen.Add(path)) result.Add(path);
         }
         return result;
+    }
+
+    // Deterministik resim seçimi: soruyu CLIP ile embed edip kaynak chunk'lardaki resimlerin
+    // görsel vektörleriyle cosine karşılaştırır, eşik üstündekileri (en alakalı önce) döndürür.
+    // Resmin konumu/türü (tablo, paragraf, serbest) önemsiz — görselin kendisi soruyla eşleşir.
+    // Dönüş: null = CLIP devre dışı/başarısız veya görsel embedding yok (caller LLM-markdown'a düşer);
+    //        boş liste = CLIP çalıştı ama eşik üstü resim yok; dolu liste = seçilen resimler.
+    private async Task<List<string>?> SelectRelevantImagesAsync(
+        string question, IReadOnlyList<ChunkResult> chunks, CancellationToken ct)
+    {
+        if (!_imageEmbedder.Enabled) return null;
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var candidatePaths = new List<string>();
+        foreach (var c in chunks)
+        {
+            if (string.IsNullOrWhiteSpace(c.ImagePath)) continue;
+            try
+            {
+                var paths = JsonSerializer.Deserialize<List<string>>(c.ImagePath) ?? new();
+                foreach (var p in paths)
+                    if (!string.IsNullOrWhiteSpace(p) && seen.Add(p)) candidatePaths.Add(p);
+            }
+            catch (Exception ex) { _logger.LogDebug(ex, "[CLIP] ImagePath parse atlandı"); }
+        }
+        if (candidatePaths.Count == 0) return new List<string>();
+
+        var queryVec = await _imageEmbedder.EmbedTextAsync(question, ct);
+        if (queryVec is null) return null;  // CLIP başarısız → fallback
+
+        var imgVecs = await _uow.Images.GetVisualEmbeddingsByPathsAsync(candidatePaths, ct);
+        if (imgVecs.Count == 0) return null;  // görsel embedding yok (eski belge) → fallback
+
+        var scored = new List<(string Path, double Score)>();
+        foreach (var path in candidatePaths)
+        {
+            if (!imgVecs.TryGetValue(path, out var iv)) continue;
+            var sim = CosineSimilarity(queryVec, iv);
+            if (sim >= _imageRelevanceThreshold) scored.Add((path, sim));
+        }
+
+        var selected = scored.OrderByDescending(x => x.Score).Select(x => x.Path).ToList();
+        _logger.LogInformation(
+            "[CLIP] Resim seçimi: {Cand} aday → {Sel} gösterilecek (eşik {Thr:F2})",
+            candidatePaths.Count, selected.Count, _imageRelevanceThreshold);
+        return selected;
     }
 
     private static string NormalizeImageMarkdown(string answer)
