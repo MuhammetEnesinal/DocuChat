@@ -78,13 +78,15 @@ export function useChatMessages(virtuosoRef) {
         if (!q || loading) return;
         setLoading(true);
 
-        // Optimistik mesajlar: hemen kullanıcı + boş asistan (streaming için)
+        // Optimistik mesajlar: hemen kullanıcı + asistan. Asistan balonu baştan "Hazırlanıyor"
+        // göstergesiyle gelir; ilk token gelene kadar (start→searching arası dahil) balon asla
+        // boş kalmaz. searching/generating event'leri statusText'i günceller, token temizler.
         const userMsgId = nextMsgId();
         const assistantMsgId = nextMsgId();
         setMessages(prev => [
             ...prev.filter(m => !m.isClarification),
             { role: 'User', content: q, id: userMsgId, createdAt: new Date().toISOString() },
-            { role: 'Assistant', content: '', id: assistantMsgId, createdAt: new Date().toISOString(), isStreaming: true },
+            { role: 'Assistant', content: '', id: assistantMsgId, createdAt: new Date().toISOString(), isStreaming: true, statusText: 'Hazırlanıyor' },
         ]);
 
         abortRef.current = new AbortController();
@@ -102,9 +104,8 @@ export function useChatMessages(virtuosoRef) {
                     }
                     break;
                 }
-                // B3 — "Düşünme" göstergesi: ilk token gelene kadar arama/hazırlama aşamasını
-                // göster. content boşken MessageBubble statusText'i gösterir; ilk token content'i
-                // doldurunca otomatik kaybolur.
+                // Arama/hazırlama aşaması göstergesi: content boşken MessageBubble statusText'i
+                // gösterir, ilk token içeriği doldurunca otomatik kaybolur.
                 case 'searching': {
                     setMessages(prev => prev.map(m => m.id === assistantMsgId
                         ? { ...m, statusText: 'Belgeler aranıyor' } : m));
@@ -120,7 +121,7 @@ export function useChatMessages(virtuosoRef) {
                     receivedComplete = true;
                     setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
                         ...m,
-                        id: evt.messageId || m.id,  // ⭐ temp ID → gerçek backend Guid (feedback için)
+                        id: evt.messageId || m.id,  // geçici ID yerine gerçek backend Guid'i (feedback için)
                         content: evt.answer || '',
                         images: evt.images && evt.images.length > 0 ? evt.images : undefined,
                         followUpQuestions: evt.followUps && evt.followUps.length > 0 ? evt.followUps : undefined,
@@ -152,7 +153,7 @@ export function useChatMessages(virtuosoRef) {
                     receivedComplete = true;
                     setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
                         ...m,
-                        id: evt.messageId || m.id,  // ⭐ temp ID → gerçek backend Guid (feedback için)
+                        id: evt.messageId || m.id,  // geçici ID yerine gerçek backend Guid'i (feedback için)
                         images: evt.images && evt.images.length > 0 ? evt.images : undefined,
                         followUpQuestions: evt.followUps && evt.followUps.length > 0 ? evt.followUps : undefined,
                         badge: evt.badge || undefined,

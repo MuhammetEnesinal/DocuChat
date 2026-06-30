@@ -1,9 +1,8 @@
 import { motion } from 'framer-motion';
 
 export default function NewChatHero({ children, popularQuestions, onSelectQuestion }) {
-    // Sadece backend'den GERÇEK popüler sorular geldiğinde göster. Hiç soru yoksa (sistem yeni
-    // veya kimse henüz sormamış) bölümü TAMAMEN gizle — sahte/önceden tanımlı "popüler" listeden
-    // gösterme. Kullanıcı yanıltıcı bulur.
+    // Yalnızca backend'den gerçek popüler sorular geldiğinde gösterilir. Hiç soru yoksa bölüm
+    // tamamen gizlenir; sabit/uydurma bir liste gösterilmez (kullanıcıyı yanıltmamak için).
     const hasRealPopular = popularQuestions && popularQuestions.length > 0;
     const chips = hasRealPopular ? popularQuestions.slice(0, 6) : [];
 

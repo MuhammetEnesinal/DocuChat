@@ -136,9 +136,8 @@ function ClarificationBubble({ msg, onClarificationSelect, onClarificationDismis
     );
 }
 
-// B3 — "Düşünme" göstergesi: ilk token gelene kadar arama/hazırlama aşamasını gösterir
-// (dönen ikon + metin + animasyonlu noktalar). İçerik akmaya başlayınca MessageBubble bunu
-// göstermeyi keser.
+// Arama/hazırlama aşaması göstergesi (dönen ikon + metin + animasyonlu noktalar). İçerik
+// akmaya başlayınca MessageBubble bunu göstermeyi keser.
 function StatusIndicator({ text }) {
     return (
         <div style={{ display: 'flex', alignItems: 'center', gap: '9px', color: 'rgba(255,255,255,0.62)', fontSize: '14px' }}>
@@ -199,13 +198,9 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
 
     if (msg.isClarification) return <ClarificationBubble msg={msg} onClarificationSelect={onClarificationSelect} onClarificationDismiss={onClarificationDismiss} />;
 
-    // Backend artık standart markdown image syntax üretiyor: ![alt](/uploads/img_xyz.jpg)
-    // Frontend ReactMarkdown bunu doğal olarak <img> tag'ine çevirir; custom 'img' component
-    // ile ClickableImage olarak render edilir. Kullanıcı URL'yi GÖRMEZ — sadece görseli.
-    //
-    // resolveImgMarker / [IMG:N] kodu kaldırıldı. Eski mesajlar [IMG:N] içeriyorsa text olarak
-    // görünecek — bunlar arşivde küçük bir kalıntı, yeni sorgu sorduğunda doğru render olur.
-
+    // Backend standart markdown image syntax üretir: ![alt](/uploads/img_xyz.jpg). ReactMarkdown
+    // bunu <img>'ye çevirir; custom 'img' component'i ile ClickableImage olarak render edilir.
+    // Kullanıcı URL'yi görmez, sadece görseli.
     const ClickableImage = ({ src, alt = 'görsel', inTable = false }) => {
         // Relative path geldiyse API_BASE prefix ekle (örn. /uploads/img.jpg → http://localhost/uploads/img.jpg)
         const fullSrc = src?.startsWith('http') ? src : `${API_BASE}${src}`;

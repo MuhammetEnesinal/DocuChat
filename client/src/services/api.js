@@ -54,7 +54,7 @@ export const changePassword = (currentPassword, newPassword) =>
 
 
 // ── Chat ──────────────────────────────────────────────────────────────────
-// SSE streaming — backend'in tek chat endpoint'i artık /api/chat/ask-stream.
+// SSE streaming — backend'in chat endpoint'i: /api/chat/ask-stream.
 // onEvent her event'te çağrılır.
 // Event tipleri: start | cache_hit | clarification | token | complete | done | error
 // Dönüş: {ok: true} normal bitti, {ok: false, error} hata, {aborted: true} iptal.
