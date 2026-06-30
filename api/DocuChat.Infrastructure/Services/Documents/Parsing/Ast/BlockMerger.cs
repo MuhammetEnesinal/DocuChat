@@ -50,19 +50,15 @@ public sealed class BlockMerger
         return -1;
     }
 
-    // Sayfa sınırında ardışık iki tablo + aynı kolonlar → birleştir.
+    // Sayfa sınırında ardışık iki tablo → ortak devam mantığıyla birleştir (TableMergeHelper).
+    // Tekrar başlık, tam/kısmi "colN" auto-header ve sahte-başlık-veri durumları kayıpsız ele alınır.
     private static bool TryMergeTable(SemanticBlock a, SemanticBlock b, out SemanticBlock merged)
     {
         merged = null!;
         if (a.Table is null || b.Table is null) return false;
-        if (a.Table.Headers.Count != b.Table.Headers.Count) return false;
-        for (var i = 0; i < a.Table.Headers.Count; i++)
-            if (!string.Equals(a.Table.Headers[i], b.Table.Headers[i], StringComparison.OrdinalIgnoreCase))
-                return false;
+        if (!TableMergeHelper.IsContinuation(a.Table, b.Table)) return false;
 
-        var mergedRows = a.Table.Rows.Concat(b.Table.Rows).ToList();
-        var mergedTable = new StructuredTable(a.Table.Headers, mergedRows);
-
+        var mergedTable = TableMergeHelper.Merge(a.Table, b.Table);
         merged = new SemanticBlock(a.Index, a.PageNumber, BlockType.Table, a.Headers)
         {
             Table = mergedTable,
