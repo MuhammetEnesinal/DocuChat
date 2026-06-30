@@ -142,9 +142,10 @@ public sealed class MarkdownRenderer : IMarkdownRenderer
         // Sub-header satırlarını (≥%50 hücresi boş) skip ederek images'ı data row'larına yerleştir.
         var imageColIdx = DetectImageColumn(table);
 
-        // STRICT 1-to-1 matching: image sayısı TAM olarak data row'lardaki boş image-cell
-        // sayısına eşit olmalı. Eşit değilse "slide-down" riski (image B yanlış satıra düşer)
-        // → hepsini tablo altına bırak (eski güvenli davranış).
+        // Resimler boş image-hücrelerine Y-sırasında sırayla yerleştirilir. Sayfa sınırında
+        // bölünen tablolarda resim ve boş hücre sayıları eşleşmeyebilir; bu yüzden tam eşitlik
+        // aranmaz. Resim sayısı boş hücreden azsa kalan hücreler boş kalır, fazlaysa artan
+        // resimler tablo altına eklenir (aşağıdaki remaining bloğu).
         var dataRowEmptyCount = 0;
         if (imageColIdx >= 0)
         {
@@ -157,9 +158,7 @@ public sealed class MarkdownRenderer : IMarkdownRenderer
             }
         }
 
-        var canPlaceInCells = imageColIdx >= 0
-                           && block.Images.Count > 0
-                           && block.Images.Count == dataRowEmptyCount;
+        var canPlaceInCells = imageColIdx >= 0 && block.Images.Count > 0 && dataRowEmptyCount > 0;
 
         // Header
         sb.Append('|');
