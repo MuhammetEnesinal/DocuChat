@@ -67,8 +67,9 @@ public sealed class UserManagementService : IUserManagementService
         _logger.LogInformation("[UserManagement] Yeni kullanıcı oluşturuldu. UserId: {UserId}, Email: {Email}",
             user.Id, user.Email);
 
-        return Result<UserSummaryResponseDto>.Success(
-            user.Adapt<UserSummaryResponseDto>() with { Roles = roles });
+        var summaryDto = user.Adapt<UserSummaryResponseDto>();
+        summaryDto.Roles = roles;
+        return Result<UserSummaryResponseDto>.Success(summaryDto);
     }
 
     public async Task<Result<IReadOnlyList<UserSummaryResponseDto>>> GetAllUsersAsync(
@@ -82,7 +83,9 @@ public sealed class UserManagementService : IUserManagementService
         foreach (var user in users)
         {
             var roles = await _userManager.GetRolesAsync(user);
-            dtos.Add(user.Adapt<UserSummaryResponseDto>() with { Roles = roles });
+            var dto = user.Adapt<UserSummaryResponseDto>();
+            dto.Roles = roles;
+            dtos.Add(dto);
         }
 
         return Result<IReadOnlyList<UserSummaryResponseDto>>.Success(dtos);
@@ -151,8 +154,9 @@ public sealed class UserManagementService : IUserManagementService
         }
 
         var updatedRoles = await _userManager.GetRolesAsync(user);
-        return Result<UserSummaryResponseDto>.Success(
-            user.Adapt<UserSummaryResponseDto>() with { Roles = updatedRoles });
+        var updatedDto = user.Adapt<UserSummaryResponseDto>();
+        updatedDto.Roles = updatedRoles;
+        return Result<UserSummaryResponseDto>.Success(updatedDto);
     }
 
     public async Task<Result<bool>> DeleteUserAsync(string userId, CancellationToken ct = default)

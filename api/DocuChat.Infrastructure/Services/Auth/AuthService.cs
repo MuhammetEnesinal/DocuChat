@@ -45,12 +45,10 @@ public sealed class AuthService : IAuthService
         var roles = await _userManager.GetRolesAsync(user);
         var token = _jwtService.Generate(user, roles);
 
-        var dto = user.Adapt<AuthResponseDto>() with
-        {
-            Token = token,
-            ExpiresAt = DateTime.UtcNow.AddHours(24),
-            Roles = roles
-        };
+        var dto = user.Adapt<AuthResponseDto>();
+        dto.Token = token;
+        dto.ExpiresAt = DateTime.UtcNow.AddHours(24);
+        dto.Roles = roles;
         return Result<AuthResponseDto>.Success(dto);
     }
 
@@ -118,8 +116,9 @@ public sealed class AuthService : IAuthService
             return Result<UserSummaryResponseDto>.Failure(Error.NotFound("Kullanıcı bulunamadı."));
 
         var roles = await _userManager.GetRolesAsync(user);
-        return Result<UserSummaryResponseDto>.Success(
-            user.Adapt<UserSummaryResponseDto>() with { Roles = roles });
+        var dto = user.Adapt<UserSummaryResponseDto>();
+        dto.Roles = roles;
+        return Result<UserSummaryResponseDto>.Success(dto);
     }
 
     public async Task<Result<bool>> ChangePasswordAsync(

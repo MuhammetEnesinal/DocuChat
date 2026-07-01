@@ -2,7 +2,17 @@ using DocuChat.Domain.Entities;
 
 namespace DocuChat.Application.Interfaces.Repositories;
 
-public record CacheMatch(QuestionCache Cache, double Similarity);
+public class CacheMatch
+{
+    public QuestionCache Cache { get; set; }
+    public double Similarity { get; set; }
+
+    public CacheMatch(QuestionCache Cache, double Similarity)
+    {
+        this.Cache = Cache;
+        this.Similarity = Similarity;
+    }
+}
 
 public interface IQuestionCacheRepository : IRepository<QuestionCache>
 {

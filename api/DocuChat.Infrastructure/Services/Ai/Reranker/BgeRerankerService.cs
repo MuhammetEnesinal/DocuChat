@@ -125,15 +125,39 @@ public class BgeRerankerService : IRerankerService
         return list;
     }
 
-    private record RerankRequest(
-        [property: JsonPropertyName("query")] string Query,
-        [property: JsonPropertyName("documents")] List<string> Documents,
-        [property: JsonPropertyName("top_n")] int TopN);
+    private class RerankRequest
+    {
+        [JsonPropertyName("query")] public string Query { get; set; }
+        [JsonPropertyName("documents")] public List<string> Documents { get; set; }
+        [JsonPropertyName("top_n")] public int TopN { get; set; }
 
-    private record RerankResponse(
-        [property: JsonPropertyName("results")] List<RerankResultDto> Results);
+        public RerankRequest(string Query, List<string> Documents, int TopN)
+        {
+            this.Query = Query;
+            this.Documents = Documents;
+            this.TopN = TopN;
+        }
+    }
 
-    private record RerankResultDto(
-        [property: JsonPropertyName("index")] int Index,
-        [property: JsonPropertyName("score")] double Score);
+    private class RerankResponse
+    {
+        [JsonPropertyName("results")] public List<RerankResultDto> Results { get; set; }
+
+        public RerankResponse(List<RerankResultDto> Results)
+        {
+            this.Results = Results;
+        }
+    }
+
+    private class RerankResultDto
+    {
+        [JsonPropertyName("index")] public int Index { get; set; }
+        [JsonPropertyName("score")] public double Score { get; set; }
+
+        public RerankResultDto(int Index, double Score)
+        {
+            this.Index = Index;
+            this.Score = Score;
+        }
+    }
 }

@@ -1,10 +1,25 @@
-﻿namespace DocuChat.Application.DTOs.Chat;
+namespace DocuChat.Application.DTOs.Chat;
 
-public record ChatSessionResponseDto(
-    Guid Id,
-    string Title,
-    DateTime CreatedAt,
-    bool IsArchived = false,
-    DateTime? ArchivedAt = null,
-    bool IsPinned = false,
-    DateTime? PinnedAt = null);
+public class ChatSessionResponseDto
+{
+    public Guid Id { get; set; }
+    public string Title { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public bool IsArchived { get; set; }
+    public DateTime? ArchivedAt { get; set; }
+    public bool IsPinned { get; set; }
+    public DateTime? PinnedAt { get; set; }
+
+    public ChatSessionResponseDto(
+        Guid Id, string Title, DateTime CreatedAt, bool IsArchived = false,
+        DateTime? ArchivedAt = null, bool IsPinned = false, DateTime? PinnedAt = null)
+    {
+        this.Id = Id;
+        this.Title = Title;
+        this.CreatedAt = CreatedAt;
+        this.IsArchived = IsArchived;
+        this.ArchivedAt = ArchivedAt;
+        this.IsPinned = IsPinned;
+        this.PinnedAt = PinnedAt;
+    }
+}

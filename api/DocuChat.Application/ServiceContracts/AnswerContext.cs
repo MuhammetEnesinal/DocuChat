@@ -4,7 +4,17 @@ namespace DocuChat.Application.ServiceContracts;
 /// LLM cevabında korunacak görsel işaretinin (<c>[[IMG-K]]</c>) çözüm bilgisi.
 /// K (global sıra no) → bu kayıt. Path: /uploads altındaki dosya; Caption: Pixtral açıklaması (alt text).
 /// </summary>
-public sealed record AnswerImageRef(string Path, string? Caption);
+public class AnswerImageRef
+{
+    public string Path { get; set; }
+    public string? Caption { get; set; }
+
+    public AnswerImageRef(string Path, string? Caption)
+    {
+        this.Path = Path;
+        this.Caption = Caption;
+    }
+}
 
 /// <summary>
 /// Cevap üretimi için hazırlanmış LLM context'i. ChatUseCase önce bunu kurar (BuildAnswerContext),
@@ -15,11 +25,22 @@ public sealed record AnswerImageRef(string Path, string? Caption);
 /// olduğu yerde korur. Görseli KOD yerleştirir (deterministik). Bu sayede LLM'in markdown'ı
 /// bozması / atlaması / yanlış görsel koyması sorunu ortadan kalkar.
 /// </summary>
-public sealed record AnswerContext(
-    string Context,
-    IReadOnlyList<string> VisionImageUrls,
-    IReadOnlyDictionary<int, AnswerImageRef> ImageMap)
+public class AnswerContext
 {
+    public string Context { get; set; }
+    public IReadOnlyList<string> VisionImageUrls { get; set; }
+    public IReadOnlyDictionary<int, AnswerImageRef> ImageMap { get; set; }
+
+    public AnswerContext(
+        string Context,
+        IReadOnlyList<string> VisionImageUrls,
+        IReadOnlyDictionary<int, AnswerImageRef> ImageMap)
+    {
+        this.Context = Context;
+        this.VisionImageUrls = VisionImageUrls;
+        this.ImageMap = ImageMap;
+    }
+
     public static AnswerContext Empty { get; } =
         new(string.Empty, Array.Empty<string>(), new Dictionary<int, AnswerImageRef>());
 }

@@ -1,3 +1,11 @@
 namespace DocuChat.Application.DTOs.Chat;
 
-public record RenameSessionRequestDto(string Title);
+public class RenameSessionRequestDto
+{
+    public string Title { get; set; }
+
+    public RenameSessionRequestDto(string Title)
+    {
+        this.Title = Title;
+    }
+}

@@ -224,17 +224,34 @@ public class VectorSearchService : IVectorSearch
         return result;
     }
 
-    // Tuple yerine named record — okunabilirlik için. Internal use only.
-    private sealed record MatchedChunk(
-        Guid Id,
-        Guid DocumentId,
-        string FileName,
-        string Content,
-        string? Header,
-        int? PageNumber,
-        Guid? PrevId,
-        Guid? NextId,
-        List<string> ImagePaths);
+    // Tuple yerine named class — okunabilirlik için. Internal use only.
+    private class MatchedChunk
+    {
+        public Guid Id { get; set; }
+        public Guid DocumentId { get; set; }
+        public string FileName { get; set; }
+        public string Content { get; set; }
+        public string? Header { get; set; }
+        public int? PageNumber { get; set; }
+        public Guid? PrevId { get; set; }
+        public Guid? NextId { get; set; }
+        public List<string> ImagePaths { get; set; }
+
+        public MatchedChunk(
+            Guid Id, Guid DocumentId, string FileName, string Content, string? Header,
+            int? PageNumber, Guid? PrevId, Guid? NextId, List<string> ImagePaths)
+        {
+            this.Id = Id;
+            this.DocumentId = DocumentId;
+            this.FileName = FileName;
+            this.Content = Content;
+            this.Header = Header;
+            this.PageNumber = PageNumber;
+            this.PrevId = PrevId;
+            this.NextId = NextId;
+            this.ImagePaths = ImagePaths;
+        }
+    }
 
     /// <summary>
     /// Match'lerin PrevChunkId/NextChunkId komşularını yükler, içeriklerini stitch eder.

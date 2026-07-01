@@ -175,7 +175,8 @@ public class DocumentParserService : IDocumentParser
                     : string.Empty;
             });
 
-            mistralPages[i] = mp with { Markdown = md };
+            mp.Markdown = md;
+            mistralPages[i] = mp;
         }
 
         // ═══════════════════════════════════════════════════════════════════
@@ -565,7 +566,21 @@ public class DocumentParserService : IDocumentParser
 
     // ImageHashes: Mistral'in bu sayfada yakaladığı görsellerin SHA256 hash'leri.
     // PdfPig fallback'i aynı hash'li görselleri atlar, böylece disk israfı olmaz.
-    private record MistralPage(int Index, string Markdown, List<string> FigurePaths, HashSet<string> ImageHashes);
+    private class MistralPage
+    {
+        public int Index { get; set; }
+        public string Markdown { get; set; }
+        public List<string> FigurePaths { get; set; }
+        public HashSet<string> ImageHashes { get; set; }
+
+        public MistralPage(int Index, string Markdown, List<string> FigurePaths, HashSet<string> ImageHashes)
+        {
+            this.Index = Index;
+            this.Markdown = Markdown;
+            this.FigurePaths = FigurePaths;
+            this.ImageHashes = ImageHashes;
+        }
+    }
 
     // 20MB üstü belgeleri /v1/files endpoint'ine multipart upload eder; base64 inline yerine
     // signed URL kullanılır → request body ~67MB string allocation kaybolur. Küçük dosyalarda
@@ -821,7 +836,17 @@ public class DocumentParserService : IDocumentParser
         return result;
     }
 
-    private record PreparedDoc(byte[] Bytes, List<string> Paths);
+    private class PreparedDoc
+    {
+        public byte[] Bytes { get; set; }
+        public List<string> Paths { get; set; }
+
+        public PreparedDoc(byte[] Bytes, List<string> Paths)
+        {
+            this.Bytes = Bytes;
+            this.Paths = Paths;
+        }
+    }
 
 
     private async Task<PreparedDoc> PrepareXlsxWithPlaceholdersAsync(byte[] originalBytes)

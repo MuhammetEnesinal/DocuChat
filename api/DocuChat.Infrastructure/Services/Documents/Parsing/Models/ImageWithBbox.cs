@@ -1,12 +1,27 @@
-﻿namespace DocuChat.Infrastructure.Services.Documents.Parsing.Models;
+namespace DocuChat.Infrastructure.Services.Documents.Parsing.Models;
 
-public sealed record ImageWithBbox(
-    string Path,
-    int PageNumber,
-    double NormY,
-    double NormX,
-    string Source,
-    bool PlacedInMarkdown = false)
+public class ImageWithBbox
 {
-    public bool PlacedInMarkdown { get; set; } = PlacedInMarkdown;
+    public string Path { get; set; }
+    public int PageNumber { get; set; }
+    public double NormY { get; set; }
+    public double NormX { get; set; }
+    public string Source { get; set; }
+    public bool PlacedInMarkdown { get; set; }
+
+    public ImageWithBbox(
+        string Path,
+        int PageNumber,
+        double NormY,
+        double NormX,
+        string Source,
+        bool PlacedInMarkdown = false)
+    {
+        this.Path = Path;
+        this.PageNumber = PageNumber;
+        this.NormY = NormY;
+        this.NormX = NormX;
+        this.Source = Source;
+        this.PlacedInMarkdown = PlacedInMarkdown;
+    }
 }

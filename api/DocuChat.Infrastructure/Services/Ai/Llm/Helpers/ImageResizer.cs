@@ -1,7 +1,17 @@
 namespace DocuChat.Infrastructure.Services.Ai.Llm.Helpers;
 
 /// <summary>Resize sonucu: bytes + gerçek MIME (resize edildi ise her zaman image/jpeg).</summary>
-internal readonly record struct ResizedImage(byte[] Bytes, string MimeType);
+internal class ResizedImage
+{
+    public byte[] Bytes { get; set; }
+    public string MimeType { get; set; }
+
+    public ResizedImage(byte[] Bytes, string MimeType)
+    {
+        this.Bytes = Bytes;
+        this.MimeType = MimeType;
+    }
+}
 
 internal static class ImageResizer
 {

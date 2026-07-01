@@ -1,7 +1,18 @@
-﻿namespace DocuChat.Application.Common.Results;
+namespace DocuChat.Application.Common.Results;
 
-public record Error(string Code, string Message, int StatusCode)
+public class Error
 {
+    public string Code { get; set; }
+    public string Message { get; set; }
+    public int StatusCode { get; set; }
+
+    public Error(string Code, string Message, int StatusCode)
+    {
+        this.Code = Code;
+        this.Message = Message;
+        this.StatusCode = StatusCode;
+    }
+
     public static Error None => new(string.Empty, string.Empty, 0);
     public static Error NotFound(string msg) => new("NOT_FOUND", msg, 404);
     public static Error Validation(string msg) => new("VALIDATION", msg, 422);

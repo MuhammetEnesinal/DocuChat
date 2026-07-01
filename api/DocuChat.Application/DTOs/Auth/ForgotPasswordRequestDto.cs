@@ -1,3 +1,11 @@
 namespace DocuChat.Application.DTOs.Auth;
 
-public record ForgotPasswordRequestDto(string Email);
+public class ForgotPasswordRequestDto
+{
+    public string Email { get; set; }
+
+    public ForgotPasswordRequestDto(string Email)
+    {
+        this.Email = Email;
+    }
+}

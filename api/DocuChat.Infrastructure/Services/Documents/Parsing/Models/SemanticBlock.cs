@@ -17,8 +17,8 @@ public sealed class SemanticBlock
 
     public string TextContent { get; set; } = string.Empty;
     public List<string> ListItems { get; } = new();
-    public bool IsOrdered { get; init; }
-    public StructuredTable? Table { get; init; }
+    public bool IsOrdered { get; set; }
+    public StructuredTable? Table { get; set; }
     public List<ImageWithBbox> Images { get; } = new();
 
     /// <summary>
@@ -27,7 +27,7 @@ public sealed class SemanticBlock
     /// Renderer numbering = StartIndex + i + 1 → orijinal numarayla render edilir.
     /// Default 0 → "1."'den başlar (normal liste).
     /// </summary>
-    public int StartIndex { get; init; }
+    public int StartIndex { get; set; }
 
     /// <summary>
     /// Mistral OCR markdown'ının bu block'a karşılık gelen TAM substring'i.

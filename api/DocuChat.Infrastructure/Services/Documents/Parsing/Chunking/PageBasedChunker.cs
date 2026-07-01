@@ -304,9 +304,18 @@ public sealed class PageBasedChunker
 }
 
 /// <summary>
-/// PageBasedChunker'ın input record'u — Mistral OCR çıktısı + PdfPig fallback görselleri.
+/// PageBasedChunker'ın input sınıfı — Mistral OCR çıktısı + PdfPig fallback görselleri.
 /// </summary>
-public sealed record PageInput(
-    int PageNumber,
-    string Markdown,
-    IReadOnlyList<string> FallbackImagePaths);
+public class PageInput
+{
+    public int PageNumber { get; set; }
+    public string Markdown { get; set; }
+    public IReadOnlyList<string> FallbackImagePaths { get; set; }
+
+    public PageInput(int PageNumber, string Markdown, IReadOnlyList<string> FallbackImagePaths)
+    {
+        this.PageNumber = PageNumber;
+        this.Markdown = Markdown;
+        this.FallbackImagePaths = FallbackImagePaths;
+    }
+}

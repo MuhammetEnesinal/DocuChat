@@ -1,3 +1,11 @@
 namespace DocuChat.Application.DTOs.Auth;
 
-public record BatchUserDeleteRequestDto(IEnumerable<string> Ids);
+public class BatchUserDeleteRequestDto
+{
+    public IEnumerable<string> Ids { get; set; }
+
+    public BatchUserDeleteRequestDto(IEnumerable<string> Ids)
+    {
+        this.Ids = Ids;
+    }
+}
