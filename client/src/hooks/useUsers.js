@@ -12,7 +12,7 @@ export function useUsers() {
     const [userSearch, setUserSearch] = useState('');
     const [showUserModal, setShowUserModal] = useState(false);
     const [editingUser, setEditingUser] = useState(null);
-    const [userForm, setUserFormState] = useState({ fullName: '', email: '', password: '' });
+    const [userForm, setUserFormState] = useState({ fullName: '', email: '', personnelCode: '' });
     const [userFormError, setUserFormError] = useState('');
     const [userFormLoading, setUserFormLoading] = useState(false);
     const toast = useToast();
@@ -32,7 +32,7 @@ export function useUsers() {
 
     const openAddModal = useCallback(() => {
         setEditingUser(null);
-        setUserFormState({ fullName: '', email: '', password: '' });
+        setUserFormState({ fullName: '', email: '', personnelCode: '' });
         setUserFormError('');
         setShowUserModal(true);
     }, []);
@@ -58,7 +58,7 @@ export function useUsers() {
                 await adminUpdateUser(editingUser.id, userForm.fullName, userForm.email, userForm.password);
                 toast.success(`"${userForm.fullName}" güncellendi.`);
             } else {
-                await adminCreateUser(userForm.fullName, userForm.email, userForm.password);
+                await adminCreateUser(userForm.fullName, userForm.email, userForm.personnelCode);
                 toast.success(`"${userForm.fullName}" oluşturuldu.`);
             }
             closeUserModal();

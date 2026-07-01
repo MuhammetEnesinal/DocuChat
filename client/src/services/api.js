@@ -217,8 +217,8 @@ export const submitFeedback = ({ messageId, rating, categories = null, reasonTex
 export const adminGetUsers = () =>
     api.get('/admin/users');
 
-export const adminCreateUser = (fullName, email, password) =>
-    api.post('/admin/users', { fullName, email, password });
+export const adminCreateUser = (fullName, email, personnelCode) =>
+    api.post('/admin/users', { fullName, email, personnelCode });
 
 export const adminUpdateUser = (id, fullName, email, password) =>
     api.put(`/admin/users/${id}`, { fullName, email, password: password || null });

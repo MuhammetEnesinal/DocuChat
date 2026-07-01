@@ -23,17 +23,20 @@ public sealed class UserManagementService : IUserManagementService
     private readonly UserManager<AppUser> _userManager;
     private readonly IEmailService _emailService;
     private readonly IValidator<RegisterRequestDto> _registerValidator;
+    private readonly IDbExceptionInspector _dbExceptionInspector;
     private readonly ILogger<UserManagementService> _logger;
 
     public UserManagementService(
         UserManager<AppUser> userManager,
         IEmailService emailService,
         IValidator<RegisterRequestDto> registerValidator,
+        IDbExceptionInspector dbExceptionInspector,
         ILogger<UserManagementService> logger)
     {
         _userManager = userManager;
         _emailService = emailService;
         _registerValidator = registerValidator;
+        _dbExceptionInspector = dbExceptionInspector;
         _logger = logger;
     }
 
@@ -44,14 +47,31 @@ public sealed class UserManagementService : IUserManagementService
             return Result<UserSummaryResponseDto>.Failure(
                 Error.Conflict("Bu e-posta zaten kayıtlı."));
 
+        if (await _userManager.Users.AnyAsync(u => u.PersonnelCode == req.PersonnelCode, ct))
+            return Result<UserSummaryResponseDto>.Failure(
+                Error.Conflict("Bu personel kodu zaten kullanılıyor."));
+
         var user = new AppUser
         {
             UserName = req.Email,
             Email = req.Email,
             FullName = req.FullName,
+            PersonnelCode = req.PersonnelCode,
         };
 
-        var result = await _userManager.CreateAsync(user, req.Password);
+        // Personel kodu, kullanıcının İLK ŞİFRESİ olarak kullanılır.
+        IdentityResult result;
+        try
+        {
+            result = await _userManager.CreateAsync(user, req.PersonnelCode);
+        }
+        catch (Exception ex) when (_dbExceptionInspector.IsUniqueConstraintViolation(ex))
+        {
+            // Race: AnyAsync kontrolünden sonra başka istek aynı personel kodunu ekledi →
+            // unique index reddetti. 500 yerine dostça mesaj.
+            return Result<UserSummaryResponseDto>.Failure(
+                Error.Conflict("Bu personel kodu zaten kullanılıyor."));
+        }
         if (!result.Succeeded)
         {
             var msg = string.Join(", ", result.Errors.Select(e => e.Description));
@@ -62,7 +82,7 @@ public sealed class UserManagementService : IUserManagementService
         var roles = await _userManager.GetRolesAsync(user);
 
         // Welcome mail fire-and-forget — SMTP hatası user oluşturmayı engellemesin
-        _ = SendWelcomeEmailAsync(user, req.Password, ct);
+        _ = SendWelcomeEmailAsync(user, req.PersonnelCode, ct);
 
         _logger.LogInformation("[UserManagement] Yeni kullanıcı oluşturuldu. UserId: {UserId}, Email: {Email}",
             user.Id, user.Email);
@@ -271,7 +291,7 @@ public sealed class UserManagementService : IUserManagementService
             if (row is null) continue;  // tamamen boş satır
 
             totalRows++;
-            var result = await ProcessImportRowAsync(rowNum, row.Value.FullName, row.Value.Email, row.Value.Password, ct);
+            var result = await ProcessImportRowAsync(rowNum, row.Value.FullName, row.Value.Email, row.Value.PersonnelCode, ct);
             results.Add(result);
             if (result.Status == "success") successCount++; else skippedCount++;
         }
@@ -343,7 +363,7 @@ public sealed class UserManagementService : IUserManagementService
 
                 totalRows++;
                 processed++;
-                var result = await ProcessImportRowAsync(rowNum, row.Value.FullName, row.Value.Email, row.Value.Password, ct);
+                var result = await ProcessImportRowAsync(rowNum, row.Value.FullName, row.Value.Email, row.Value.PersonnelCode, ct);
                 results.Add(result);
                 if (result.Status == "success") successCount++; else skippedCount++;
 
@@ -372,29 +392,29 @@ public sealed class UserManagementService : IUserManagementService
     }
 
     // Tek satır okur, tamamen boşsa null döner.
-    private static (string FullName, string Email, string Password)? ReadRow(
+    private static (string FullName, string Email, string PersonnelCode)? ReadRow(
         IXLWorksheet worksheet, int rowNum)
     {
         var row = worksheet.Row(rowNum);
         var fullName = row.Cell(1).GetString().Trim();
         var email = row.Cell(2).GetString().Trim();
-        var password = row.Cell(3).GetString();
+        var personnelCode = row.Cell(3).GetString().Trim();
 
         if (string.IsNullOrWhiteSpace(fullName)
             && string.IsNullOrWhiteSpace(email)
-            && string.IsNullOrWhiteSpace(password))
+            && string.IsNullOrWhiteSpace(personnelCode))
         {
             return null;
         }
-        return (fullName, email, password);
+        return (fullName, email, personnelCode);
     }
 
     // Tek satır işler — validate, email check, create user, mail. Sonuç DTO döner.
     // Hem sync hem streaming variant bu metodu kullanır (DRY).
     private async Task<BulkImportUserResultDto> ProcessImportRowAsync(
-        int rowNum, string fullName, string email, string password, CancellationToken ct)
+        int rowNum, string fullName, string email, string personnelCode, CancellationToken ct)
     {
-        var dto = new RegisterRequestDto(fullName, email, password);
+        var dto = new RegisterRequestDto(fullName, email, personnelCode);
 
         var validation = await _registerValidator.ValidateAsync(dto, ct);
         if (!validation.IsValid)
@@ -406,13 +426,27 @@ public sealed class UserManagementService : IUserManagementService
         if (await _userManager.FindByEmailAsync(email) is not null)
             return new BulkImportUserResultDto(rowNum, email, "skipped", "Bu e-posta zaten kayıtlı.");
 
+        if (await _userManager.Users.AnyAsync(u => u.PersonnelCode == personnelCode, ct))
+            return new BulkImportUserResultDto(rowNum, email, "skipped", "Bu personel kodu zaten kullanılıyor.");
+
         var user = new AppUser
         {
             UserName = email,
             Email = email,
             FullName = fullName,
+            PersonnelCode = personnelCode,
         };
-        var createResult = await _userManager.CreateAsync(user, password);
+        // Personel kodu, kullanıcının ilk şifresi olarak kullanılır.
+        IdentityResult createResult;
+        try
+        {
+            createResult = await _userManager.CreateAsync(user, personnelCode);
+        }
+        catch (Exception ex) when (_dbExceptionInspector.IsUniqueConstraintViolation(ex))
+        {
+            // Race: aynı personel kodu paralel eklendi → unique index reddetti.
+            return new BulkImportUserResultDto(rowNum, email, "skipped", "Bu personel kodu zaten kullanılıyor.");
+        }
         if (!createResult.Succeeded)
         {
             var reason = string.Join(", ", createResult.Errors.Select(e => e.Description));
@@ -422,7 +456,7 @@ public sealed class UserManagementService : IUserManagementService
         await _userManager.AddToRoleAsync(user, Roles.User);
 
         // Welcome mail fire-and-forget (SMTP hatası bulk'u durdurmaz)
-        _ = SendWelcomeEmailAsync(user, password, CancellationToken.None);
+        _ = SendWelcomeEmailAsync(user, personnelCode, CancellationToken.None);
 
         return new BulkImportUserResultDto(rowNum, email, "success", null);
     }
@@ -435,7 +469,7 @@ public sealed class UserManagementService : IUserManagementService
         // Header satırı (1)
         ws.Cell(1, 1).Value = "Ad Soyad";
         ws.Cell(1, 2).Value = "E-posta";
-        ws.Cell(1, 3).Value = "Şifre";
+        ws.Cell(1, 3).Value = "Personel Kodu";
 
         var headerRange = ws.Range(1, 1, 1, 3);
         headerRange.Style.Font.Bold = true;
@@ -445,7 +479,7 @@ public sealed class UserManagementService : IUserManagementService
         // Örnek satır (2) — admin görüp formatı anlasın
         ws.Cell(2, 1).Value = "Ahmet Yılmaz";
         ws.Cell(2, 2).Value = "ahmet@firma.com";
-        ws.Cell(2, 3).Value = "Gecici123!";
+        ws.Cell(2, 3).Value = "EMP1001";
 
         // Yardımcı satır (3) — kurallar
         ws.Cell(4, 1).Value = "ŞIFRE KURALLARI:";
@@ -487,11 +521,11 @@ public sealed class UserManagementService : IUserManagementService
                   <td style="padding:8px 12px;background:#f8fafc;border-radius:0 4px 4px 0">{user.Email}</td>
                 </tr>
                 <tr>
-                  <td style="padding:8px 12px;background:#f1f5f9;font-weight:600;border-radius:4px 0 0 4px">Şifre</td>
+                  <td style="padding:8px 12px;background:#f1f5f9;font-weight:600;border-radius:4px 0 0 4px">Personel Kodu (İlk Şifre)</td>
                   <td style="padding:8px 12px;background:#f8fafc;border-radius:0 4px 4px 0">{password}</td>
                 </tr>
               </table>
-              <p style="color:#64748b;font-size:13px">İlk girişten sonra şifrenizi değiştirmenizi öneririz.</p>
+              <p style="color:#64748b;font-size:13px">İlk şifreniz personel kodunuzdur. İlk girişten sonra şifrenizi değiştirmenizi öneririz.</p>
             </div>
             """;
 

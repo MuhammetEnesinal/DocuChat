@@ -39,7 +39,14 @@ public static class DependencyInjection
         // Identity
         services.AddIdentity<AppUser, AppRole>(o =>
         {
-            o.Password.RequiredLength = 8;
+            // Personel kodu (örn. EMP1001) yeni kullanıcının İLK ŞİFRESİ olarak kullanılıyor.
+            // Bu yüzden şifre kuralları gevşetildi: büyük/küçük harf + sembol zorunluluğu yok,
+            // sadece minimum uzunluk. (Kullanıcı ilk girişte şifresini değiştirebilir.)
+            o.Password.RequiredLength = 6;
+            o.Password.RequireDigit = false;
+            o.Password.RequireLowercase = false;
+            o.Password.RequireUppercase = false;
+            o.Password.RequireNonAlphanumeric = false;
             o.User.RequireUniqueEmail = true;
         })
         .AddEntityFrameworkStores<AppDbContext>()

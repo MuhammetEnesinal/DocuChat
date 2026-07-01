@@ -23,5 +23,10 @@ public class AppDbContext : IdentityDbContext<AppUser, AppRole, string>
         base.OnModelCreating(builder);
         builder.HasPostgresExtension("vector");
         builder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+
+        // Personel kodu benzersiz olmalı. Nullable → PostgreSQL'de null'lar çakışmaz (eski kayıtlar OK).
+        builder.Entity<AppUser>()
+            .HasIndex(u => u.PersonnelCode)
+            .IsUnique();
     }
 }

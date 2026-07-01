@@ -56,6 +56,7 @@ export default function Profile() {
                         userId: fresh.id,
                         email: fresh.email,
                         fullName: fresh.fullName,
+                        personnelCode: fresh.personnelCode,
                         roles: fresh.roles,
                         createdAt: fresh.createdAt,
                     });
@@ -174,7 +175,7 @@ export default function Profile() {
                             </div>
                         </InfoField>
                         <InfoField label="Üyelik Tarihi" value={user?.createdAt ? formatDate(user.createdAt) : '—'} />
-                        <InfoField label="Kullanıcı ID" value={user?.userId || '—'} mono />
+                        <InfoField label="Personel Kodu" value={user?.personnelCode || '—'} mono />
                     </div>
                 </section>
 

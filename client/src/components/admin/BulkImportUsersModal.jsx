@@ -62,7 +62,7 @@ export default function BulkImportUsersModal({
                                 Excel Şablonu
                             </p>
                             <p className="text-xs mt-1" style={{ color: 'var(--gray-light)' }}>
-                                Sütunlar: <strong>Ad Soyad, E-posta, Şifre</strong> — Şifre kuralları şablonun içinde.
+                                Sütunlar: <strong>Ad Soyad, E-posta, Personel Kodu</strong> — Personel kodu ilk şifre olarak kullanılır.
                             </p>
                         </div>
                         <button
@@ -231,7 +231,7 @@ export default function BulkImportUsersModal({
 
                         {/* Per-row detay */}
                         <div className="rounded-lg overflow-hidden"
-                            style={{ border: '1px solid rgba(255,255,255,0.08)', maxHeight: '300px', overflowY: 'auto' }}>
+                            style={{ border: '1px solid rgba(255,255,255,0.08)', maxHeight: '300px', overflowY: 'auto', overflowX: 'auto' }}>
                             <table className="w-full text-xs">
                                 <thead style={{ background: 'rgba(255,255,255,0.04)', position: 'sticky', top: 0 }}>
                                     <tr>
