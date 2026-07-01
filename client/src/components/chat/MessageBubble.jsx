@@ -160,6 +160,65 @@ function StatusIndicator({ text }) {
     );
 }
 
+// Modül seviyesinde (MessageBubble İÇİNDE değil) — böylece her render'da yeniden tanımlanmaz;
+// resim remount olmaz, 404 döngüsü oluşmaz. Backend ![alt](/uploads/img.jpg) → ReactMarkdown <img>
+// → bu component. Kullanıcı URL'yi görmez.
+function ClickableImage({ src, alt = 'görsel', inTable = false, onOpen }) {
+    const [broken, setBroken] = useState(false);
+    const fullSrc = src?.startsWith('http') ? src : `${API_BASE}${src}`;
+
+    // Kırık resim (belge silindi/yeniden işlendi → 404): resmi GİZLEMEK yerine SABİT boyutlu
+    // placeholder göster. Yükseklik değişmediği için virtual list (Virtuoso) mesajı yeniden
+    // ölçmez → sohbet titremesi/kaymasi olmaz.
+    if (broken) {
+        return (
+            <div style={{
+                width: inTable ? 120 : 200,
+                height: inTable ? 120 : 120,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                textAlign: 'center', padding: 6, boxSizing: 'border-box',
+                background: 'var(--surface3, #1e293b)',
+                border: '1px dashed var(--border)',
+                borderRadius: inTable ? 6 : 10,
+                color: 'rgba(255,255,255,0.4)', fontSize: 11, lineHeight: 1.3,
+                margin: inTable ? 0 : '8px 0',
+            }}>
+                görsel artık mevcut değil
+            </div>
+        );
+    }
+
+    return (
+        <img
+            src={fullSrc}
+            alt={alt}
+            onClick={() => onOpen(fullSrc)}
+            onError={() => setBroken(true)}
+            style={{
+                display: 'block',
+                width: inTable ? '120px' : 'auto',
+                height: inTable ? '120px' : 'auto',
+                maxWidth: inTable ? '120px' : '360px',
+                maxHeight: inTable ? '120px' : '280px',
+                objectFit: 'contain',
+                borderRadius: inTable ? '6px' : '10px',
+                border: '1px solid var(--border)',
+                cursor: 'zoom-in',
+                transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+                margin: inTable ? '0' : '8px 0',
+            }}
+            onMouseEnter={e => {
+                e.currentTarget.style.transform = 'scale(1.02)';
+                e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.25)';
+            }}
+            onMouseLeave={e => {
+                e.currentTarget.style.transform = 'scale(1)';
+                e.currentTarget.style.boxShadow = 'none';
+            }}
+        />
+    );
+}
+
 export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarificationSelect, onClarificationDismiss, onFollowUpSelect, onFeedbackGiven }) {
     const isUser = msg.role === 'User';
     const images = msg.images || [];
@@ -209,43 +268,6 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
 
     if (msg.isClarification) return <ClarificationBubble msg={msg} onClarificationSelect={onClarificationSelect} onClarificationDismiss={onClarificationDismiss} />;
 
-    // Backend standart markdown image syntax üretir: ![alt](/uploads/img_xyz.jpg). ReactMarkdown
-    // bunu <img>'ye çevirir; custom 'img' component'i ile ClickableImage olarak render edilir.
-    // Kullanıcı URL'yi görmez, sadece görseli.
-    const ClickableImage = ({ src, alt = 'görsel', inTable = false }) => {
-        // Relative path geldiyse API_BASE prefix ekle (örn. /uploads/img.jpg → http://localhost/uploads/img.jpg)
-        const fullSrc = src?.startsWith('http') ? src : `${API_BASE}${src}`;
-        return (
-            <img
-                src={fullSrc}
-                alt={alt}
-                onClick={() => setModalSrc(fullSrc)}
-                onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                style={{
-                    display: 'block',
-                    width: inTable ? '120px' : 'auto',
-                    height: inTable ? '120px' : 'auto',
-                    maxWidth: inTable ? '120px' : '360px',
-                    maxHeight: inTable ? '120px' : '280px',
-                    objectFit: 'contain',
-                    borderRadius: inTable ? '6px' : '10px',
-                    border: '1px solid var(--border)',
-                    cursor: 'zoom-in',
-                    transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-                    margin: inTable ? '0' : '8px 0',
-                }}
-                onMouseEnter={e => {
-                    e.currentTarget.style.transform = 'scale(1.02)';
-                    e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.25)';
-                }}
-                onMouseLeave={e => {
-                    e.currentTarget.style.transform = 'scale(1)';
-                    e.currentTarget.style.boxShadow = 'none';
-                }}
-            />
-        );
-    };
-
     const components = {
         code({ className, children }) {
             const match = /language-(\w+)/.exec(className || '');
@@ -264,7 +286,7 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
             <div className="table-wrapper"><table {...props} /></div>
         ),
         // Standart markdown image → ClickableImage (modal + hover efekti)
-        img: ({ src, alt }) => <ClickableImage src={src} alt={alt} inTable={false} />,
+        img: ({ src, alt }) => <ClickableImage src={src} alt={alt} inTable={false} onOpen={setModalSrc} />,
         // Tablo hücresinde sadece img varsa → small inTable görseli
         td: ({ node, children, ...props }) => {
             // Eğer td'nin tek child'ı bir img ise inTable=true ile render et
@@ -273,7 +295,7 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
                 const imgNode = node.children[0];
                 return (
                     <td {...props}>
-                        <ClickableImage src={imgNode.properties?.src} alt={imgNode.properties?.alt} inTable={true} />
+                        <ClickableImage src={imgNode.properties?.src} alt={imgNode.properties?.alt} inTable={true} onOpen={setModalSrc} />
                     </td>
                 );
             }
