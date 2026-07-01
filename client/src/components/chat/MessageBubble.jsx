@@ -160,23 +160,31 @@ function StatusIndicator({ text }) {
     );
 }
 
+// Kırık (404) görsel path'lerini modül seviyesinde hatırla → aynı görsel her yeniden render'da
+// tekrar yüklenip tekrar 404 vermesin (console spam + gereksiz istek). Bir kez 404 → hep placeholder.
+const brokenImageCache = new Set();
+
 // Modül seviyesinde (MessageBubble İÇİNDE değil) — böylece her render'da yeniden tanımlanmaz;
 // resim remount olmaz, 404 döngüsü oluşmaz. Backend ![alt](/uploads/img.jpg) → ReactMarkdown <img>
 // → bu component. Kullanıcı URL'yi görmez.
 function ClickableImage({ src, alt = 'görsel', inTable = false, onOpen }) {
-    const [broken, setBroken] = useState(false);
     const fullSrc = src?.startsWith('http') ? src : `${API_BASE}${src}`;
+    // Daha önce 404 verdiyse hiç yükleme, doğrudan placeholder ile başla.
+    const [broken, setBroken] = useState(() => brokenImageCache.has(fullSrc));
 
     // Kırık resim (belge silindi/yeniden işlendi → 404): resmi GİZLEMEK yerine SABİT boyutlu
     // placeholder göster. Yükseklik değişmediği için virtual list (Virtuoso) mesajı yeniden
     // ölçmez → sohbet titremesi/kaymasi olmaz.
     if (broken) {
+        // <span> (block <div> değil) — markdown görseli <p> içinde olduğu için block element
+        // konulamaz (geçersiz HTML → hydration hatası). inline-flex ile sabit boyut korunur.
         return (
-            <div style={{
-                width: inTable ? 120 : 200,
+            <span style={{
+                width: inTable ? 120 : 'min(200px, 100%)',
                 height: inTable ? 120 : 120,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                 textAlign: 'center', padding: 6, boxSizing: 'border-box',
+                verticalAlign: 'middle',
                 background: 'var(--surface3, #1e293b)',
                 border: '1px dashed var(--border)',
                 borderRadius: inTable ? 6 : 10,
@@ -184,7 +192,7 @@ function ClickableImage({ src, alt = 'görsel', inTable = false, onOpen }) {
                 margin: inTable ? 0 : '8px 0',
             }}>
                 görsel artık mevcut değil
-            </div>
+            </span>
         );
     }
 
@@ -193,12 +201,12 @@ function ClickableImage({ src, alt = 'görsel', inTable = false, onOpen }) {
             src={fullSrc}
             alt={alt}
             onClick={() => onOpen(fullSrc)}
-            onError={() => setBroken(true)}
+            onError={() => { brokenImageCache.add(fullSrc); setBroken(true); }}
             style={{
                 display: 'block',
                 width: inTable ? '120px' : 'auto',
                 height: inTable ? '120px' : 'auto',
-                maxWidth: inTable ? '120px' : '360px',
+                maxWidth: inTable ? '120px' : 'min(360px, 100%)',
                 maxHeight: inTable ? '120px' : '280px',
                 objectFit: 'contain',
                 borderRadius: inTable ? '6px' : '10px',

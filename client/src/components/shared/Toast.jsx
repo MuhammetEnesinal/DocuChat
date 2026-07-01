@@ -43,7 +43,7 @@ function ToastItem({ toast, onRemove }) {
             background: c.bg, border: `1px solid ${c.border}`,
             boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
             animation: 'slideIn 0.2s ease',
-            maxWidth: '340px', minWidth: '240px',
+            maxWidth: 'min(340px, calc(100vw - 24px))', minWidth: 'min(240px, calc(100vw - 24px))',
         }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
                 stroke={c.icon} strokeWidth="2.5" style={{ flexShrink: 0, marginTop: '1px' }}>
