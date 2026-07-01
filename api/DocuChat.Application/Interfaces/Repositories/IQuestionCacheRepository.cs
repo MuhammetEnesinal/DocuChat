@@ -24,9 +24,6 @@ public interface IQuestionCacheRepository : IRepository<QuestionCache>
 
     Task IncrementHitAsync(Guid id, CancellationToken ct = default);
 
-    /// <summary>Tüm cache'i temizler. Toplu reset için (örn. global config değişikliği).</summary>
-    Task ClearAllAsync(CancellationToken ct = default);
-
     Task<IReadOnlyList<string>> GetTopByHitCountAsync(int limit, CancellationToken ct = default);
 
     /// <summary>maxAge süresi geçmiş, hiç kullanılmayan cache kayıtlarını siler.</summary>

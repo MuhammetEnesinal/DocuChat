@@ -427,33 +427,6 @@ public class LlmService : ILlmService
         return s;
     }
 
-    public async Task<string> GenerateChunkContextAsync(
-        string documentSummary,
-        string? sectionHeader,
-        string chunkContent,
-        CancellationToken ct = default)
-    {
-        if (string.IsNullOrWhiteSpace(chunkContent)) return string.Empty;
-
-        var payload = HelperPayload(
-            LlmPrompts.ChunkContext.System,
-            LlmPrompts.ChunkContext.User(documentSummary, sectionHeader, chunkContent),
-            maxTokens: 80, temperature: 0.1f);
-
-        try
-        {
-            var response = await _client.PostHelperAsync(payload, ct);
-            if (!response.IsSuccessStatusCode) return string.Empty;
-            var ctx = (await ReadContentAsync(response, ct) ?? "").Replace('\n', ' ').Replace('\r', ' ').Trim();
-            return ctx;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "[ChunkContext] üretilemedi — chunk orijinaliyle indexlenecek");
-            return string.Empty;
-        }
-    }
-
     public async Task<IReadOnlyList<string>> GenerateChunkContextsBatchAsync(
         string documentSummary,
         IReadOnlyList<(string? Header, string Content)> chunks,

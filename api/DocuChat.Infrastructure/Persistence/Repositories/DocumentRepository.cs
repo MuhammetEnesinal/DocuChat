@@ -10,15 +10,6 @@ public class DocumentRepository : GenericRepository<Document>, IDocumentReposito
 {
     public DocumentRepository(AppDbContext db) : base(db) { }
 
-    public async Task<IReadOnlyList<(Guid Id, string FileName)>> GetDocumentNamesAsync(
-        CancellationToken ct = default)
-    {
-        var rows = await _set
-            .Select(d => new { d.Id, d.FileName })
-            .ToListAsync(ct);
-        return rows.Select(x => (x.Id, x.FileName)).ToList();
-    }
-
     public async Task<IReadOnlyList<(Guid Id, string FileName, string? Summary)>> GetDocumentNamesAndSummariesAsync(
         CancellationToken ct = default)
     {

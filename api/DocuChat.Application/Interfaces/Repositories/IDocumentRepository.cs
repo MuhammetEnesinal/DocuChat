@@ -6,8 +6,6 @@ namespace DocuChat.Application.Interfaces.Repositories;
 
 public interface IDocumentRepository : IRepository<Document>
 {
-    Task<IReadOnlyList<(Guid Id, string FileName)>> GetDocumentNamesAsync(CancellationToken ct = default);
-
     Task<IReadOnlyList<(Guid Id, string FileName, string? Summary)>> GetDocumentNamesAndSummariesAsync(CancellationToken ct = default);
 
     // SQL-level pagination + opsiyonel FileName ILIKE search.

@@ -104,11 +104,6 @@ public class QuestionCacheRepository : GenericRepository<QuestionCache>, IQuesti
                 ct);
     }
 
-    public async Task ClearAllAsync(CancellationToken ct = default)
-    {
-        await _set.ExecuteDeleteAsync(ct);
-    }
-
     public async Task<IReadOnlyList<string>> GetTopByHitCountAsync(int limit, CancellationToken ct = default)
         => await _set
             .OrderByDescending(q => q.HitCount)

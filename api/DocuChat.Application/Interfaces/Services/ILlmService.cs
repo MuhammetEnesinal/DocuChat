@@ -47,14 +47,6 @@ public interface ILlmService
         string? userFeedbackContext = null,
         CancellationToken ct = default);
 
-    // sectionHeader: chunk'ın ait olduğu başlık zinciri (parse'da çıkarıldı), null/boş olabilir.
-    // documentSummary arka plan referansı — sectionHeader ve chunkContent öncelik kazanır.
-    Task<string> GenerateChunkContextAsync(
-        string documentSummary,
-        string? sectionHeader,
-        string chunkContent,
-        CancellationToken ct = default);
-
     /// <summary>
     /// Toplu ChunkContext üretimi. N chunk için TEK LLM call, JSON array döner.
     /// DocumentUseCase batch'leri PARALEL çağırır → 50 chunk = 5 batch × paralel = ~1 call süresi.
