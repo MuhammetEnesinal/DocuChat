@@ -87,6 +87,7 @@ public class QuestionCacheRepository : GenericRepository<QuestionCache>, IQuesti
             existing.SourceDocumentIds = entry.SourceDocumentIds;
             existing.HitCount += 1;
             existing.LastHitAt = DateTime.UtcNow;
+            existing.UpdatedAt = DateTime.UtcNow;
             return;
         }
 

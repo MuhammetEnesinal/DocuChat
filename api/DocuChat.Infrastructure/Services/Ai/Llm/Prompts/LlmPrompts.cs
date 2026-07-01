@@ -32,7 +32,7 @@ internal static class LlmPrompts
             "  • Soru bir detay istiyor (örn. \"nasıl yapılır\", \"ne işe yarar\", \"hangi malzemeden\") \n" +
             "    ama KAYNAK'ta o detay YOK → \"Bu konuda belgede yalnızca [şu kadarı] yer almakta;\n" +
             "    [istenen detay] hakkında ayrıntı yok\" şeklinde dürüstçe söyle.\n" +
-            "  • İlgili görsel varsa MUTLAKA `[IMG:N]` ile göster — eksik bilgiyi görselle telafi et.\n" +
+            "  • İlgili görsel işareti `[[IMG-N]]` varsa MUTLAKA koru — eksik bilgiyi görselle telafi et.\n" +
             "  • Genel bilgi ile boşluk DOLDURMA. Sadece KAYNAK'taki bilgiyi sun.\n\n" +
 
             "DOĞRU/YANLIŞ ÖRNEK (evrensel, domain'den bağımsız):\n" +
@@ -41,7 +41,7 @@ internal static class LlmPrompts
             "  ✗ YANLIŞ: \"X bir tür Y'dir, Z özelliklerine sahiptir, A ve B durumlarında kullanılır.\"\n" +
             "          (KAYNAK'ta hiçbiri yazmıyor → halüsinasyon)\n" +
             "  ✓ DOĞRU: \"Belgede X kaleminin yalnızca adı/listesi geçmektedir; kullanım amacı veya\n" +
-            "          özellikleri hakkında ayrıntı bulunmamaktadır. [IMG:N]\"\n\n" +
+            "          özellikleri hakkında ayrıntı bulunmamaktadır. [[IMG-N]]\"\n\n" +
 
             "## Temel İlkeler\n" +
             "• KAYNAK bloklarında yer almayan hiçbir bilgiyi yazma.\n" +
@@ -94,48 +94,40 @@ internal static class LlmPrompts
             "• Soruyla ilgisiz KAYNAK içeriğini yanıta katma.\n" +
             "• Kaynaklar çelişiyorsa her iki versiyonu da belirt (\"... veya ...\") — kaynak adı YAZMA.\n\n" +
 
-            "## Görsel Yerleştirme — MARKDOWN IMAGE SYNTAX\n" +
-            "Görselleri standart markdown image formatıyla yerleştirirsin: `![açıklama](url)`.\n" +
-            "Frontend bu syntax'ı otomatik olarak <img> tag'ine çevirir; kullanıcı URL'yi GÖRMEZ,\n" +
-            "sadece görseli görür.\n\n" +
+            "## Görsel İşaretleri — [[IMG-N]] (AYNEN KORU, ÇEVİRME)\n" +
+            "KAYNAK içeriğinde görseller [[IMG-1]], [[IMG-2]] gibi KISA SABİT işaretlerle gelir.\n" +
+            "İşaretin içinde çoğu zaman kısa açıklama olur: [[IMG-3: yan keski]].\n" +
+            "Bu işaret görselin İÇERİĞE GÖMÜLÜ, SABİT yeridir — hangi satır/öğe ise oraya aittir.\n" +
+            "Görseli SEN seçmez, taşımaz, yerleştirmezsin; sadece işareti OLDUĞU YERDE KORURSUN.\n" +
+            "Sistem `[[IMG-N]]` işaretini cevabından sonra gerçek görsele çevirir.\n\n" +
 
-            "### Hangi URL'leri Kullanabilirsin?\n" +
-            "Her KAYNAK bloğunun başında `[BU KAYNAĞIN KULLANILABİLİR GÖRSELLERİ: ![1](/uploads/...) ...]`\n" +
-            "notu vardır. Bu listede YER ALAN url'leri kullanabilirsin. URL UYDURMA YASAK — listede\n" +
-            "olmayan bir path yazma, parametre değiştirme. Çağrılan KAYNAK'larda hiç görsel yoksa\n" +
-            "görsel kullanma.\n\n" +
+            "### Altın Kural — İşareti Taşı, Değiştirme\n" +
+            "İlgili içeriği (satır, öğe, paragraf) cevabına aldığında, o içerikteki `[[IMG-N]]`\n" +
+            "işaretini de AYNEN, AYNI YERDE bırak. Yani:\n" +
+            "  • Tablo satırını veriyorsan → o satırdaki `[[IMG-N]]` işaretini de aynı hücrede tut\n" +
+            "  • Listede bir öğeyi veriyorsan → öğenin yanındaki `[[IMG-N]]` işaretini koru\n" +
+            "  • Tek öğe anlatıyorsan → anlatımın içindeki `[[IMG-N]]` işaretini koru\n" +
+            "  • \"X nedir / ne işe yarar\" + X'in işareti varsa → cevabında o işareti bırak\n\n" +
 
-            "### NE ZAMAN GÖRSEL VERMELİSİN — Altın Kural\n" +
-            "Cevabında bahsi geçen bir öğe (ürün, malzeme, aşama, ekipman, kişi, vb.) için ilgili\n" +
-            "görsel KAYNAK'larda mevcutsa, o görseli MUTLAKA yerleştir. Görsel atlama YASAK.\n\n" +
-
-            "Tipik desenler:\n" +
-            "  • Tablo cevabı + her satıra ait görsel varsa → ilgili hücreye `![alt](/uploads/...)`\n" +
-            "  • Liste cevabı + her öğeye ait görsel varsa → öğenin yanına `![alt](/uploads/...)`\n" +
-            "  • Tek bir öğeyi anlatıyorsan + görseli varsa → anlatımın sonuna `![alt](/uploads/...)`\n" +
-            "  • \"X nedir / ne işe yarar / nasıl kullanılır\" + X'in görseli varsa → cevabın sonuna\n" +
-            "  • Karşılaştırma + her tarafın görseli varsa → her satıra ilgili görsel\n\n" +
-
-            "### Format Kuralları\n" +
-            "  • Standart markdown: `![alt text](url)` — başka format YASAK\n" +
-            "  • alt text kısa ve açıklayıcı olsun (KAYNAK'taki bağlamdan)\n" +
-            "  • URL'yi olduğu gibi (kelime-kelime) kopyala — değiştirme/kısaltma yasak\n" +
-            "  • Aynı görseli iki kez koyma\n" +
-            "  • Tabloda hücre içinde: `| ürün adı | ![alt](url) |`\n" +
-            "  • KESİNLİKLE TEK SATIRDA yaz: `![alt](url)` — alt/url içinde satır atlatma\n" +
-            "  • İÇ İÇE YASAK: `![X]( ![Y](url) )` gibi sarma asla yapma\n" +
-            "  • `(` ile `)` arasına SADECE url gir — boşluk, satır, ek text YASAK\n\n" +
+            "### Mutlak Kurallar\n" +
+            "  • İşareti gelen biçimde koru: [[IMG-N]] veya [[IMG-N: açıklama]] (N = sana gelen numara).\n" +
+            "    Numarayı DEĞİŞTİRME; açıklamayı olduğu gibi bırakabilir veya kısaltabilirsin.\n" +
+            "  • İşareti SİLME, ATLAMA — ilgili içerik cevaptaysa işareti de olmalı.\n" +
+            "  • İşareti UYDURMA — sana gelmeyen bir [[IMG-N]] numarası YAZMA.\n" +
+            "  • İçindeki açıklama SENİN anlaman için; [[IMG-N]] işaretinin kendisi MUTLAKA kalmalı.\n" +
+            "  • Markdown ![](...) veya url YAZMA — sadece [[IMG-N]] işaretini koru, gerisini sistem yapar.\n" +
+            "  • İşareti backtick (`) veya kod bloğu İÇİNE ALMA — düz metin olarak, olduğu gibi yaz.\n" +
+            "  • Aynı işareti iki kez koyma.\n\n" +
 
             "### ASLA YAZMA — Kullanıcı Görseli Zaten Görüyor\n" +
-            "  ✗ \"Görsel: ![](url)\" tarzı etiketleme\n" +
             "  ✗ \"Aşağıdaki görselde / yukarıdaki görselde gösterildiği gibi\"\n" +
             "  ✗ \"Görseli gösteremem\" / \"görsel veremem\"\n" +
-            "  ✗ \"Sadece açıklaması var, kendisi yok\" — KAYNAK'ta url varsa bu YALAN\n\n" +
+            "  ✗ \"Sadece açıklaması var, kendisi yok\" — KAYNAK'ta işaret varsa bu YALAN\n\n" +
 
             "### Görsel İçin Bilgi Yetersiz Mi?\n" +
-            "  • KAYNAK'ta görsel VAR + metin bilgisi az → görseli yine de göster, metin yetersizliği\n" +
+            "  • KAYNAK'ta `[[IMG-N]]` VAR + metin bilgisi az → işareti yine de koru, metin yetersizliği\n" +
             "    için \"belgede ayrıntı bulunmamaktadır\" de\n" +
-            "  • Hiç görsel yoksa ve kullanıcı görsel istiyorsa → \"bu öğeye ait görsel mevcut değil\"\n\n" +
+            "  • Hiç işaret yoksa ve kullanıcı görsel istiyorsa → \"bu öğeye ait görsel mevcut değil\"\n\n" +
 
             "## Format Kuralları\n" +
             "• Süreç soruları → her zaman numaralı liste.\n" +
@@ -526,8 +518,9 @@ internal static class LlmPrompts
             "• Cevap soruyla tamamen alakasız.\n" +
             "• Cevap kendi içinde çelişiyor.\n\n" +
             "SİSTEM TOKEN'LARI (issue OLARAK SAYMA)\n" +
-            "Cevapta `[IMG:1]`, `[IMG:2]` gibi tokenlar bulunabilir — bunlar sistem tarafından enjekte\n" +
-            "edilen görsel marker'larıdır, halüsinasyon DEĞİLDİR. Issue olarak listeleme.\n\n" +
+            "Cevapta `[[IMG-1]]` gibi görsel işaretleri veya `![...](...)` görsel markdown'ı bulunabilir —\n" +
+            "bunlar sistem tarafından enjekte edilen görsel marker'larıdır, halüsinasyon DEĞİLDİR.\n" +
+            "Issue olarak listeleme.\n\n" +
             "ÇIKTI (yalnızca JSON, başka metin YOK):\n" +
             "  {\"score\": <0.0-1.0>, \"issues\": [\"<somut sorun>\", ...]}\n" +
             "Sorun yoksa: {\"score\": 1.0, \"issues\": []}\n" +

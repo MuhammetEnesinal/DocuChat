@@ -144,7 +144,6 @@ public class ChatUseCase : IChatUseCase
         {
             var allMessages = sessionWithMessages.Messages
                 .OrderBy(m => m.CreatedAt)
-                .Where(m => !m.Content.StartsWith("AŞAĞIDAKİ BELGE PARÇALARINI"))
                 .ToList();
 
             // Son N mesaj → ham
@@ -329,9 +328,13 @@ public class ChatUseCase : IChatUseCase
         yield return new { type = "searching" };
 
         _logger.LogInformation("[Cache][Stream] IsCacheable kararı → {Result}", isCacheable);
+        // questionVector = embed(searchQuestion) yukarıda cache için hesaplandı. Standalone
+        // soruda retrieval de ham soruyu embed edeceğinden aynı vektörü geçirip 2. çağrıyı önleriz
+        // (takip sorusunda boost metni farklı olduğu için VectorSearch yine de yeniden embed eder).
         var chunks = (await _retrieval.SearchAsync(
             searchQuestion, history,
             isStandalone: isCacheable,
+            precomputedQueryVector: questionVector,
             ct: ct)).ToList();
 
         // Kullanıcının soru-benzerliğine göre geçmiş feedback bağlamı (cache hit doğrulama
@@ -359,8 +362,12 @@ public class ChatUseCase : IChatUseCase
         // Üretim göstergesi: arama bitti, LLM yazmaya başlıyor. İlk token gelince temizlenir.
         yield return new { type = "generating" };
 
+        // Context'i stream'den ÖNCE kur: görsel işaretleri ([IMG:N] → global [[IMG-K]]) deterministik
+        // haritaya bağlanır. Harita cevap sonrası [[IMG-K]] → gerçek görsel render için kullanılır.
+        var answerContext = _llm.BuildAnswerContext(chunks);
+
         var answerBuilder = new StringBuilder();
-        await foreach (var delta in _llm.AskStreamAsync(searchQuestion, chunks, history, feedbackContext, ct))
+        await foreach (var delta in _llm.StreamAnswerAsync(answerContext, searchQuestion, history, feedbackContext, ct))
         {
             answerBuilder.Append(delta);
             yield return new { type = "token", delta };
@@ -372,6 +379,17 @@ public class ChatUseCase : IChatUseCase
         {
             _logger.LogInformation(
                 "[Stream] Cancellation algılandı stream sonrası — quality/cache/save atlandı, yarım cevap persist edilmedi");
+            // Asistan cevabı yazılmadı → cevapsız (yetim) user mesajı geride kalmasın diye geri al.
+            // İptal edilmiş ct ile SaveChanges çalışmaz → CancellationToken.None ile temizle.
+            try
+            {
+                _uow.Messages.Delete(userMsg);
+                await _uow.SaveChangesAsync(CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Stream] İptal sonrası yetim user mesajı temizlenemedi");
+            }
             yield break;
         }
         var answer = answerBuilder.ToString();
@@ -381,6 +399,31 @@ public class ChatUseCase : IChatUseCase
         var llmRejected = LooksLikeRejection(answer);
         answer = StripNoAnswerMarker(answer);
         answer = StripKaynakReferences(answer);
+
+        // Görselleri KOD yerleştirir: LLM'in koruduğu [[IMG-K]] işaretleri → gerçek görsel markdown'ı.
+        // LLM görseli SEÇMEZ; sadece içerikteki işareti korur, kod gerçek görsele çevirir (deterministik).
+        List<string> allImagePaths;
+        if (llmRejected)
+        {
+            answer = StripImageMarkers(answer);
+            allImagePaths = new List<string>();
+        }
+        else
+        {
+            answer = ResolveImageMarkers(answer, answerContext.ImageMap, out allImagePaths);
+
+            // Güvenlik ağı: LLM tüm işaretleri atladıysa (cevapta hiç görsel çözülmediyse) ama
+            // context'te görsel vardı → kullanıcı görseli kaybetmesin, galeri panelinde göster.
+            if (allImagePaths.Count == 0 && answerContext.ImageMap.Count > 0)
+            {
+                allImagePaths = answerContext.ImageMap.Values
+                    .Select(v => v.Path).Distinct(StringComparer.Ordinal).ToList();
+                _logger.LogWarning(
+                    "[Görsel] LLM hiç [[IMG-N]] işareti korumadı — {Count} görsel galeri olarak eklendi (güvenlik ağı)",
+                    allImagePaths.Count);
+            }
+        }
+
         answer = NormalizeImageMarkdown(answer);
         var quality = await SafeValidateAsync(searchQuestion, chunks, answer, ct);
 
@@ -396,21 +439,9 @@ public class ChatUseCase : IChatUseCase
             badge = "ℹ️ Bu cevabın bazı detayları belgelerden tam doğrulanamadı; teyit etmek için kaynaklara göz atabilirsiniz.";
         }
 
-        // Görseller + takip soruları. Galeriye yalnızca cevap içinde ![alt](path) markdown'ı
-        // geçen görseller gönderilir; hangisinin gösterileceğine LLM'in cevabı karar verir.
-        List<string> allImagePaths;
-        string? imagesJson;
-        if (llmRejected)
-        {
-            allImagePaths = new List<string>();
-            imagesJson = null;
-        }
-        else
-        {
-            var referenced = ExtractReferencedImagePaths(answer);
-            allImagePaths = referenced.ToList();
-            imagesJson = allImagePaths.Count > 0 ? JsonSerializer.Serialize(allImagePaths) : null;
-        }
+        // Galeri: cevapta KOD'un yerleştirdiği görseller (+ güvenlik ağı). allImagePaths yukarıda
+        // [[IMG-K]] çözümünden hesaplandı; burada yalnızca persist için JSON'a serialize edilir.
+        var imagesJson = allImagePaths.Count > 0 ? JsonSerializer.Serialize(allImagePaths) : null;
 
         var followUpTaskFinal = llmRejected
             ? Task.FromResult(new List<string>())
@@ -476,6 +507,10 @@ public class ChatUseCase : IChatUseCase
         {
             type = "complete",
             messageId = assistantMsg.Id,  // feedback için gerçek mesaj Guid'i
+            // Final içerik: stream sırasında ham [[IMG-N]] işaretleri aktı; burada KOD'un görsel
+            // markdown'ına çevirdiği + temizlediği nihai metni gönderip frontend'in içeriği
+            // değiştirmesini sağlıyoruz (ham işaret kullanıcıda kalmasın).
+            content = answer,
             images = allImagePaths.Count > 0 ? allImagePaths : null,
             followUps = followUps.Count > 0 ? followUps : null,
             badge,
@@ -512,24 +547,46 @@ public class ChatUseCase : IChatUseCase
     private static readonly System.Text.RegularExpressions.Regex UrlInternalWsRegex =
         new(@"\s+", System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    // LLM cevabında ![alt](path) syntax'ı ile bahsedilen image path'lerini çıkarır.
-    // Sıra korunur (cevapta hangi sırada geçtiyse), duplicate eliminated.
-    private static readonly System.Text.RegularExpressions.Regex ReferencedImageRegex =
-        new(@"!\[[^\]]*\]\(([^)]+)\)", System.Text.RegularExpressions.RegexOptions.Compiled);
+    // LLM cevabındaki görsel işareti [[IMG-K]] veya [[IMG-K: açıklama]]. Esnek: LLM işareti hafif
+    // bozsa da ([IMG-3], [[IMG-3: ...], [[IMG 3]]) yakalanır — "güvenlik ağı" niteliğinde tolerans.
+    // (\d+) sonrası [^\]]* açıklama kısmını (varsa) yutar.
+    // Baştaki/sondaki opsiyonel backtick de yutulur: LLM işareti bazen `[[IMG-3]]` gibi kod
+    // bloğuna sokuyor → çevrim sonrası `![](url)` inline-code olur, resim render edilmez. Yut.
+    private static readonly System.Text.RegularExpressions.Regex ImgRefMarkerRegex =
+        new(@"`?\[\[?\s*IMG[-:\s]?\s*(\d+)[^\]]*\]\]?`?",
+            System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
-    private static List<string> ExtractReferencedImagePaths(string answer)
+    // LLM'in koruduğu [[IMG-K]] işaretlerini gerçek görsel markdown'ına ( ![caption](/uploads/path) )
+    // çevirir — görseli KOD yerleştirir, LLM değil (deterministik). Bilinmeyen numara → işaret silinir
+    // (kullanıcı ham marker görmesin). out usedPaths: cevapta görünen görseller (sıra korunur, dedup).
+    private static string ResolveImageMarkers(
+        string answer, IReadOnlyDictionary<int, AnswerImageRef> imageMap, out List<string> usedPaths)
     {
-        if (string.IsNullOrEmpty(answer)) return new List<string>();
+        var used = new List<string>();
+        if (string.IsNullOrEmpty(answer)) { usedPaths = used; return answer; }
+        if (imageMap.Count == 0) { usedPaths = used; return StripImageMarkers(answer); }
+
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        var result = new List<string>();
-        foreach (System.Text.RegularExpressions.Match m in ReferencedImageRegex.Matches(answer))
+        var result = ImgRefMarkerRegex.Replace(answer, m =>
         {
-            var path = m.Groups[1].Value.Trim();
-            if (string.IsNullOrEmpty(path)) continue;
-            if (seen.Add(path)) result.Add(path);
-        }
+            if (!int.TryParse(m.Groups[1].Value, out var k) || !imageMap.TryGetValue(k, out var img))
+                return string.Empty;  // bilinmeyen/uydurma numara → işareti kaldır
+
+            var alt = string.IsNullOrWhiteSpace(img.Caption)
+                ? "gorsel"
+                : img.Caption!.Replace("[", "(").Replace("]", ")").Replace("\n", " ").Trim();
+            if (alt.Length > 200) alt = alt[..200].TrimEnd() + "...";
+
+            if (seen.Add(img.Path)) used.Add(img.Path);
+            return $"![{alt}](/uploads/{img.Path})";
+        });
+        usedPaths = used;
         return result;
     }
+
+    // Cevapta kalan/çözülmeyen [[IMG-K]] artıklarını temizler (reddedilen cevap veya görsel yokken).
+    private static string StripImageMarkers(string answer) =>
+        string.IsNullOrEmpty(answer) ? answer : ImgRefMarkerRegex.Replace(answer, string.Empty);
 
     private static string NormalizeImageMarkdown(string answer)
     {
@@ -643,6 +700,7 @@ public class ChatUseCase : IChatUseCase
         if (session.UserId != _currentUser.UserId && !_currentUser.IsInRole(Roles.Admin))
             return Result<bool>.Failure(Error.Forbidden("Bu oturuma erişiminiz yok."));
         session.Title = title[..Math.Min(60, title.Length)];
+        session.UpdatedAt = DateTime.UtcNow;
         await _uow.SaveChangesAsync(ct);
         return Result<bool>.Success(true);
     }
@@ -658,7 +716,6 @@ public class ChatUseCase : IChatUseCase
         var popular = recentMessages
             .Select(m => m.Content.Trim())
             .Where(q => q.Length > 10 && q.Length < 200)
-            .Where(q => !q.StartsWith("AŞAĞIDAKİ BELGE PARÇALARINI"))
             .GroupBy(q => NormalizeQuestion(q))
             .OrderByDescending(g => g.Count())
             .Take(limit)
@@ -743,6 +800,7 @@ public class ChatUseCase : IChatUseCase
             return Result<bool>.Failure(Error.Forbidden("Bu oturuma erişiminiz yok."));
 
         mutate(session);
+        session.UpdatedAt = DateTime.UtcNow;
         await _uow.SaveChangesAsync(ct);
         _logger.LogInformation("[{Op}] Session {SessionId} (User: {UserId})", opName, sessionId, _currentUser.UserId);
         return Result<bool>.Success(true);

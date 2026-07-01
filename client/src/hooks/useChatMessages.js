@@ -12,6 +12,8 @@ const PAGE_SIZE = 50;
 function parseMessages(raw) {
     return (raw || []).map(m => ({
         ...m,
+        // DB'den gelen mesaj kalıcıdır → feedback verilebilir (geçici/iptal mesajından ayırt için).
+        persisted: true,
         images: m.imagesJson ? (() => {
             try { return JSON.parse(m.imagesJson); }
             catch (e) { console.warn('Resim JSON parse hatası:', e); return []; }
@@ -122,6 +124,7 @@ export function useChatMessages(virtuosoRef) {
                     setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
                         ...m,
                         id: evt.messageId || m.id,  // geçici ID yerine gerçek backend Guid'i (feedback için)
+                        persisted: !!evt.messageId,  // DB'ye yazıldı → feedback verilebilir
                         content: evt.answer || '',
                         images: evt.images && evt.images.length > 0 ? evt.images : undefined,
                         followUpQuestions: evt.followUps && evt.followUps.length > 0 ? evt.followUps : undefined,
@@ -154,6 +157,10 @@ export function useChatMessages(virtuosoRef) {
                     setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
                         ...m,
                         id: evt.messageId || m.id,  // geçici ID yerine gerçek backend Guid'i (feedback için)
+                        persisted: !!evt.messageId,  // DB'ye yazıldı → feedback verilebilir
+                        // Final içerik: stream sırasında ham [[IMG-N]] işaretleri aktı; backend görseli
+                        // markdown'a çevirip nihai metni gönderir → ham işaret yerine düzgün içerik gösterilir.
+                        content: typeof evt.content === 'string' ? evt.content : m.content,
                         images: evt.images && evt.images.length > 0 ? evt.images : undefined,
                         followUpQuestions: evt.followUps && evt.followUps.length > 0 ? evt.followUps : undefined,
                         badge: evt.badge || undefined,

@@ -59,6 +59,7 @@ public class ChatMessageRepository : GenericRepository<ChatMessage>, IChatMessag
             msg.ImagesJson = filtered.Count == 0
                 ? null
                 : JsonSerializer.Serialize(filtered);
+            msg.UpdatedAt = DateTime.UtcNow;
             affected++;
         }
         return affected;

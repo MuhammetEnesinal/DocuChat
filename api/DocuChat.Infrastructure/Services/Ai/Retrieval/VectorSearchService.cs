@@ -56,11 +56,17 @@ public class VectorSearchService : IVectorSearch
         string question,
         string? hydeText = null,
         string? bm25Query = null,
+        float[]? precomputedQueryVector = null,
         CancellationToken ct = default)
     {
         var bm25Text = !string.IsNullOrWhiteSpace(bm25Query) ? bm25Query : question;
         var textToEmbed = !string.IsNullOrWhiteSpace(hydeText) ? hydeText : question;
-        var queryVec = await _embedder.GetEmbeddingAsync(textToEmbed, ct);
+        // hydeText yoksa embed edilecek metin = ham soru. Çağıran (ChatUseCase) ham sorunun
+        // embedding'ini cache araması için zaten hesapladıysa onu kullan → 2. Ollama çağrısı yok.
+        // hydeText VARSA (takip sorusu boost'u) metin farklıdır → yeniden embed edilmeli.
+        var queryVec = (string.IsNullOrWhiteSpace(hydeText) && precomputedQueryVector is { Length: > 0 })
+            ? precomputedQueryVector
+            : await _embedder.GetEmbeddingAsync(textToEmbed, ct);
         var vector = new Pgvector.Vector(queryVec);
 
         // Tüm chunks içinde global dense + BM25 → RRF → global reranker → top K.

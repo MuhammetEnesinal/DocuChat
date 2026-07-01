@@ -5,12 +5,17 @@ namespace DocuChat.Application.Interfaces.Services;
 
 public interface ILlmService
 {
+    // Cevap context'ini kurar: token bütçeli chunk seçimi + görsel işaretlerini ([IMG:N] →
+    // global [[IMG-K]]) deterministik haritaya bağlar. Stream'den ÖNCE çağrılır; dönen ImageMap
+    // cevap sonrası [[IMG-K]] işaretlerini gerçek görsele çevirmek için ChatUseCase'e taşınır.
+    AnswerContext BuildAnswerContext(IEnumerable<ChunkResult> contextChunks);
+
     // Streaming variant — token delta'larını üretir. Provider streaming desteklemiyorsa
-    // (Anthropic/Gemini) tam cevap tek delta olarak dönebilir.
+    // (Anthropic/Gemini) tam cevap tek delta olarak dönebilir. context: BuildAnswerContext çıktısı.
     // feedbackContext: kullanıcının geçmiş negatif feedback'lerinden üretilen ek system prompt section.
-    IAsyncEnumerable<string> AskStreamAsync(
+    IAsyncEnumerable<string> StreamAnswerAsync(
+        AnswerContext context,
         string question,
-        IEnumerable<ChunkResult> contextChunks,
         IEnumerable<(string Role, string Content)>? history = null,
         string? feedbackContext = null,
         CancellationToken ct = default);

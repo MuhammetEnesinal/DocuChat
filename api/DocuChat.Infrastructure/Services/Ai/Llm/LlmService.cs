@@ -36,20 +36,19 @@ public class LlmService : ILlmService
         _llmMaxChunks = Math.Max(1, cfg.GetValue<int>("VectorSearch:LlmMaxChunks", 16));
     }
 
-    // Streaming variant — token delta'larını üretir. OpenAI-compat dışındaki provider'lar için
-    // (Anthropic/Gemini) tam cevap tek delta olarak döner (fallback). Ollama'nın kendi streaming
-    // formatı OpenAI'dan farklı olduğu için onu da non-streaming'e düşürdük.
-    public async IAsyncEnumerable<string> AskStreamAsync(
-        string question,
-        IEnumerable<ChunkResult> contextChunks,
-        IEnumerable<(string Role, string Content)>? history = null,
-        string? feedbackContext = null,
-        [EnumeratorCancellation] CancellationToken ct = default)
+    // Chunk içindeki görsel marker'ı: [IMG:N — caption] (N = chunk-local 1-bazlı sıra, caption opsiyonel).
+    private static readonly System.Text.RegularExpressions.Regex ImgMarkerRegex =
+        new(@"\[IMG:(\d+)([^\]]*)\]", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    // Cevap context'ini kurar: token bütçeli chunk seçimi + görsel işaretlerini global haritaya bağlar.
+    // [IMG:N — caption] (chunk-local) → [[IMG-K]] (global, kısa, sabit işaret). Caption işaretin
+    // YANINDA parantezle LLM'in OKUMASI için verilir ("ne olduğunu" bilsin) — ama görseli LLM SEÇMEZ.
+    // ImageMap (K → path+caption) cevap sonrası deterministik render için ChatUseCase'e döner.
+    public AnswerContext BuildAnswerContext(IEnumerable<ChunkResult> contextChunks)
     {
         // Token bütçeli dinamik chunk seçimi: chunk'lar sırayla eklenir, toplam token bütçesi
         // veya adet tavanı aşılana kadar devam edilir. İlk chunk her zaman alınır (tek büyük
-        // chunk olsa bile boş cevaba düşmemek için). Böylece küçük chunk'larda daha çok kaynak
-        // sığar, büyük chunk'larda context taşması önlenir.
+        // chunk olsa bile boş cevaba düşmemek için).
         var candidateChunks = contextChunks
             .Where(c => !string.IsNullOrWhiteSpace(c.Content) && c.Content.Trim().Length > 20);
 
@@ -65,19 +64,113 @@ public class LlmService : ILlmService
             usedTokens += chunkTokens;
         }
 
-        if (chunkList.Count == 0)
-        {
-            yield return "Sisteme yuklenmis belgeler arasinda bu soruyla ilgili bilgi bulunamadi.";
-            yield break;
-        }
+        if (chunkList.Count == 0) return AnswerContext.Empty;
 
         _logger.LogInformation(
             "[LLM] Context seçimi: {Count} chunk, ~{Tokens} token (bütçe {Budget}, tavan {Max})",
             chunkList.Count, usedTokens, _llmContextTokenBudget, _llmMaxChunks);
 
-        var (context, imageUrls) = BuildContextAndImages(chunkList);
+        var imageMap = new Dictionary<int, AnswerImageRef>();
+        var globalCounter = 0;                                    // [[IMG-K]] global sayaç (tüm chunk'lar genelinde benzersiz)
+        var visionUrls = new List<string>();                      // gerçek vision (MaxImages>0) için path listesi
+        var seenVisionUrls = new HashSet<string>(StringComparer.Ordinal);
+
+        var contextParts = new List<string>();
+        for (var ci = 0; ci < chunkList.Count; ci++)
+        {
+            var c = chunkList[ci];
+            var paths = ParseImagePaths(c.ImagePath);
+
+            var cleanContent = System.Text.RegularExpressions.Regex.Replace(
+                c.Content.Trim(), @"\[RESIM:[^\]]*\]", "").Trim();
+
+            var pageSuffix = c.PageNumber.HasValue ? $" | Sayfa {c.PageNumber}" : "";
+            var headerSuffix = !string.IsNullOrWhiteSpace(c.Header) ? $" | {c.Header}" : "";
+            var header = $"═══════════════════════════════════════════════════════════\n" +
+                         $"  KAYNAK [{ci + 1}]  •  Belge: {c.FileName}{pageSuffix}{headerSuffix}\n" +
+                         $"═══════════════════════════════════════════════════════════\n\n";
+
+            string body;
+            if (paths.Count > 0)
+            {
+                // [IMG:N — caption] → [[IMG-K]] (caption)
+                //  - K: global benzersiz sıra no (ImageMap anahtarı)
+                //  - caption: işaretin yanında parantez — LLM'in görseli "ne olduğu" ile tanıması için
+                body = ImgMarkerRegex.Replace(cleanContent, m =>
+                {
+                    if (!int.TryParse(m.Groups[1].Value, out var local1Based)) return m.Value;
+                    var localIdx = local1Based - 1;
+                    if (localIdx < 0 || localIdx >= paths.Count) return m.Value;
+
+                    var path = paths[localIdx];
+                    var captionRaw = m.Groups[2].Value.Trim().TrimStart(' ', '—', '–', '-', ':').Trim();
+                    var caption = string.IsNullOrEmpty(captionRaw) ? null : captionRaw;
+
+                    globalCounter++;
+                    imageMap[globalCounter] = new AnswerImageRef(path, caption);
+
+                    // Gerçek vision (MaxImages>0) açıksa görsel byte'ları da gönderilir.
+                    if (seenVisionUrls.Add(path) && visionUrls.Count < _client.MaxImages)
+                        visionUrls.Add(path);
+
+                    // Caption işaretin İÇİNDE: [[IMG-K: caption]]. Böylece frontend stream sırasında
+                    // tek regex ile ([[IMG-...]]) işaretin tamamını gizleyebilir; ham parantezle karışmaz.
+                    // Caption LLM'in "ne olduğunu" bilmesi için — render'da gerçek caption ImageMap'ten gelir.
+                    var capHint = caption is null ? "" : $": {TrimCaptionForHint(caption)}";
+                    return $"[[IMG-{globalCounter}{capHint}]]";
+                });
+
+                _logger.LogInformation("[LLM Context] KAYNAK [{Index}] | {FileName} | Sayfa {Page} - {Count} görsel işareti",
+                    ci + 1, c.FileName, c.PageNumber?.ToString() ?? "-", paths.Count);
+            }
+            else
+            {
+                body = cleanContent;
+            }
+
+            contextParts.Add(header + body);
+        }
+
+        var context = string.Join("\n\n---\n\n", contextParts);
+        return new AnswerContext(context, visionUrls, imageMap);
+    }
+
+    private List<string> ParseImagePaths(string? imagePathJson)
+    {
+        if (string.IsNullOrWhiteSpace(imagePathJson)) return new List<string>();
+        try { return JsonSerializer.Deserialize<List<string>>(imagePathJson) ?? new(); }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[LLM] ImagePath JSON parse hatası — değer: {ImagePath}", imagePathJson);
+            return new List<string> { imagePathJson };
+        }
+    }
+
+    // Caption işaret ipucunda kısa tutulur — LLM context'ini şişirmesin, marker odaklı kalsın.
+    private static string TrimCaptionForHint(string caption)
+    {
+        var s = caption.Replace("[", "(").Replace("]", ")").Replace("\n", " ").Trim();
+        return s.Length > 80 ? s[..80].TrimEnd() + "…" : s;
+    }
+
+    // Streaming variant — token delta'larını üretir. OpenAI-compat dışındaki provider'lar için
+    // (Anthropic/Gemini) tam cevap tek delta olarak döner (fallback). Ollama'nın kendi streaming
+    // formatı OpenAI'dan farklı olduğu için onu da non-streaming'e düşürdük.
+    public async IAsyncEnumerable<string> StreamAnswerAsync(
+        AnswerContext context,
+        string question,
+        IEnumerable<(string Role, string Content)>? history = null,
+        string? feedbackContext = null,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(context.Context))
+        {
+            yield return "Sisteme yuklenmis belgeler arasinda bu soruyla ilgili bilgi bulunamadi.";
+            yield break;
+        }
+
         var historyMessages = TrimHistory(history);
-        var userMessage = LlmPrompts.Answer.User(context, question);
+        var userMessage = LlmPrompts.Answer.User(context.Context, question);
 
         // System prompt'a kullanıcının eski feedback'leri (varsa) inject edilir.
         // Mevcut prompt + ek section — pattern her provider için aynı.
@@ -99,103 +192,10 @@ public class LlmService : ILlmService
         }
 
         await foreach (var delta in _client.CallOpenAiWithVisionStreamingAsync(
-            systemPrompt, userMessage, imageUrls, historyMessages, ct))
+            systemPrompt, userMessage, context.VisionImageUrls.ToList(), historyMessages, ct))
         {
             yield return delta;
         }
-    }
-
-    // Chunk içeriklerini KAYNAK bloklarına çevirir + LLM'e standart MARKDOWN IMAGE syntax verir.
-    // [IMG:N — caption] (chunk-local) → ![caption](/uploads/path) (markdown).
-    // LLM eğitim verisinde milyonlarca markdown image örneği gördüğü için DOĞAL davranır;
-    // frontend ReactMarkdown standart <img> render eder, URL kullanıcıya görünmez.
-    private static readonly System.Text.RegularExpressions.Regex ImgMarkerRegex =
-        new(@"\[IMG:(\d+)([^\]]*)\]", System.Text.RegularExpressions.RegexOptions.Compiled);
-
-    private (string Context, List<string> ImageUrls) BuildContextAndImages(IReadOnlyList<ChunkResult> chunkList)
-    {
-        var chunkImageLists = chunkList.Select(c =>
-        {
-            if (string.IsNullOrWhiteSpace(c.ImagePath)) return new List<string>();
-            try { return JsonSerializer.Deserialize<List<string>>(c.ImagePath) ?? new(); }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[LLM] ImagePath JSON parse hatası — değer: {ImagePath}", c.ImagePath);
-                return new List<string> { c.ImagePath };
-            }
-        }).ToList();
-
-        var seenUrls = new HashSet<string>(StringComparer.Ordinal);
-        var allUniqueImages = chunkImageLists.SelectMany(x => x).Where(p => seenUrls.Add(p)).ToList();
-        var sentImageUrls = allUniqueImages.Take(_client.MaxImages).ToList();
-
-        var contextParts = new List<string>();
-        for (var ci = 0; ci < chunkList.Count; ci++)
-        {
-            var c = chunkList[ci];
-            var paths = chunkImageLists[ci];
-
-            var cleanContent = System.Text.RegularExpressions.Regex.Replace(
-                c.Content.Trim(), @"\[RESIM:[^\]]*\]", "").Trim();
-
-            string chunkText;
-            if (paths.Count > 0)
-            {
-                // [IMG:N — caption] → ![alt](/uploads/path)
-                // - alt: inline caption varsa kullanılır (Pixtral üretimi), yoksa "görsel"
-                // - src: /uploads/{filename} — static file serving
-                var resolvedContent = ImgMarkerRegex.Replace(cleanContent, m =>
-                {
-                    if (!int.TryParse(m.Groups[1].Value, out var local1Based)) return m.Value;
-                    var localIdx = local1Based - 1;
-                    if (localIdx < 0 || localIdx >= paths.Count) return m.Value;
-
-                    var path = paths[localIdx];
-                    // Group 2 = " — caption" veya boş. Trim '—', '–', '-' ve boşluklar.
-                    var captionRaw = m.Groups[2].Value.Trim();
-                    var alt = string.IsNullOrEmpty(captionRaw)
-                        ? "gorsel"
-                        : captionRaw.TrimStart(' ', '—', '–', '-', ':').Trim();
-                    // Markdown alt text içinde ] olmamalı, parantez kaçır
-                    alt = alt.Replace("[", "(").Replace("]", ")");
-                    if (alt.Length > 200) alt = alt[..200].TrimEnd() + "...";
-
-                    return $"![{alt}](/uploads/{path})";
-                });
-
-                // LLM'e "bu kaynağın görselleri" ipucu — kullanılabilecek path listesi
-                var availableImgs = paths
-                    .Select((p, i) => $"![{(i + 1)}](/uploads/{p})")
-                    .ToList();
-                var imgHint = availableImgs.Count > 0
-                    ? $"[BU KAYNAĞIN KULLANILABİLİR GÖRSELLERİ: {string.Join(" ", availableImgs)}]\n\n"
-                    : "";
-
-                var pageSuffix = c.PageNumber.HasValue ? $" | Sayfa {c.PageNumber}" : "";
-                var headerSuffix = !string.IsNullOrWhiteSpace(c.Header) ? $" | {c.Header}" : "";
-                _logger.LogInformation("[LLM Context] KAYNAK [{Index}] | {FileName} | Sayfa {Page} - {Count} markdown img",
-                    ci + 1, c.FileName, c.PageNumber?.ToString() ?? "-", paths.Count);
-                chunkText = $"═══════════════════════════════════════════════════════════\n" +
-                            $"  KAYNAK [{ci + 1}]  •  Belge: {c.FileName}{pageSuffix}{headerSuffix}\n" +
-                            $"═══════════════════════════════════════════════════════════\n\n" +
-                            imgHint +
-                            resolvedContent;
-            }
-            else
-            {
-                var pageSuffix = c.PageNumber.HasValue ? $" | Sayfa {c.PageNumber}" : "";
-                var headerSuffix = !string.IsNullOrWhiteSpace(c.Header) ? $" | {c.Header}" : "";
-                chunkText = $"═══════════════════════════════════════════════════════════\n" +
-                            $"  KAYNAK [{ci + 1}]  •  Belge: {c.FileName}{pageSuffix}{headerSuffix}\n" +
-                            $"═══════════════════════════════════════════════════════════\n\n" +
-                            cleanContent;
-            }
-
-            contextParts.Add(chunkText);
-        }
-
-        var context = string.Join("\n\n---\n\n", contextParts);
-        return (context, sentImageUrls);
     }
 
     private static IReadOnlyList<(string Role, string Content)> TrimHistory(

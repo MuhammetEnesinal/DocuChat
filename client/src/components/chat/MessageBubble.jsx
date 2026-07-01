@@ -22,6 +22,10 @@ function formatTime(dateStr) {
 function normalizeImageMarkdown(content) {
     if (!content) return content;
     let out = content;
+    // [0] LLM görsel markdown'ını bazen backtick/inline-code içine sokuyor: `![alt](url)` →
+    // bu durumda <img> yerine gri kod kutusu render edilir. Backtick'i soy ki resim görünsün.
+    // (Hem eski DB mesajları hem güvenlik — backend de yutuyor ama burada da garanti.)
+    out = out.replace(/`+\s*(!\[[^\]]*\]\([^)]*\))\s*`+/g, '$1');
     // [1] Nested image wrap: outer ![..]( <inner image> ) → sadece inner
     // Iteratif uygula — birden fazla katman olabilir.
     const nestedRe = /!\[[^\]]*\]\(\s*(!\[[^\]]*\]\([^)]+\))\s*\)/g;
@@ -35,6 +39,10 @@ function normalizeImageMarkdown(content) {
         /!\[([^\]]*)\]\(\s*([^)]+?)\s*\)/gs,
         (_m, alt, url) => `![${alt}](${url.replace(/\s+/g, '')})`
     );
+    // [3] Çözülmemiş ham görsel işaretlerini gizle: [[IMG-N]] / [[IMG-N: açıklama]].
+    // Backend bunları markdown'a çevirir; complete'te kalmaz ama stream sırasında ham akar →
+    // kullanıcı ham işaret görmesin. (Güvenlik: backend çözemediği işaret de burada gizlenir.)
+    out = out.replace(/\[\[?\s*IMG[-:\s]?\s*\d+[^\]]*\]\]?/gi, '');
     return out;
 }
 
@@ -52,7 +60,10 @@ function sanitizeStreamingMarkdown(content, isStreaming) {
     let out = normalizeImageMarkdown(content);
     if (!isStreaming) return out;
     // Sondaki açık alt ya da açık url parçasını kes
-    return out.replace(/!\[[^\]]*(?:\][^()]*(?:\([^)]*)?)?$/, '');
+    out = out.replace(/!\[[^\]]*(?:\][^()]*(?:\([^)]*)?)?$/, '');
+    // Sondaki yarım kalmış görsel işaretini kes: "[[IMG-3: yan kes" (kapanış ]] henüz gelmedi)
+    out = out.replace(/\[\[?\s*IMG[-:\s]?\s*\d*[^\]]*$/i, '');
+    return out;
 }
 
 function ImageModal({ src, onClose }) {
@@ -364,8 +375,10 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
                             </button>
                         )}
 
-                        {/* 👍 / 👎 — sadece bitmiş asistan mesajları için, hata/clarification hariç */}
-                        {!isUser && !msg.isStreaming && !msg.isError && msg.id && (
+                        {/* 👍 / 👎 — sadece DB'ye yazılmış (persisted) asistan mesajları için.
+                            İptal edilen/yarıda kesilen mesaj DB'de yok → feedback "Mesaj bulunamadı"
+                            hatası verir; o yüzden persisted değilse buton gösterilmez. */}
+                        {!isUser && !msg.isStreaming && !msg.isError && msg.id && msg.persisted && (
                             <>
                                 <button
                                     onClick={handleLike}
