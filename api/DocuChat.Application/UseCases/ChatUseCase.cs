@@ -103,7 +103,9 @@ public class ChatUseCase : IChatUseCase
         AskRequestDto req,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        // Oturumu bul veya yeni oluştur
+        // Oturumu bul veya yeni oluştur. sessionCreatedThisRequest: bu istekte YENİ session açıldıysa
+        // (ilk soru). İlk soru iptal edilirse boş session geride kalmasın diye silmek için işaretlenir.
+        var sessionCreatedThisRequest = !req.SessionId.HasValue;
         ChatSession session;
         if (req.SessionId.HasValue)
         {
@@ -257,6 +259,7 @@ public class ChatUseCase : IChatUseCase
                     ResponseToMessageId = userMsgCache.Id,
                 };
                 await _uow.Messages.AddAsync(assistantMsgCache, ct);
+                session.UpdatedAt = DateTime.UtcNow;  // son aktivite → sidebar'da (sabitlerin altında) en üste taşır
                 await _uow.SaveChangesAsync(ct);
 
                 var hitFollowUps = await followUpTask;
@@ -323,6 +326,16 @@ public class ChatUseCase : IChatUseCase
         await _uow.Messages.AddAsync(userMsg, ct);
         await _uow.SaveChangesAsync(ct);
 
+        // Bu noktadan sonra iptal/kopma olursa (controller iterator'ı DISPOSE eder ya da arama/
+        // streaming OCE fırlatır) asistan cevabı kaydedilmemiş demektir. Güvenilir temizlik için
+        // try/finally: finally normal bitişte, dispose'da ve exception'da çalışır. Tam alışveriş
+        // kaydedilmediyse (exchangeSaved=false) VE iptal edildiyse yetim user mesajı + (bu istekte
+        // açılan) boş session silinir → DB'de/sidebar'da mesajsız ölü kayıt kalmaz. (Düz cancel-check'e
+        // güvenilmez: iptalde iterator bir yield'de asılı kalıp dispose edilir, oraya hiç gelinmez.)
+        var exchangeSaved = false;
+        try
+        {
+
         // Arama göstergesi: arama+rerank ilk token'a kadar birkaç saniye sürer; kullanıcı
         // boş imleç yerine "Belgeler aranıyor" görür. İlk token gelince frontend temizler.
         yield return new { type = "searching" };
@@ -354,6 +367,7 @@ public class ChatUseCase : IChatUseCase
             };
             await _uow.Messages.AddAsync(noDataMsg, ct);
             await _uow.SaveChangesAsync(ct);
+            exchangeSaved = true;  // tam alışveriş (soru+cevap) kaydedildi → finally temizlemez
             yield return new { type = "complete", messageId = noDataMsg.Id };
             yield return new { type = "done" };
             yield break;
@@ -366,32 +380,40 @@ public class ChatUseCase : IChatUseCase
         // haritaya bağlanır. Harita cevap sonrası [[IMG-K]] → gerçek görsel render için kullanılır.
         var answerContext = _llm.BuildAnswerContext(chunks);
 
+        // "Cevap yok" marker'ı ([NO_ANSWER]) cevabın EN BAŞINDA gelir. Ham haliyle akarsa kullanıcı
+        // marker'ı görür (titreme) ve complete kaçarsa kalıcı olur. Bu yüzden ilk ~32 karakteri
+        // tamponla, marker'ı temizleyip öyle yay; gerisi düz akış. (32 > marker + olası sarma.)
         var answerBuilder = new StringBuilder();
+        var prefixEmitted = false;
+        const int markerGate = 32;
         await foreach (var delta in _llm.StreamAnswerAsync(answerContext, searchQuestion, history, feedbackContext, ct))
         {
             answerBuilder.Append(delta);
-            yield return new { type = "token", delta };
+            if (!prefixEmitted)
+            {
+                if (answerBuilder.Length < markerGate) continue;  // yeterli birikene kadar tut
+                prefixEmitted = true;
+                var cleanedPrefix = StripNoAnswerMarker(answerBuilder.ToString());
+                if (cleanedPrefix.Length > 0)
+                    yield return new { type = "token", delta = cleanedPrefix };
+            }
+            else
+            {
+                yield return new { type = "token", delta };
+            }
+        }
+        // Stream markerGate'ten kısa bittiyse (çok kısa cevap) biriken tamponu temizleyip yay.
+        if (!prefixEmitted && answerBuilder.Length > 0)
+        {
+            var cleanedPrefix = StripNoAnswerMarker(answerBuilder.ToString());
+            if (cleanedPrefix.Length > 0)
+                yield return new { type = "token", delta = cleanedPrefix };
         }
 
-        // Stream bittiğinde client kopmuş olabilir (TCP RST / iptal). Yarım cevabı DB'ye ve
-        // cache'e yazmamak için iptal kontrolü ile erken çıkış yapılır.
+        // Streaming döngüsü ct iptalinde OCE fırlatmadan bittiyse burada yakalanır: yarım cevabı
+        // işleme/kaydetme; erken çık. Temizlik finally'de yapılır (yield break finally'yi çalıştırır).
         if (ct.IsCancellationRequested)
-        {
-            _logger.LogInformation(
-                "[Stream] Cancellation algılandı stream sonrası — quality/cache/save atlandı, yarım cevap persist edilmedi");
-            // Asistan cevabı yazılmadı → cevapsız (yetim) user mesajı geride kalmasın diye geri al.
-            // İptal edilmiş ct ile SaveChanges çalışmaz → CancellationToken.None ile temizle.
-            try
-            {
-                _uow.Messages.Delete(userMsg);
-                await _uow.SaveChangesAsync(CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[Stream] İptal sonrası yetim user mesajı temizlenemedi");
-            }
             yield break;
-        }
         var answer = answerBuilder.ToString();
 
         // Önce post-process, sonra kalite doğrulama: doğrulama kullanıcıya gösterilen temiz
@@ -457,6 +479,7 @@ public class ChatUseCase : IChatUseCase
             ResponseToMessageId = userMsg.Id,
         };
         await _uow.Messages.AddAsync(assistantMsg, ct);
+        session.UpdatedAt = DateTime.UtcNow;  // son aktivite → sidebar'da (sabitlerin altında) en üste taşır
 
         var qualityOkForCache = quality.Validated
             && (quality.Score >= 0.65 || (quality.Score >= 0.4 && quality.Issues.Count == 0));
@@ -493,6 +516,7 @@ public class ChatUseCase : IChatUseCase
         try
         {
             await _uow.SaveChangesAsync(ct);
+            exchangeSaved = true;  // asistan cevabı DB'ye yazıldı → finally temizlemez
             if (willCache)
                 _logger.LogInformation("[Cache][Stream] WRITE — '{Question}'", searchQuestion);
         }
@@ -517,14 +541,43 @@ public class ChatUseCase : IChatUseCase
             quality = quality.Score
         };
         yield return new { type = "done" };
+
+        }
+        finally
+        {
+            // İptal/kopma olduysa VE tam alışveriş kaydedilmediyse: yetim user mesajı + (bu istekte
+            // açılan) boş session silinir. finally normal bitişte, dispose'da ve exception'da çalışır →
+            // iptal hangi anda olursa olsun (arama, streaming) DB'de mesajsız session/yetim mesaj kalmaz.
+            // Mevcut session'a yazılıp iptal edilirse session KORUNUR (eski mesajları var), sadece bu
+            // yetim user mesajı silinir. Best-effort: iptal edilmiş ct ile çalışmaz → None ile.
+            if (!exchangeSaved && ct.IsCancellationRequested)
+            {
+                try
+                {
+                    _uow.Messages.Delete(userMsg);
+                    if (sessionCreatedThisRequest) _uow.Sessions.Delete(session);
+                    await _uow.SaveChangesAsync(CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[Stream] İptal temizliği başarısız — yetim kayıt kalmış olabilir");
+                }
+            }
+        }
     }
 
-    private const string NoAnswerMarker = "[NO_ANSWER]";
+    // "Cevap yok" marker'ı. Prompt'ta `[NO_ANSWER]` istenir ama LLM pratikte varyant üretebiliyor:
+    // **[NO_ANSWER]**, `[NO_ANSWER]`, [no_answer], [NO ANSWER], [NO-ANSWER], sonuna : / . vb.
+    // Bu yüzden tespit TOLERANSLI ve anchored (^): baştaki opsiyonel markdown/backtick + boşluk/
+    // tire varyantları, büyük/küçük harf duyarsız. Yalnızca cevabın EN BAŞINDAKİ marker yakalanır.
+    private static readonly System.Text.RegularExpressions.Regex NoAnswerMarkerRegex =
+        new(@"^\s*[`*_~]*\[\s*NO[\s_\-]?ANSWER\s*\][`*_~:.\-–—]*\s*",
+            System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     private static bool LooksLikeRejection(string answer)
     {
         if (string.IsNullOrWhiteSpace(answer)) return true;
-        return answer.TrimStart().StartsWith(NoAnswerMarker, StringComparison.Ordinal);
+        return NoAnswerMarkerRegex.IsMatch(answer);
     }
 
     // LLM bazen prompt'a rağmen "(KAYNAK [N])" referansları sızdırıyor → post-process strip.
@@ -604,9 +657,7 @@ public class ChatUseCase : IChatUseCase
     private static string StripNoAnswerMarker(string answer)
     {
         if (string.IsNullOrWhiteSpace(answer)) return answer;
-        var trimmed = answer.TrimStart();
-        if (!trimmed.StartsWith(NoAnswerMarker, StringComparison.Ordinal)) return answer;
-        return trimmed[NoAnswerMarker.Length..].TrimStart();
+        return NoAnswerMarkerRegex.Replace(answer, string.Empty, 1).TrimStart();
     }
 
     public async Task<Result<IReadOnlyList<ChatSessionResponseDto>>> GetMySessionsAsync(CancellationToken ct)

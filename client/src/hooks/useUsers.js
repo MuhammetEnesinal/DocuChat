@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import {
     adminGetUsers, adminCreateUser, adminUpdateUser, adminDeleteUser, adminDeleteUsersBatch,
     adminDownloadBulkImportTemplate, adminBulkImportUsersStream
@@ -6,10 +6,18 @@ import {
 import { useToast } from '../components/shared/Toast';
 import { showApiError, getApiErrorMessage } from '../utils/format';
 
+const PAGE_SIZE = 20;
+
 export function useUsers() {
     const [users, setUsers] = useState([]);
     const [usersLoading, setUsersLoading] = useState(true);
     const [userSearch, setUserSearch] = useState('');
+    // Server-side pagination + search
+    const [page, setPage] = useState(1);
+    const [totalCount, setTotalCount] = useState(0);
+    const pageRef = useRef(1);
+    const searchRef = useRef('');
+    const searchTimerRef = useRef(null);
     const [showUserModal, setShowUserModal] = useState(false);
     const [editingUser, setEditingUser] = useState(null);
     const [userForm, setUserFormState] = useState({ fullName: '', email: '', personnelCode: '' });
@@ -17,14 +25,46 @@ export function useUsers() {
     const [userFormLoading, setUserFormLoading] = useState(false);
     const toast = useToast();
 
-    const fetchUsers = useCallback(async () => {
-        setUsersLoading(true);
+    const fetchUsers = useCallback(async (silent = false) => {
+        if (!silent) setUsersLoading(true);
         try {
-            const res = await adminGetUsers();
-            setUsers(res.data.data || []);
-        } catch (err) { showApiError(toast, err, 'Kullanıcılar yüklenemedi.'); }
-        finally { setUsersLoading(false); }
+            const params = { page: pageRef.current, pageSize: PAGE_SIZE };
+            if (searchRef.current) params.search = searchRef.current;
+            const res = await adminGetUsers(params);
+            const data = res.data.data || {};
+            const items = data.items || [];
+            const total = data.totalCount ?? items.length;
+
+            // Geçerli sayfa aralık dışında kaldıysa (son sayfadaki son kullanıcı silindi) düzelt
+            const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
+            if (pageRef.current > lastPage) {
+                pageRef.current = lastPage;
+                setPage(lastPage);
+                return fetchUsers(silent);
+            }
+
+            setUsers(items);
+            setTotalCount(total);
+        } catch (err) { if (!silent) showApiError(toast, err, 'Kullanıcılar yüklenemedi.'); }
+        finally { if (!silent) setUsersLoading(false); }
     }, [toast]);
+
+    const goToUsersPage = useCallback((p) => {
+        pageRef.current = p;
+        setPage(p);
+        fetchUsers(false);
+    }, [fetchUsers]);
+
+    const handleUserSearch = useCallback((value) => {
+        setUserSearch(value);
+        searchRef.current = value;
+        if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+        searchTimerRef.current = setTimeout(() => {
+            pageRef.current = 1;   // arama değişince ilk sayfaya dön
+            setPage(1);
+            fetchUsers(false);
+        }, 300);
+    }, [fetchUsers]);
 
     const setUserForm = useCallback((key, val) => {
         setUserFormState(prev => ({ ...prev, [key]: val }));
@@ -62,7 +102,7 @@ export function useUsers() {
                 toast.success(`"${userForm.fullName}" oluşturuldu.`);
             }
             closeUserModal();
-            fetchUsers();
+            fetchUsers(true);
         } catch (err) {
             const errorMsg = getApiErrorMessage(err, editingUser ? 'Kullanıcı güncellenemedi.' : 'Kullanıcı oluşturulamadı.');
             setUserFormError(errorMsg);
@@ -75,11 +115,12 @@ export function useUsers() {
         setUsers(prev => prev.filter(u => u.id !== id));
         try {
             await adminDeleteUser(id);
+            fetchUsers(true);  // toplam sayaç + sayfa dolgusunu reconcile et
         } catch (err) {
             setUsers(snapshot);
             throw err;
         }
-    }, [users]);
+    }, [users, fetchUsers]);
 
     // Çoklu kullanıcı silme — TEK HTTP isteği (batch-delete). Admin role'üne sahip kullanıcılar
     // serverda atlanır; serverdan dönen sayı kadar başarılı.
@@ -94,7 +135,7 @@ export function useUsers() {
             const skipped = ids.length - success;
             if (success > 0) toast.success(`${success} kullanıcı silindi.`);
             if (skipped > 0) toast.info?.(`${skipped} kullanıcı atlandı (admin veya bulunamadı).`);
-            await fetchUsers();
+            fetchUsers(true);
             return success;
         } catch (err) {
             setUsers(snapshot);
@@ -190,7 +231,7 @@ export function useUsers() {
         setBulkImportProgress(null);
 
         if (summary?.successCount > 0) {
-            await fetchUsers();
+            fetchUsers(true);
         }
         const success = summary?.successCount ?? 0;
         const skipped = summary?.skippedCount ?? 0;
@@ -201,7 +242,9 @@ export function useUsers() {
     return {
         users,
         usersLoading,
-        userSearch, setUserSearch,
+        userSearch, setUserSearch: handleUserSearch,
+        // pagination
+        page, totalCount, pageSize: PAGE_SIZE, goToUsersPage,
         showUserModal,
         editingUser,
         userForm,

@@ -1076,9 +1076,9 @@ public class DocumentUseCase : IDocumentUseCase
     }
 
     public async Task<Result<PaginatedResult<DocumentResponseDto>>> GetAllDocumentsPagedAsync(
-        int page, int pageSize, CancellationToken ct)
+        int page, int pageSize, string? search, CancellationToken ct)
     {
-        var paged = await _uow.Documents.GetPagedAsync(page, pageSize, search: null, ct);
+        var paged = await _uow.Documents.GetPagedAsync(page, pageSize, search, ct);
         var dtos = paged.Items.Select(d => d.Adapt<DocumentResponseDto>()).ToList();
         return Result<PaginatedResult<DocumentResponseDto>>.Success(
             new PaginatedResult<DocumentResponseDto>(dtos, paged.TotalCount, paged.Page, paged.PageSize));

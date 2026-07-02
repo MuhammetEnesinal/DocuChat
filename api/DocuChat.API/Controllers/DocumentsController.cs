@@ -44,7 +44,9 @@ public class DocumentsController : ControllerBase
     {
         if (page.HasValue)
         {
-            var paged = await _document.GetAllDocumentsPagedAsync(page.Value, pageSize, ct);
+            var p = Math.Max(1, page.Value);
+            var ps = Math.Clamp(pageSize, 1, 100);
+            var paged = await _document.GetAllDocumentsPagedAsync(p, ps, search, ct);
             return paged.ToActionResult();
         }
         var result = await _document.GetAllDocumentsAsync(search, ct);

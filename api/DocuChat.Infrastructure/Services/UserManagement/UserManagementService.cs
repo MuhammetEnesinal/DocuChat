@@ -111,6 +111,38 @@ public sealed class UserManagementService : IUserManagementService
         return Result<IReadOnlyList<UserSummaryResponseDto>>.Success(dtos);
     }
 
+    public async Task<Result<PaginatedResult<UserSummaryResponseDto>>> GetUsersPagedAsync(
+        int page, int pageSize, string? search, CancellationToken ct = default)
+    {
+        var query = _userManager.Users.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var pattern = $"%{search}%";
+            query = query.Where(u =>
+                (u.FullName != null && EF.Functions.ILike(u.FullName, pattern)) ||
+                (u.Email != null && EF.Functions.ILike(u.Email, pattern)));
+        }
+
+        var total = await query.CountAsync(ct);
+        var users = await query
+            .OrderBy(u => u.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        var dtos = new List<UserSummaryResponseDto>(users.Count);
+        foreach (var user in users)
+        {
+            var roles = await _userManager.GetRolesAsync(user);
+            var dto = user.Adapt<UserSummaryResponseDto>();
+            dto.Roles = roles;
+            dtos.Add(dto);
+        }
+
+        return Result<PaginatedResult<UserSummaryResponseDto>>.Success(
+            new PaginatedResult<UserSummaryResponseDto>(dtos, total, page, pageSize));
+    }
+
     public async Task<Result<UserSummaryResponseDto>> UpdateUserAsync(
         string userId, UpdateUserRequestDto req, CancellationToken ct = default)
     {

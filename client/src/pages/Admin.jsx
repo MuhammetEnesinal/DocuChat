@@ -38,6 +38,7 @@ export default function Admin() {
         chunks,
         chunksLoading,
         showChunksModal, setShowChunksModal,
+        page: docPage, totalCount: docTotal, pageSize: docPageSize, goToPage: goToDocPage,
         fetchDocs,
         deleteDoc,
         batchDeleteDocs,
@@ -51,6 +52,7 @@ export default function Admin() {
         users,
         usersLoading,
         userSearch, setUserSearch,
+        page: userPage, totalCount: userTotal, pageSize: userPageSize, goToUsersPage,
         showUserModal,
         editingUser,
         userForm,
@@ -161,7 +163,7 @@ export default function Admin() {
 
     return (
         <div className="violet-drift" style={{ minHeight: '100vh' }}>
-            <div className="admin-header glass" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 36px', borderBottom: '1px solid var(--glass-border)', gap: '16px', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 10 }}>
+            <div className="admin-header glass" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 28px', borderBottom: '1px solid var(--glass-border)', gap: '16px', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 10 }}>
                 <div className="gradient-beam" style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <button onClick={() => navigate('/chat')} className="btn btn-ghost btn-sm">
@@ -176,8 +178,8 @@ export default function Admin() {
 
                 <div className="admin-tabs" style={{ display: 'flex', gap: '4px', padding: '5px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '14px', backdropFilter: 'blur(20px) saturate(180%)' }}>
                     {[
-                        { key: 'documents', label: 'Belgeler', count: documents.length, icon: <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /> },
-                        { key: 'users', label: 'Kullanıcılar', count: users.length, icon: <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></> },
+                        { key: 'documents', label: 'Belgeler', count: docTotal, icon: <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /> },
+                        { key: 'users', label: 'Kullanıcılar', count: userTotal, icon: <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></> },
                     ].map(t => (
                         <button key={t.key} onClick={() => setTab(t.key)} className={`btn admin-tab-btn ${tab === t.key ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '9px 16px', fontWeight: 600 }}>
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.icon}</svg>
@@ -220,6 +222,10 @@ export default function Admin() {
                             onBatchDownload={handleBatchDownloadDocs}
                             onBatchReprocess={handleBatchReprocessDocs}
                             deletingDocId={deletingDocId}
+                            total={docTotal}
+                            page={docPage}
+                            pageSize={docPageSize}
+                            onPageChange={goToDocPage}
                             onReprocessStart={(id) =>
                                 setDocuments(prev => prev.map(d =>
                                     d.id === id ? { ...d, status: 'Processing' } : d
@@ -242,6 +248,10 @@ export default function Admin() {
                         onDelete={handleDeleteUser}
                         onBatchDelete={handleBatchDeleteUsers}
                         deletingUserId={deletingUserId}
+                        total={userTotal}
+                        page={userPage}
+                        pageSize={userPageSize}
+                        onPageChange={goToUsersPage}
                     />
                 )}
                 </motion.div>
@@ -263,7 +273,7 @@ export default function Admin() {
                             return (
                                 <div key={chunk.id} style={{ borderRadius: '12px', padding: '16px', background: 'var(--surface2)', border: '1px solid var(--border)' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
-                                        <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', fontWeight: 500, background: 'rgba(59,130,246,0.15)', color: '#93c5fd', border: '1px solid rgba(59,130,246,0.2)' }}>Chunk #{chunk.chunkIndex + 1}</span>
+                                        <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', fontWeight: 500, background: 'rgba(var(--accent-rgb),0.15)', color: '#c4b5fd', border: '1px solid rgba(var(--accent-light-rgb),0.25)' }}>Chunk #{chunk.chunkIndex + 1}</span>
                                         {chunk.pageNumber != null && (
                                             <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', fontWeight: 500, background: 'rgba(168,85,247,0.15)', color: '#c4b5fd', border: '1px solid rgba(168,85,247,0.25)' }}>Sayfa {chunk.pageNumber}</span>
                                         )}

@@ -214,8 +214,8 @@ export const submitFeedback = ({ messageId, rating, categories = null, reasonTex
     api.post('/chat/feedback', { messageId, rating, categories, reasonText });
 
 // ── Admin ─────────────────────────────────────────────────────────────────
-export const adminGetUsers = () =>
-    api.get('/admin/users');
+export const adminGetUsers = (params = {}) =>
+    api.get('/admin/users', { params });
 
 export const adminCreateUser = (fullName, email, personnelCode) =>
     api.post('/admin/users', { fullName, email, personnelCode });

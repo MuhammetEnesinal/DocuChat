@@ -18,7 +18,7 @@ public class ChatSessionRepository : GenericRepository<ChatSession>, IChatSessio
                  .Where(s => s.UserId == userId && !s.IsArchived)
                  .OrderByDescending(s => s.IsPinned)
                  .ThenByDescending(s => s.PinnedAt)
-                 .ThenByDescending(s => s.CreatedAt)
+                 .ThenByDescending(s => s.UpdatedAt ?? s.CreatedAt)  // son aktivite (mesaj) → üstte
                  .ToListAsync(ct);
 
     public async Task<PaginatedResult<ChatSession>> GetByUserIdPagedAsync(
@@ -28,7 +28,7 @@ public class ChatSessionRepository : GenericRepository<ChatSession>, IChatSessio
             .Where(s => s.UserId == userId && !s.IsArchived)
             .OrderByDescending(s => s.IsPinned)
             .ThenByDescending(s => s.PinnedAt)
-            .ThenByDescending(s => s.CreatedAt);
+            .ThenByDescending(s => s.UpdatedAt ?? s.CreatedAt);  // son aktivite (mesaj) → üstte
         var total = await query.CountAsync(ct);
         var items = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
         return new PaginatedResult<ChatSession>(items, total, page, pageSize);
@@ -59,8 +59,8 @@ public class ChatSessionRepository : GenericRepository<ChatSession>, IChatSessio
         {
             (ChatSessionSortBy.Title, true)  => pinnedFirst.ThenBy(s => s.Title),
             (ChatSessionSortBy.Title, false) => pinnedFirst.ThenByDescending(s => s.Title),
-            (_, true)                        => pinnedFirst.ThenBy(s => s.CreatedAt),
-            (_, false)                       => pinnedFirst.ThenByDescending(s => s.CreatedAt),
+            (_, true)                        => pinnedFirst.ThenBy(s => s.UpdatedAt ?? s.CreatedAt),
+            (_, false)                       => pinnedFirst.ThenByDescending(s => s.UpdatedAt ?? s.CreatedAt),
         };
 
         var total = await ordered.CountAsync(ct);

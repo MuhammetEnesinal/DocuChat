@@ -7,6 +7,7 @@ import { useToast } from '../shared/Toast';
 import { showApiError } from '../../utils/format';
 import Spinner from '../shared/Spinner';
 import IconButton from '../shared/IconButton';
+import Pagination from '../shared/Pagination';
 import DocumentPreviewModal from './DocumentPreviewModal';
 
 function statusLabel(status) {
@@ -37,6 +38,7 @@ export default function DocumentList({
     onViewChunks, onDelete, onBatchDelete,
     onBatchDownload, onBatchReprocess,
     deletingDocId, onReprocessStart, onReprocess,
+    total, page, pageSize, onPageChange,
 }) {
     const [previewDoc, setPreviewDoc] = useState(null);
     const [reprocessingIds, setReprocessingIds] = useState(new Set());
@@ -108,7 +110,7 @@ export default function DocumentList({
                 <div className="admin-list-header" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
                         <h2 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Yüklü Belgeler</h2>
-                        <span style={{ fontSize: '13px', color: 'var(--gray-light)' }}>{documents.length} belge</span>
+                        <span style={{ fontSize: '13px', color: 'var(--gray-light)' }}>{total ?? documents.length} belge</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flex: '1 1 auto', justifyContent: 'flex-end', minWidth: 0 }}>
                         {selectMode ? (
@@ -194,7 +196,7 @@ export default function DocumentList({
                                 <div style={{ minWidth: 0 }}>
                                     <p onClick={() => handlePreview(doc)}
                                         style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0, cursor: 'pointer' }}
-                                        onMouseEnter={(e) => e.currentTarget.style.color = '#60a5fa'}
+                                        onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent-light)'}
                                         onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
                                         title="Önizle">
                                         {doc.fileName}
@@ -220,7 +222,7 @@ export default function DocumentList({
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
                                 </IconButton>
                                 {doc.status === 'Ready' && (
-                                    <IconButton onClick={() => onViewChunks(doc)} title="Chunk görüntüle" hoverColor="#93c5fd" hoverBg="rgba(147,197,253,0.1)">
+                                    <IconButton onClick={() => onViewChunks(doc)} title="Chunk görüntüle" hoverColor="var(--accent-light)" hoverBg="rgba(var(--accent-light-rgb),0.1)">
                                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" /></svg>
                                     </IconButton>
                                 )}
@@ -248,6 +250,9 @@ export default function DocumentList({
                     );
                 })}
             </div>
+            {!loading && (
+                <Pagination page={page} pageSize={pageSize} totalCount={total ?? documents.length} onPageChange={onPageChange} />
+            )}
             {previewDoc && <DocumentPreviewModal doc={previewDoc} onClose={handleClosePreview} />}
         </>
     );

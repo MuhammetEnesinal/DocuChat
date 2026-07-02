@@ -3,6 +3,8 @@ import { getDocuments, uploadDocument, deleteDocument, deleteDocumentsBatch, get
 import { useToast } from '../components/shared/Toast';
 import { showApiError, getApiErrorMessage } from '../utils/format';
 
+const PAGE_SIZE = 20;
+
 export function useDocuments() {
     const [documents, setDocuments] = useState([]);
     const [docsLoading, setDocsLoading] = useState(true);
@@ -13,6 +15,11 @@ export function useDocuments() {
     const [chunks, setChunks] = useState([]);
     const [chunksLoading, setChunksLoading] = useState(false);
     const [showChunksModal, setShowChunksModal] = useState(false);
+    // Server-side pagination
+    const [page, setPage] = useState(1);
+    const [totalCount, setTotalCount] = useState(0);
+    const pageRef = useRef(1);      // fetchDocs setTimeout/poll içinden güncel sayfayı okur
+    const searchRef = useRef('');   // aynı şekilde güncel aramayı okur
     const toast = useToast();
     const pollTimerRef = useRef(null);
 
@@ -20,25 +27,50 @@ export function useDocuments() {
         return () => { if (pollTimerRef.current) clearTimeout(pollTimerRef.current); };
     }, []);
 
-    const fetchDocs = useCallback(async (silent = false, search = '') => {
+    const fetchDocs = useCallback(async (silent = false) => {
         if (pollTimerRef.current) { clearTimeout(pollTimerRef.current); pollTimerRef.current = null; }
         if (!silent) setDocsLoading(true);
         try {
-            const params = search ? { search } : {};
+            const params = { page: pageRef.current, pageSize: PAGE_SIZE };
+            if (searchRef.current) params.search = searchRef.current;
             const res = await getDocuments(params);
-            const docs = res.data.data || [];
-            setDocuments(docs);
-            if (docs.some(d => d.status === 'Processing' || d.status === 'Pending'))
-                pollTimerRef.current = setTimeout(() => fetchDocs(true, search), 3000);
+            const data = res.data.data || {};
+            const items = data.items || [];
+            const total = data.totalCount ?? items.length;
+
+            // Geçerli sayfa artık aralık dışında kaldıysa (son sayfadaki son öğe silindi vb.)
+            // gerçek son sayfaya çekip yeniden getir.
+            const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
+            if (pageRef.current > lastPage) {
+                pageRef.current = lastPage;
+                setPage(lastPage);
+                return fetchDocs(silent);
+            }
+
+            setDocuments(items);
+            setTotalCount(total);
+            if (items.some(d => d.status === 'Processing' || d.status === 'Pending'))
+                pollTimerRef.current = setTimeout(() => fetchDocs(true), 3000);
         } catch (err) { if (!silent) showApiError(toast, err, 'Belgeler yüklenemedi.'); }
         finally { if (!silent) setDocsLoading(false); }
     }, [toast]);
 
+    const goToPage = useCallback((p) => {
+        pageRef.current = p;
+        setPage(p);
+        fetchDocs(false);
+    }, [fetchDocs]);
+
     const searchTimerRef = useRef(null);
     const handleDocSearch = useCallback((value) => {
         setDocSearch(value);
+        searchRef.current = value;
         if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-        searchTimerRef.current = setTimeout(() => fetchDocs(false, value), 300);
+        searchTimerRef.current = setTimeout(() => {
+            pageRef.current = 1;   // arama değişince ilk sayfaya dön
+            setPage(1);
+            fetchDocs(false);
+        }, 300);
     }, [fetchDocs]);
 
     const deleteDoc = useCallback(async (id) => {
@@ -46,6 +78,7 @@ export function useDocuments() {
         if (selectedDoc?.id === id) setShowChunksModal(false);
         try {
             await deleteDocument(id);
+            fetchDocs(true);  // toplam sayaç + sayfa dolgusunu reconcile et
         } catch (err) {
             fetchDocs(true);
             throw err;
@@ -196,6 +229,8 @@ export function useDocuments() {
         chunks,
         chunksLoading,
         showChunksModal, setShowChunksModal,
+        // pagination
+        page, totalCount, pageSize: PAGE_SIZE, goToPage,
         fetchDocs,
         deleteDoc,
         batchDeleteDocs,

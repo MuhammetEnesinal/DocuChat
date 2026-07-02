@@ -4,22 +4,20 @@ import { UserSkeleton } from '../shared/Skeleton';
 import { formatDate } from '../../utils/format';
 import IconButton from '../shared/IconButton';
 import Spinner from '../shared/Spinner';
+import Pagination from '../shared/Pagination';
 
 export default function UserList({
     users, loading, search, onSearchChange,
     onAdd, onBulkImport, onEdit, onDelete, onBatchDelete,
     deletingUserId,
+    total, page, pageSize, onPageChange,
 }) {
     const [selectMode, setSelectMode] = useState(false);
     const [selectedIds, setSelectedIds] = useState(new Set());
 
-    const filtered = users.filter(u =>
-        u.fullName.toLowerCase().includes(search.toLowerCase()) ||
-        u.email.toLowerCase().includes(search.toLowerCase())
-    );
-
+    // Arama server-side yapılıyor — burada client filtre YOK, gelen sayfa aynen gösterilir.
     // Admin kullanıcılar seçilemez (silinemez)
-    const selectableUsers = filtered.filter(u => !u.roles?.includes('Admin'));
+    const selectableUsers = users.filter(u => !u.roles?.includes('Admin'));
     const allSelected = selectableUsers.length > 0 && selectableUsers.every(u => selectedIds.has(u.id));
 
     const toggleSelect = useCallback((id) => {
@@ -48,11 +46,12 @@ export default function UserList({
     }, [selectedIds, onBatchDelete, exitSelectMode]);
 
     return (
+      <>
         <div style={{ borderRadius: '16px', overflow: 'hidden', background: 'rgba(32, 26, 58, 0.55)', border: '1px solid rgba(var(--accent-light-rgb),0.14)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', boxShadow: '0 8px 28px -10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)' }}>
             <div className="admin-list-header" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <h2 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Kullanıcılar</h2>
-                    <span style={{ fontSize: '13px', color: 'var(--gray-light)' }}>{users.length} kullanıcı</span>
+                    <span style={{ fontSize: '13px', color: 'var(--gray-light)' }}>{total ?? users.length} kullanıcı</span>
                 </div>
                 <div className="admin-users-actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', flex: '1 1 auto', justifyContent: 'flex-end', minWidth: 0 }}>
                     {selectMode ? (
@@ -108,11 +107,11 @@ export default function UserList({
                 </div>
             </div>
 
-            {loading ? <UserSkeleton /> : filtered.length === 0 ? (
+            {loading ? <UserSkeleton /> : users.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '48px 16px' }}>
                     <p style={{ fontSize: '14px', color: 'var(--gray-light)' }}>{search ? 'Sonuç bulunamadı' : 'Kullanıcı bulunamadı'}</p>
                 </div>
-            ) : filtered.map((u) => {
+            ) : users.map((u) => {
                 const isAdmin = u.roles?.includes('Admin');
                 const isSelected = selectMode && selectedIds.has(u.id);
                 return (
@@ -131,20 +130,20 @@ export default function UserList({
                                     style={{ width: '16px', height: '16px', cursor: isAdmin ? 'not-allowed' : 'pointer', accentColor: 'var(--accent-light)', flexShrink: 0 }}
                                 />
                             )}
-                            <div style={{ width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontWeight: 600, fontSize: '14px', background: isAdmin ? 'rgba(59,130,246,0.2)' : 'rgba(100,116,139,0.2)', color: isAdmin ? '#93c5fd' : '#94a3b8' }}>
+                            <div style={{ width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontWeight: 600, fontSize: '14px', background: isAdmin ? 'rgba(var(--accent-rgb),0.2)' : 'rgba(100,116,139,0.2)', color: isAdmin ? '#c4b5fd' : '#94a3b8' }}>
                                 {u.fullName?.charAt(0)?.toUpperCase() || '?'}
                             </div>
                             <div style={{ minWidth: 0 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                                     <p style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>{u.fullName}</p>
-                                    {isAdmin && <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', fontWeight: 500, background: 'rgba(59,130,246,0.15)', color: '#93c5fd', border: '1px solid rgba(59,130,246,0.2)', flexShrink: 0 }}>Admin</span>}
+                                    {isAdmin && <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', fontWeight: 500, background: 'rgba(var(--accent-rgb),0.15)', color: '#c4b5fd', border: '1px solid rgba(var(--accent-light-rgb),0.25)', flexShrink: 0 }}>Admin</span>}
                                 </div>
                                 <p style={{ fontSize: '12px', color: 'var(--gray-light)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email} · {formatDate(u.createdAt)}</p>
                             </div>
                         </div>
                         {!isAdmin && !selectMode && (
                             <div style={{ display: 'flex', gap: '4px', flexShrink: 0, marginLeft: '8px' }}>
-                                <IconButton onClick={() => onEdit(u)} title="Düzenle" hoverColor="#93c5fd" hoverBg="rgba(59,130,246,0.1)">
+                                <IconButton onClick={() => onEdit(u)} title="Düzenle" hoverColor="var(--accent-light)" hoverBg="rgba(var(--accent-light-rgb),0.1)">
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
@@ -164,5 +163,9 @@ export default function UserList({
                 );
             })}
         </div>
+        {!loading && (
+            <Pagination page={page} pageSize={pageSize} totalCount={total ?? users.length} onPageChange={onPageChange} />
+        )}
+      </>
     );
 }

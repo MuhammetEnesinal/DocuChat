@@ -76,14 +76,14 @@ export default function DocumentPreviewModal({ doc, onClose }) {
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-light)" strokeWidth="2">
                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
                         </svg>
                         <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.fileName}</span>
                         <span style={{ fontSize: '12px', color: 'var(--gray-light)', flexShrink: 0 }}>{formatSize(doc.fileSizeBytes)}</span>
                     </div>
                     <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-                        <button onClick={handleDownload} style={{ padding: '6px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: 500, background: 'rgba(96,165,250,0.1)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.2)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <button onClick={handleDownload} style={{ padding: '6px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: 500, background: 'rgba(var(--accent-light-rgb),0.12)', color: '#c4b5fd', border: '1px solid rgba(var(--accent-light-rgb),0.25)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
                             İndir
                         </button>
@@ -105,8 +105,8 @@ export default function DocumentPreviewModal({ doc, onClose }) {
                         </div>
                     ) : !canPreview ? (
                         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 24px', gap: '16px' }}>
-                            <div style={{ width: '64px', height: '64px', borderRadius: '16px', background: 'rgba(96,165,250,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+                            <div style={{ width: '64px', height: '64px', borderRadius: '16px', background: 'rgba(var(--accent-rgb),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent-light)" strokeWidth="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
                             </div>
                             <div style={{ textAlign: 'center' }}>
                                 <p style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>{doc.fileName}</p>

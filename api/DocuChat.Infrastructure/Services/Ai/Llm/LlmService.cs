@@ -340,8 +340,8 @@ public class LlmService : ILlmService
 
             var options = raw
                 .Split('|', StringSplitOptions.RemoveEmptyEntries)
-                .Select(s => s.Trim())
-                .Where(s => s.Length > 5 && s.Length < 250)
+                .Select(CleanChipOption)
+                .Where(s => s.Length > 5 && s.Length < 250 && !s.EndsWith(":"))  // ':' ile biten = önsöz, at
                 .Take(3)
                 .ToList();
 
@@ -380,9 +380,9 @@ public class LlmService : ILlmService
 
             var options = answer
                 .Split('|', StringSplitOptions.RemoveEmptyEntries)
-                .Select(s => s.Trim())
-                .Select(SanitizeFileReferences)  // safety net — LLM yine de sızdırırsa kırp
-                .Where(s => s.Length > 5 && s.Length < 250)
+                .Select(CleanChipOption)         // numaralama/tırnak/markdown sarma kırp
+                .Select(SanitizeFileReferences)  // safety net — LLM dosya atfı sızdırırsa kırp
+                .Where(s => s.Length > 5 && s.Length < 250 && !s.EndsWith(":"))  // ':' ile biten = önsöz, at
                 .Take(5)
                 .ToList();
 
@@ -425,6 +425,21 @@ public class LlmService : ILlmService
         s = s.Trim(' ', ',', '.', ';', ':');
 
         return s;
+    }
+
+    // Follow-up / clarification çipleri için biçim safety-net'i. Prompt "numara/tırnak/başka metin
+    // yok, sadece |" dese de LLM (bkz. [NO_ANSWER] varyant sorunu) numaralama/madde imi/tırnak/
+    // markdown sarma ekleyebiliyor → kullanıcıya çöp çip çıkmasın diye kırpılır.
+    private static readonly System.Text.RegularExpressions.Regex LeadingListMarkerRegex =
+        new(@"^\s*(?:\d+\s*[.)\-]|[-–—•*·])\s+",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static string CleanChipOption(string option)
+    {
+        if (string.IsNullOrWhiteSpace(option)) return option;
+        var s = LeadingListMarkerRegex.Replace(option.Trim(), "");   // "1. ", "2) ", "- ", "• "
+        s = s.Trim('"', '\'', '`', '*', '_', '“', '”', '‘', '’', ' '); // sarma tırnak/markdown
+        return s.Trim();
     }
 
     public async Task<IReadOnlyList<string>> GenerateChunkContextsBatchAsync(

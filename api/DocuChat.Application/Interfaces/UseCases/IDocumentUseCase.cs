@@ -7,7 +7,7 @@ public interface IDocumentUseCase
 {
     Task<Result<DocumentResponseDto>> UploadAsync(UploadDocumentRequestDto request, CancellationToken ct = default);
     Task<Result<IReadOnlyList<DocumentResponseDto>>> GetAllDocumentsAsync(string? search = null, CancellationToken ct = default);
-    Task<Result<PaginatedResult<DocumentResponseDto>>> GetAllDocumentsPagedAsync(int page, int pageSize, CancellationToken ct = default);
+    Task<Result<PaginatedResult<DocumentResponseDto>>> GetAllDocumentsPagedAsync(int page, int pageSize, string? search = null, CancellationToken ct = default);
     Task<Result<bool>> DeleteAsync(Guid id, CancellationToken ct = default);
     Task<Result<int>> DeleteBatchAsync(IEnumerable<Guid> ids, CancellationToken ct = default);
     Task<Result<IReadOnlyList<DocumentChunkResponseDto>>> GetChunksAsync(Guid id, CancellationToken ct = default);

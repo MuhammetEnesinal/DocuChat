@@ -9,10 +9,10 @@ export default function DocumentUpload({ uploads, dragOver, onDragOver, onDragLe
                 style={{
                     borderRadius: '12px', padding: '32px 16px', textAlign: 'center', cursor: 'pointer',
                     border: `2px dashed ${dragOver ? 'var(--accent)' : 'var(--border)'}`,
-                    background: dragOver ? 'rgba(59,130,246,0.05)' : 'var(--surface2)',
+                    background: dragOver ? 'rgba(var(--accent-rgb),0.06)' : 'var(--surface2)',
                 }}>
-                <div style={{ width: '48px', height: '48px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px', background: 'rgba(59,130,246,0.15)' }}>
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2">
+                <div style={{ width: '48px', height: '48px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px', background: 'rgba(var(--accent-rgb),0.15)' }}>
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-light)" strokeWidth="2">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
                     </svg>
                 </div>
@@ -26,17 +26,17 @@ export default function DocumentUpload({ uploads, dragOver, onDragOver, onDragLe
                     {uploads.map((u) => (
                         <div key={u.id} style={{
                             padding: '12px 16px', borderRadius: '12px',
-                            background: u.status === 'error' ? 'rgba(239,68,68,0.08)' : 'rgba(59,130,246,0.08)',
-                            border: `1px solid ${u.status === 'error' ? 'rgba(239,68,68,0.2)' : 'rgba(59,130,246,0.2)'}`,
+                            background: u.status === 'error' ? 'rgba(239,68,68,0.08)' : 'rgba(var(--accent-rgb),0.08)',
+                            border: `1px solid ${u.status === 'error' ? 'rgba(239,68,68,0.2)' : 'rgba(var(--accent-light-rgb),0.25)'}`,
                         }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                                <span style={{ fontSize: '12px', fontWeight: 500, color: u.status === 'error' ? '#fca5a5' : '#93c5fd', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }}>{u.name}</span>
-                                <span style={{ fontSize: '12px', color: u.status === 'error' ? '#fca5a5' : '#93c5fd' }}>
+                                <span style={{ fontSize: '12px', fontWeight: 500, color: u.status === 'error' ? '#fca5a5' : '#c4b5fd', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }}>{u.name}</span>
+                                <span style={{ fontSize: '12px', color: u.status === 'error' ? '#fca5a5' : '#c4b5fd' }}>
                                     {u.status === 'error' ? 'Hata' : u.status === 'done' ? '✓' : `%${u.progress}`}
                                 </span>
                             </div>
                             {u.status === 'uploading' && (
-                                <div style={{ height: '4px', borderRadius: '4px', background: 'rgba(59,130,246,0.2)', overflow: 'hidden' }}>
+                                <div style={{ height: '4px', borderRadius: '4px', background: 'rgba(var(--accent-rgb),0.2)', overflow: 'hidden' }}>
                                     <div style={{ width: `${u.progress}%`, height: '100%', background: 'var(--accent)', borderRadius: '4px', transition: 'width 0.3s' }} />
                                 </div>
                             )}
