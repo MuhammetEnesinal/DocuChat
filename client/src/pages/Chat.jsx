@@ -46,6 +46,8 @@ export default function Chat() {
 
     const {
         sessions, setSessions,
+        sortSessionsClientSide,
+        bumpSessionActivity,
         activeSession, setActiveSession,
         sessionsLoading,
         editingSessionId, setEditingSessionId,
@@ -68,6 +70,7 @@ export default function Chat() {
         handlePinSession,
         handleUnpinSession,
         handleBatchArchiveSessions,
+        handleBatchUnarchiveSessions,
     } = useSessions();
 
     const {
@@ -129,10 +132,19 @@ export default function Chat() {
         if (!forcedQuestion) setQuestion('');
         const skip = skipClarification || skipNextClarificationRef.current;
         skipNextClarificationRef.current = false;
-        await handleSend(q, activeSession, (newSession) => {
+        // Mevcut sohbete yazıldıysa optimistik olarak hemen "son aktivite" yap → non-pinned tepesine
+        // (sabitlerin altına) taşı. Yeni sohbet ise callback'te sort'lu eklenir.
+        if (activeSession) bumpSessionActivity(activeSession.id);
+        const res = await handleSend(q, activeSession, (newSession) => {
             setActiveSession(newSession);
-            setSessions(prev => [newSession, ...prev]);
+            setSessions(prev => sortSessionsClientSide([newSession, ...prev]));
         }, skip);
+        // İlk soru (yeni sohbet) iptal edilip hiç cevap kaydedilmediyse: boş session'ı sidebar'dan
+        // kaldır ve temiz anasayfaya dön (backend session'ı zaten sildi).
+        if (res?.aborted && res.createdSessionId && !res.hadComplete) {
+            setSessions(prev => prev.filter(s => s.id !== res.createdSessionId));
+            newChat();
+        }
     };
 
     const onClarificationSelect = (opt) => {
@@ -255,6 +267,7 @@ export default function Chat() {
                 onPin={handlePinSession}
                 onUnpin={handleUnpinSession}
                 onBatchArchiveSessions={handleBatchArchiveSessions}
+                onBatchUnarchiveSessions={handleBatchUnarchiveSessions}
             />
 
             <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
@@ -269,7 +282,7 @@ export default function Chat() {
                     <div className="gradient-beam" style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }} />
                 </div>
 
-                <div className={messages.length > 0 ? 'violet-drift' : ''} style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+                <div className={messages.length > 0 ? 'violet-dome-soft' : ''} style={{ display: 'flex', flex: 1, minHeight: 0 }}>
                     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
                         <div className={messages.length > 0 ? 'messages-fade' : ''} style={{ flex: 1, minHeight: 0 }}>
                             {messagesLoading ? (

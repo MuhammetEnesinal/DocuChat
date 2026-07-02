@@ -38,7 +38,7 @@ export default function Admin() {
         chunks,
         chunksLoading,
         showChunksModal, setShowChunksModal,
-        page: docPage, totalCount: docTotal, pageSize: docPageSize, goToPage: goToDocPage,
+        page: docPage, totalCount: docTotal, grandTotal: docGrandTotal, pageSize: docPageSize, goToPage: goToDocPage,
         fetchDocs,
         deleteDoc,
         batchDeleteDocs,
@@ -52,7 +52,7 @@ export default function Admin() {
         users,
         usersLoading,
         userSearch, setUserSearch,
-        page: userPage, totalCount: userTotal, pageSize: userPageSize, goToUsersPage,
+        page: userPage, totalCount: userTotal, grandTotal: userGrandTotal, pageSize: userPageSize, goToUsersPage,
         showUserModal,
         editingUser,
         userForm,
@@ -162,35 +162,49 @@ export default function Admin() {
     };
 
     return (
-        <div className="violet-drift" style={{ minHeight: '100vh' }}>
-            <div className="admin-header glass" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 28px', borderBottom: '1px solid var(--glass-border)', gap: '16px', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 10 }}>
+        <div style={{ minHeight: '100vh', position: 'relative', background: 'linear-gradient(180deg, #110d22 0%, #0c0918 100%)', overflowX: 'clip' }}>
+            {/* Chat/Profil ile aynı atmosfer: koyu mor taban + sabit merkezi mor ışıma */}
+            <div aria-hidden style={{
+                position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
+                background:
+                    'radial-gradient(ellipse 55% 48% at 50% 42%, rgba(var(--accent-rgb),0.26), rgba(var(--accent-deep-rgb),0.11) 48%, transparent 74%)',
+            }} />
+            {/* Navbar — Profil sayfasıyla birebir aynı düzen: Geri tam solda, kimlik en sağda, sabit 74px */}
+            <div className="glass" style={{ display: 'flex', alignItems: 'center', height: '74px', padding: '0 clamp(12px, 3.5vw, 28px)', borderBottom: '1px solid var(--glass-border)', position: 'sticky', top: 0, zIndex: 10, gap: '10px', minWidth: 0 }}>
                 <div className="gradient-beam" style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }} />
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <button onClick={() => navigate('/chat')} className="btn btn-ghost btn-sm">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
-                        </svg>
-                        Geri
-                    </button>
-                    <div style={{ width: '1px', height: '20px', background: 'var(--border)' }} />
-                    <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>Admin Panel</h1>
-                </div>
-
-                <div className="admin-tabs" style={{ display: 'flex', gap: '4px', padding: '5px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '14px', backdropFilter: 'blur(20px) saturate(180%)' }}>
-                    {[
-                        { key: 'documents', label: 'Belgeler', count: docTotal, icon: <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /> },
-                        { key: 'users', label: 'Kullanıcılar', count: userTotal, icon: <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></> },
-                    ].map(t => (
-                        <button key={t.key} onClick={() => setTab(t.key)} className={`btn admin-tab-btn ${tab === t.key ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '9px 16px', fontWeight: 600 }}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.icon}</svg>
-                            <span className="admin-tab-label">{t.label}</span>
-                            <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '8px', fontWeight: 700, background: tab === t.key ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.08)', color: tab === t.key ? 'white' : 'rgba(255,255,255,0.55)', minWidth: '22px', textAlign: 'center' }}>{t.count}</span>
-                        </button>
-                    ))}
+                {/* Sol: geri butonu (tam sola yaslı) */}
+                <button onClick={() => navigate('/chat')} className="btn btn-ghost btn-sm" style={{ flexShrink: 0 }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
+                    </svg>
+                    <span className="profile-back-text">Geri</span>
+                </button>
+                <div style={{ flex: 1 }} />
+                {/* Sağ: panel kimliği — profil sayfası düzeniyle aynı (ikon + başlık en sağda) */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flexShrink: 1 }}>
+                    <div style={{ width: '30px', height: '30px', borderRadius: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--gradient-accent)', boxShadow: '0 6px 16px -6px rgba(var(--accent-rgb),0.6)', flexShrink: 0 }}>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>
+                    </div>
+                    <h1 style={{ fontSize: '18px', fontWeight: 700, margin: 0, letterSpacing: '-0.02em', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Yönetim</h1>
                 </div>
             </div>
 
-            <div className="admin-content" style={{ maxWidth: '1100px', margin: '0 auto', padding: '40px 28px' }}>
+            <div className="admin-content" style={{ position: 'relative', zIndex: 1, maxWidth: '1100px', margin: '0 auto', padding: 'clamp(20px, 4vw, 40px) clamp(12px, 3vw, 28px)' }}>
+                {/* Sekmeler — navbar'dan çıkarıldı, içeriğin üstünde ortalı */}
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 'clamp(16px, 3vw, 28px)' }}>
+                    <div className="admin-tabs" style={{ display: 'flex', gap: '4px', padding: '5px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', backdropFilter: 'blur(20px) saturate(180%)' }}>
+                        {[
+                            { key: 'documents', label: 'Belgeler', count: docGrandTotal, icon: <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /> },
+                            { key: 'users', label: 'Kullanıcılar', count: userGrandTotal, icon: <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></> },
+                        ].map(t => (
+                            <button key={t.key} onClick={() => setTab(t.key)} className={`btn admin-tab-btn ${tab === t.key ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '9px 16px', fontWeight: 600 }}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.icon}</svg>
+                                <span className="admin-tab-label">{t.label}</span>
+                                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '8px', fontWeight: 700, background: tab === t.key ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.1)', color: tab === t.key ? 'white' : 'var(--text-secondary)', minWidth: '22px', textAlign: 'center' }}>{t.count}</span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
                 <AnimatePresence mode="wait">
                 <motion.div
                     key={tab}
@@ -271,13 +285,13 @@ export default function Admin() {
                                 try { chunkImages = JSON.parse(chunk.imagePath); } catch { }
                             }
                             return (
-                                <div key={chunk.id} style={{ borderRadius: '12px', padding: '16px', background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+                                <div key={chunk.id} style={{ borderRadius: '12px', padding: '14px clamp(10px, 2.5vw, 16px)', background: 'var(--surface2)', border: '1px solid var(--border)', minWidth: 0 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
                                         <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', fontWeight: 500, background: 'rgba(var(--accent-rgb),0.15)', color: '#c4b5fd', border: '1px solid rgba(var(--accent-light-rgb),0.25)' }}>Chunk #{chunk.chunkIndex + 1}</span>
                                         {chunk.pageNumber != null && (
                                             <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', fontWeight: 500, background: 'rgba(168,85,247,0.15)', color: '#c4b5fd', border: '1px solid rgba(168,85,247,0.25)' }}>Sayfa {chunk.pageNumber}</span>
                                         )}
-                                        <span style={{ fontSize: '12px', color: '#475569' }}>{chunk.content.length} karakter</span>
+                                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{chunk.content.length} karakter</span>
                                         {chunkImages.length > 0 && (
                                             <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', fontWeight: 500, background: 'rgba(34,197,94,0.15)', color: '#86efac', border: '1px solid rgba(34,197,94,0.2)' }}>{chunkImages.length} görsel</span>
                                         )}
@@ -287,7 +301,7 @@ export default function Admin() {
                                             📂 {chunk.header}
                                         </div>
                                     )}
-                                    <p style={{ fontSize: '12px', lineHeight: 1.6, whiteSpace: 'pre-wrap', color: 'var(--text-muted)', margin: 0 }}>{chunk.content}</p>
+                                    <p style={{ fontSize: '12px', lineHeight: 1.6, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', color: 'var(--text-muted)', margin: 0 }}>{chunk.content}</p>
                                     {chunkImages.length > 0 && (
                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '12px' }}>
                                             {chunkImages.map((imgPath, i) => (

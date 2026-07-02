@@ -3,7 +3,7 @@ import axios from 'axios';
 import { askQuestionStream, getMessages } from '../services/api';
 import { getRateLimitMessage, showApiError } from '../utils/format';
 import { useToast } from '../components/shared/Toast';
-import { broadcastSessionCreated } from '../lib/sessionsChannel';
+import { broadcastSessionCreated, broadcastSessionDeleted } from '../lib/sessionsChannel';
 
 let _msgCounter = 0;
 const nextMsgId = () => `msg_${Date.now()}_${++_msgCounter}`;
@@ -95,11 +95,13 @@ export function useChatMessages(virtuosoRef) {
 
         let receivedAnyToken = false;
         let receivedComplete = false;
+        let createdSessionId = null;  // bu istekte yeni session açıldıysa id'si (iptal temizliği için)
 
         const onEvent = (evt) => {
             switch (evt.type) {
                 case 'start': {
                     if (!activeSession && evt.sessionId) {
+                        createdSessionId = evt.sessionId;
                         const newSession = { id: evt.sessionId, title: q.slice(0, 60), createdAt: new Date().toISOString() };
                         onNewSession?.(newSession);
                         broadcastSessionCreated(newSession);
@@ -199,7 +201,11 @@ export function useChatMessages(virtuosoRef) {
                 setMessages(prev => prev.map(m => m.id === assistantMsgId
                     ? { ...m, isStreaming: false, isAborted: !receivedAnyToken }
                     : m));
-                return;
+                // İlk soru (yeni session) iptal edilip hiç cevap kaydedilmediyse: boş session'ı
+                // temizle. Diğer açık sekmelere de "silindi" broadcast'i at (create gitmişti) —
+                // hiçbir yerde ölü/mesajsız sohbet kalmasın. Çağıran taraf da UI'dan kaldırır.
+                if (createdSessionId && !receivedComplete) broadcastSessionDeleted(createdSessionId);
+                return { aborted: true, createdSessionId, hadComplete: receivedComplete };
             }
             if (!result.ok) {
                 const msg = result.error || 'Bir hata oluştu';

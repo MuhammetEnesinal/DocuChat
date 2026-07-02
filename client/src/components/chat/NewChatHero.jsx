@@ -29,7 +29,7 @@ export default function NewChatHero({ children, popularQuestions, onSelectQuesti
                 </h1>
                 <p style={{
                     fontSize: '15px',
-                    color: 'rgba(255,255,255,0.6)',
+                    color: 'var(--text-secondary)',
                     marginTop: '14px',
                     marginBottom: '40px',
                     textAlign: 'center',
@@ -51,7 +51,7 @@ export default function NewChatHero({ children, popularQuestions, onSelectQuesti
                             fontWeight: 600,
                             letterSpacing: '0.14em',
                             textTransform: 'uppercase',
-                            color: 'rgba(255,255,255,0.45)',
+                            color: 'var(--text-secondary)',
                             textAlign: 'center',
                             margin: '0 0 14px',
                         }}>
@@ -59,7 +59,9 @@ export default function NewChatHero({ children, popularQuestions, onSelectQuesti
                         </p>
                         <div style={{
                             display: 'grid',
-                            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                            // Geniş ekranda 2 kolon; kap 280px'in altına düşünce tek kolona iner —
+                            // çipler asla harf harf kırılacak kadar daralmaz.
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))',
                             gap: '10px',
                             width: '100%',
                         }}>
@@ -76,11 +78,12 @@ export default function NewChatHero({ children, popularQuestions, onSelectQuesti
                                         display: 'flex', alignItems: 'flex-start', gap: '10px',
                                         padding: '11px 14px',
                                         borderRadius: '12px',
-                                        background: 'linear-gradient(135deg, rgba(var(--accent-rgb),0.16) 0%, rgba(99,102,241,0.12) 100%)',
-                                        backdropFilter: 'blur(20px) saturate(180%)',
-                                        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-                                        border: '1px solid rgba(var(--accent-light-rgb),0.25)',
-                                        color: '#e9e5ff',
+                                        // Koyu cam (input kutusuyla aynı aile): arkadaki ışık içinden geçip çipi patlatmaz
+                                        background: 'rgba(32, 28, 56, 0.6)',
+                                        backdropFilter: 'blur(20px) saturate(130%)',
+                                        WebkitBackdropFilter: 'blur(20px) saturate(130%)',
+                                        border: '1px solid rgba(var(--accent-light-rgb),0.22)',
+                                        color: 'var(--text-secondary)',
                                         fontSize: '13px',
                                         fontWeight: 500,
                                         cursor: 'pointer',
@@ -88,20 +91,25 @@ export default function NewChatHero({ children, popularQuestions, onSelectQuesti
                                         textAlign: 'left',
                                         width: '100%',
                                         minWidth: 0,
-                                        boxShadow: '0 4px 14px -6px rgba(var(--accent-rgb),0.28), inset 0 1px 0 rgba(255,255,255,0.05)',
+                                        boxShadow: '0 8px 22px -10px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05)',
                                     }}
                                     onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(var(--accent-rgb),0.30) 0%, rgba(99,102,241,0.22) 100%)';
-                                        e.currentTarget.style.borderColor = 'rgba(var(--accent-light-rgb),0.5)';
+                                        e.currentTarget.style.background = 'rgba(46, 40, 76, 0.75)';
+                                        e.currentTarget.style.borderColor = 'rgba(var(--accent-light-rgb),0.45)';
                                         e.currentTarget.style.color = '#fff';
                                     }}
                                     onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(var(--accent-rgb),0.16) 0%, rgba(99,102,241,0.12) 100%)';
-                                        e.currentTarget.style.borderColor = 'rgba(var(--accent-light-rgb),0.25)';
-                                        e.currentTarget.style.color = '#e9e5ff';
+                                        e.currentTarget.style.background = 'rgba(32, 28, 56, 0.6)';
+                                        e.currentTarget.style.borderColor = 'rgba(var(--accent-light-rgb),0.22)';
+                                        e.currentTarget.style.color = 'var(--text-secondary)';
                                     }}
                                 >
-                                    <span style={{ minWidth: 0, flex: 1, lineHeight: 1.4, wordBreak: 'break-word' }}>{label}</span>
+                                    <span style={{
+                                        minWidth: 0, flex: 1, lineHeight: 1.4,
+                                        // Uzun soru dikine uzamaz: en fazla 2 satır, fazlası "..." ile kesilir
+                                        display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                                        overflow: 'hidden', textOverflow: 'ellipsis',
+                                    }}>{label}</span>
                                 </motion.button>
                             ))}
                         </div>

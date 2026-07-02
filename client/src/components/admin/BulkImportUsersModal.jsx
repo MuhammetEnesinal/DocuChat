@@ -56,8 +56,8 @@ export default function BulkImportUsersModal({
                 {/* Şablon indir */}
                 <div className="rounded-lg p-4"
                     style={{ background: 'rgba(var(--accent-light-rgb),0.08)', border: '1px solid rgba(var(--accent-light-rgb),0.2)' }}>
-                    <div className="flex items-center justify-between">
-                        <div>
+                    <div className="flex items-center justify-between flex-wrap gap-3">
+                        <div style={{ minWidth: 0, flex: '1 1 200px' }}>
                             <p className="text-sm font-medium" style={{ color: '#e9e5ff' }}>
                                 Excel Şablonu
                             </p>
@@ -67,12 +67,14 @@ export default function BulkImportUsersModal({
                         </div>
                         <button
                             onClick={onDownloadTemplate}
-                            className="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
+                            className="bulk-template-btn px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
                             style={{
                                 background: 'rgba(var(--accent-light-rgb),0.2)',
                                 border: '1px solid rgba(var(--accent-light-rgb),0.4)',
                                 color: '#c4b5fd',
                                 cursor: 'pointer',
+                                flexShrink: 0,
+                                whiteSpace: 'nowrap',
                             }}
                             onMouseEnter={e => { e.currentTarget.style.background = 'rgba(var(--accent-light-rgb),0.3)'; e.currentTarget.style.color = '#fff'; }}
                             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(var(--accent-light-rgb),0.2)'; e.currentTarget.style.color = '#c4b5fd'; }}
@@ -111,7 +113,7 @@ export default function BulkImportUsersModal({
                         onChange={(e) => handleFileSelect(e.target.files?.[0])}
                     />
                     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
-                        style={{ color: dragOver ? 'var(--accent-light)' : '#64748b', margin: '0 auto 8px' }}>
+                        style={{ color: dragOver ? 'var(--accent-light)' : 'var(--text-muted)', margin: '0 auto 8px' }}>
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                         <polyline points="17 8 12 3 7 8" />
                         <line x1="12" y1="3" x2="12" y2="15" />
@@ -235,16 +237,16 @@ export default function BulkImportUsersModal({
                             <table className="w-full text-xs">
                                 <thead style={{ background: 'rgba(255,255,255,0.04)', position: 'sticky', top: 0 }}>
                                     <tr>
-                                        <th className="px-3 py-2 text-left" style={{ color: 'var(--gray-light)' }}>Satır</th>
-                                        <th className="px-3 py-2 text-left" style={{ color: 'var(--gray-light)' }}>E-posta</th>
-                                        <th className="px-3 py-2 text-left" style={{ color: 'var(--gray-light)' }}>Durum</th>
-                                        <th className="px-3 py-2 text-left" style={{ color: 'var(--gray-light)' }}>Sebep</th>
+                                        <th className="px-3 py-2 text-left" style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Satır</th>
+                                        <th className="px-3 py-2 text-left" style={{ color: 'var(--text-primary)', fontWeight: 600 }}>E-posta</th>
+                                        <th className="px-3 py-2 text-left" style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Durum</th>
+                                        <th className="px-3 py-2 text-left" style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Sebep</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {result.results.map((r, i) => (
                                         <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                                            <td className="px-3 py-2" style={{ color: '#94a3b8' }}>{r.row}</td>
+                                            <td className="px-3 py-2" style={{ color: 'var(--text-muted)' }}>{r.row}</td>
                                             <td className="px-3 py-2" style={{ color: '#e2e8f0' }}>{r.email || '—'}</td>
                                             <td className="px-3 py-2">
                                                 {r.status === 'success' ? (

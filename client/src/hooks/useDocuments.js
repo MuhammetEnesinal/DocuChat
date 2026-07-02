@@ -17,7 +17,8 @@ export function useDocuments() {
     const [showChunksModal, setShowChunksModal] = useState(false);
     // Server-side pagination
     const [page, setPage] = useState(1);
-    const [totalCount, setTotalCount] = useState(0);
+    const [totalCount, setTotalCount] = useState(0);      // aktif filtreye göre (arama dahil)
+    const [grandTotal, setGrandTotal] = useState(0);      // aramasız GENEL toplam — sekme rozeti için
     const pageRef = useRef(1);      // fetchDocs setTimeout/poll içinden güncel sayfayı okur
     const searchRef = useRef('');   // aynı şekilde güncel aramayı okur
     const toast = useToast();
@@ -49,6 +50,7 @@ export function useDocuments() {
 
             setDocuments(items);
             setTotalCount(total);
+            if (!searchRef.current) setGrandTotal(total);  // arama yokken gelen total = genel toplam
             if (items.some(d => d.status === 'Processing' || d.status === 'Pending'))
                 pollTimerRef.current = setTimeout(() => fetchDocs(true), 3000);
         } catch (err) { if (!silent) showApiError(toast, err, 'Belgeler yüklenemedi.'); }
@@ -230,7 +232,7 @@ export function useDocuments() {
         chunksLoading,
         showChunksModal, setShowChunksModal,
         // pagination
-        page, totalCount, pageSize: PAGE_SIZE, goToPage,
+        page, totalCount, grandTotal, pageSize: PAGE_SIZE, goToPage,
         fetchDocs,
         deleteDoc,
         batchDeleteDocs,

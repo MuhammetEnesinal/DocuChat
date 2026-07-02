@@ -41,7 +41,6 @@ export default function Profile() {
     const [confirmPwd, setConfirmPwd] = useState('');
     const [showCurrent, setShowCurrent] = useState(false);
     const [showNew, setShowNew] = useState(false);
-    const [showConfirm, setShowConfirm] = useState(false);
     const [formError, setFormError] = useState('');
     const [submitting, setSubmitting] = useState(false);
 
@@ -109,90 +108,115 @@ export default function Profile() {
         }
     };
 
+    // Chat balonları gibi zengin cam kart — her iki bölüm de kullanır (tutarlı görünüm).
+    // Padding clamp ile dar ekranda otomatik daralır; minWidth 0 içerik taşmasını engeller.
+    const cardStyle = {
+        borderRadius: '18px',
+        padding: 'clamp(20px, 5vw, 32px) clamp(14px, 4.5vw, 28px)',
+        minWidth: 0,
+        background: 'linear-gradient(180deg, rgba(42, 33, 72, 0.55) 0%, rgba(28, 22, 50, 0.55) 100%)',
+        border: '1px solid rgba(var(--accent-light-rgb),0.18)',
+        backdropFilter: 'blur(28px) saturate(170%)',
+        WebkitBackdropFilter: 'blur(28px) saturate(170%)',
+        boxShadow: '0 18px 50px -18px rgba(0,0,0,0.6), 0 0 50px -22px rgba(var(--accent-rgb),0.4), inset 0 1px 0 rgba(255,255,255,0.07)',
+    };
+
     return (
-        <div className="violet-drift" style={{ minHeight: '100vh' }}>
-            <div className="glass" style={{ display: 'flex', alignItems: 'center', padding: '20px 36px', borderBottom: '1px solid var(--glass-border)', position: 'sticky', top: 0, zIndex: 10, gap: '12px' }}>
+        <div style={{ minHeight: '100vh', position: 'relative', background: '#000', overflowX: 'clip' }}>
+            {/* Chat ana ekranıyla aynı atmosfer: siyah taban + merkezde güçlü mor ışıma kubbesi */}
+            <div aria-hidden style={{
+                position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
+                background:
+                    'radial-gradient(ellipse 46% 42% at 50% 46%, rgba(var(--accent-rgb),0.38), rgba(var(--accent-deep-rgb),0.18) 45%, transparent 72%),' +
+                    'radial-gradient(ellipse 70% 60% at 50% 55%, rgba(var(--accent-deep-rgb),0.12), transparent 75%)',
+            }} />
+            <div className="glass" style={{ display: 'flex', alignItems: 'center', height: '74px', padding: '0 clamp(12px, 3.5vw, 28px)', borderBottom: '1px solid var(--glass-border)', position: 'sticky', top: 0, zIndex: 10, gap: '10px', minWidth: 0 }}>
                 <div className="gradient-beam" style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }} />
                 <button onClick={() => navigate('/chat')} className="btn btn-ghost btn-sm">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
                     </svg>
-                    Sohbete dön
+                    <span className="profile-back-text">Sohbete dön</span>
                 </button>
-                <div style={{ width: '1px', height: '20px', background: 'var(--border)' }} />
-                <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>Profil</h1>
+                <div style={{ flex: 1 }} />
+                {/* Profil kimliği — en sağda; dar ekranda başlık ellipsis ile küçülür, taşmaz */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flexShrink: 1 }}>
+                    <div style={{ width: '30px', height: '30px', borderRadius: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--gradient-accent)', boxShadow: '0 6px 16px -6px rgba(var(--accent-rgb),0.6)', flexShrink: 0 }}>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+                    </div>
+                    <h1 style={{ fontSize: '18px', fontWeight: 700, margin: 0, letterSpacing: '-0.02em', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Profil</h1>
+                </div>
             </div>
 
             <motion.div
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.35, ease: 'easeOut' }}
-                style={{ maxWidth: '720px', margin: '0 auto', padding: '40px 24px', display: 'flex', flexDirection: 'column', gap: '24px' }}
+                style={{ position: 'relative', zIndex: 1, maxWidth: '720px', margin: '0 auto', padding: 'clamp(20px, 5vw, 40px) clamp(12px, 4vw, 24px)', display: 'flex', flexDirection: 'column', gap: '24px' }}
             >
                 {/* Hesap bilgileri */}
-                <section style={{
-                    borderRadius: '16px',
-                    padding: '28px',
-                    background: 'rgba(32, 26, 58, 0.55)',
-                    border: '1px solid rgba(var(--accent-light-rgb),0.14)',
-                    backdropFilter: 'blur(24px) saturate(160%)',
-                    WebkitBackdropFilter: 'blur(24px) saturate(160%)',
-                    boxShadow: '0 8px 28px -10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)',
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '18px', marginBottom: '24px' }}>
-                        <div style={{
-                            width: '64px', height: '64px', borderRadius: '18px',
+                <section style={cardStyle}>
+                    {/* Hero: ortalı avatar + isim + e-posta */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: '26px', minWidth: 0 }}>
+                        <div className="profile-hero-avatar" style={{
+                            width: '84px', height: '84px', borderRadius: '24px',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: 'linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%)',
-                            color: '#fff', fontSize: '22px', fontWeight: 700, letterSpacing: '0.02em',
-                            boxShadow: '0 10px 30px -8px rgba(99,102,241,0.5)',
-                            flexShrink: 0,
+                            background: 'linear-gradient(135deg, var(--accent-light) 0%, var(--accent) 45%, var(--accent-deep) 100%)',
+                            color: '#fff', fontSize: '30px', fontWeight: 700, letterSpacing: '0.02em',
+                            boxShadow: '0 16px 44px -10px rgba(var(--accent-rgb),0.75), inset 0 1px 0 rgba(255,255,255,0.35)',
+                            marginBottom: '16px',
                         }}>
                             {meLoading ? '…' : initials(user?.fullName)}
                         </div>
-                        <div style={{ minWidth: 0 }}>
-                            <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.01em' }}>
-                                {user?.fullName || '—'}
-                            </h2>
-                            <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: '4px 0 0', wordBreak: 'break-all' }}>
-                                {user?.email || '—'}
-                            </p>
-                        </div>
+                        <h2 title={user?.fullName} style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.01em', maxWidth: '100%', overflowWrap: 'anywhere', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                            {user?.fullName || '—'}
+                        </h2>
+                        <p title={user?.email} style={{ fontSize: '14px', color: 'var(--text-muted)', margin: '5px 0 0', maxWidth: '100%', overflowWrap: 'anywhere', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                            {user?.email || '—'}
+                        </p>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
-                        <InfoField label="Roller">
+                    {/* İnce ayraç */}
+                    <div style={{ height: '1px', background: 'linear-gradient(90deg, transparent, rgba(var(--accent-light-rgb),0.22), transparent)', margin: '0 0 22px' }} />
+
+                    {/* Bilgi mini-kartları (ikonlu) */}
+                    {/* min(190px,100%): kap 190px'ten darsa kolon kapa sığar — asla yatay taşma olmaz */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(190px, 100%), 1fr))', gap: '12px' }}>
+                        <InfoField label="Yetki" icon={
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+                        }>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                                 {(user?.roles ?? []).length === 0 && <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>—</span>}
                                 {(user?.roles ?? []).map(r => (
                                     <span key={r} style={{
-                                        fontSize: '12px', fontWeight: 600, padding: '3px 10px', borderRadius: '8px',
-                                        background: 'rgba(var(--accent-rgb),0.18)',
-                                        color: '#c4b5fd',
-                                        border: '1px solid rgba(var(--accent-light-rgb),0.3)',
+                                        fontSize: '12px', fontWeight: 700, padding: '4px 12px', borderRadius: '8px',
+                                        background: 'var(--gradient-accent)',
+                                        color: '#fff',
+                                        boxShadow: '0 4px 12px -4px rgba(var(--accent-rgb),0.6), inset 0 1px 0 rgba(255,255,255,0.2)',
                                     }}>{r}</span>
                                 ))}
                             </div>
                         </InfoField>
-                        <InfoField label="Üyelik Tarihi" value={user?.createdAt ? formatDate(user.createdAt) : '—'} />
-                        <InfoField label="Personel Kodu" value={user?.personnelCode || '—'} mono />
+                        <InfoField label="Üyelik Tarihi" value={user?.createdAt ? formatDate(user.createdAt) : '—'} icon={
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
+                        } />
+                        <InfoField label="Personel Kodu" value={user?.personnelCode || '—'} mono icon={
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="9" x2="20" y2="9" /><line x1="4" y1="15" x2="20" y2="15" /><line x1="10" y1="3" x2="8" y2="21" /><line x1="16" y1="3" x2="14" y2="21" /></svg>
+                        } />
                     </div>
                 </section>
 
                 {/* Şifre değiştir */}
-                <section style={{
-                    borderRadius: '16px',
-                    padding: '28px',
-                    background: 'rgba(32, 26, 58, 0.55)',
-                    border: '1px solid rgba(var(--accent-light-rgb),0.14)',
-                    backdropFilter: 'blur(24px) saturate(160%)',
-                    WebkitBackdropFilter: 'blur(24px) saturate(160%)',
-                    boxShadow: '0 8px 28px -10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)',
-                }}>
-                    <h3 style={{ fontSize: '17px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 6px', letterSpacing: '-0.01em' }}>
-                        Şifre Değiştir
-                    </h3>
-                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 20px' }}>
+                <section style={cardStyle}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '6px' }}>
+                        <div className="profile-section-icon" style={{ width: '36px', height: '36px', borderRadius: '11px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(var(--accent-rgb),0.24)', color: '#d8ccff', border: '1px solid rgba(var(--accent-light-rgb),0.35)' }}>
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                        </div>
+                        <h3 style={{ fontSize: '17px', fontWeight: 700, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.01em', minWidth: 0 }}>
+                            Şifre Değiştir
+                        </h3>
+                    </div>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 20px' }}>
                         En az 8 karakter, bir büyük harf, bir küçük harf ve bir rakam içermelidir.
                     </p>
 
@@ -219,18 +243,17 @@ export default function Profile() {
                         />
                         <FormInput
                             label="Yeni Şifre (Tekrar)"
-                            type={showConfirm ? 'text' : 'password'}
+                            type="password"
                             value={confirmPwd}
                             onChange={(e) => setConfirmPwd(e.target.value)}
                             placeholder="••••••••"
                             required
-                            suffix={<PasswordToggle show={showConfirm} onToggle={() => setShowConfirm(v => !v)} />}
                         />
                         <button
                             type="submit"
                             disabled={submitting}
                             className="btn btn-primary btn-lg"
-                            style={{ marginTop: '4px', fontWeight: 600 }}
+                            style={{ marginTop: '4px', fontWeight: 600, width: '100%', minWidth: 0, whiteSpace: 'normal' }}
                         >
                             {submitting ? 'Kaydediliyor...' : 'Şifreyi Değiştir'}
                         </button>
@@ -241,28 +264,43 @@ export default function Profile() {
     );
 }
 
-function InfoField({ label, value, mono = false, children }) {
+function InfoField({ label, value, mono = false, icon, children }) {
     return (
-        <div>
-            <p style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', margin: '0 0 6px' }}>
-                {label}
-            </p>
-            {children ?? (
-                <p
-                    title={mono ? value : undefined}
-                    style={{
-                        fontSize: mono ? '12.5px' : '14px',
-                        color: 'var(--text-primary)',
-                        margin: 0,
-                        fontFamily: mono ? "'JetBrains Mono', monospace" : undefined,
-                        whiteSpace: mono ? 'nowrap' : 'normal',
-                        overflow: mono ? 'hidden' : 'visible',
-                        textOverflow: mono ? 'ellipsis' : 'clip',
-                        wordBreak: mono ? 'normal' : 'break-word',
-                    }}>
-                    {value}
-                </p>
+        <div style={{
+            borderRadius: '14px', padding: '14px 15px',
+            background: 'rgba(255,255,255,0.035)',
+            border: '1px solid rgba(var(--accent-light-rgb),0.12)',
+            // flexWrap + basis 110px: yazıya 110px'ten az yer kalırsa ikonun ALTINA tam genişlik
+            // sarar — yazı asla 20-30px'lik şeride sıkışıp harf harf kırılmaz.
+            display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px 12px',
+        }}>
+            {icon && (
+                <div className="profile-section-icon" style={{ width: '34px', height: '34px', borderRadius: '10px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(var(--accent-rgb),0.24)', color: '#d8ccff', border: '1px solid rgba(var(--accent-light-rgb),0.3)' }}>
+                    {icon}
+                </div>
             )}
+            <div style={{ minWidth: 0, flex: '1 1 110px' }}>
+                <p style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-secondary)', margin: '0 0 4px' }}>
+                    {label}
+                </p>
+                {children ?? (
+                    <p
+                        title={mono ? value : undefined}
+                        style={{
+                            fontSize: mono ? '12.5px' : '14px',
+                            fontWeight: 500,
+                            color: 'var(--text-primary)',
+                            margin: 0,
+                            fontFamily: mono ? "'JetBrains Mono', monospace" : undefined,
+                            whiteSpace: mono ? 'nowrap' : 'normal',
+                            overflow: mono ? 'hidden' : 'visible',
+                            textOverflow: mono ? 'ellipsis' : 'clip',
+                            wordBreak: mono ? 'normal' : 'break-word',
+                        }}>
+                        {value}
+                    </p>
+                )}
+            </div>
         </div>
     );
 }

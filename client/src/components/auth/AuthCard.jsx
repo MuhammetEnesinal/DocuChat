@@ -76,7 +76,7 @@ export default function AuthCard({ children }) {
             {/* TextType alt yazı */}
             <div
                 style={{
-                    color: '#94a3b8',
+                    color: 'var(--text-muted)',
                     fontSize: '15px',
                     marginTop: '20px',
                     minHeight: '24px',

@@ -49,23 +49,32 @@ export default function UserList({
       <>
         <div style={{ borderRadius: '16px', overflow: 'hidden', background: 'rgba(32, 26, 58, 0.55)', border: '1px solid rgba(var(--accent-light-rgb),0.14)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', boxShadow: '0 8px 28px -10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)' }}>
             <div className="admin-list-header" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <h2 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Kullanıcılar</h2>
-                    <span style={{ fontSize: '13px', color: 'var(--gray-light)' }}>{total ?? users.length} kullanıcı</span>
-                </div>
-                <div className="admin-users-actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', flex: '1 1 auto', justifyContent: 'flex-end', minWidth: 0 }}>
+                {/* Seçim modunda başlık gizlenir; yerine sol tarafta seçim kontrolleri gelir */}
+                {!selectMode ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                        <h2 style={{ fontSize: '16.5px', fontWeight: 700, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.01em' }}>Kullanıcılar</h2>
+                        <span style={{ fontSize: '12px', fontWeight: 600, padding: '3px 10px', borderRadius: '999px', background: 'rgba(var(--accent-rgb),0.16)', border: '1px solid rgba(var(--accent-light-rgb),0.25)', color: '#d8ccff', whiteSpace: 'nowrap' }}>{total ?? users.length} kullanıcı</span>
+                    </div>
+                ) : (
+                    <div className="admin-select-info" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                        <button onClick={toggleSelectAll} className="btn btn-ghost btn-sm" disabled={selectableUsers.length === 0}>
+                            {allSelected ? 'Seçimi Kaldır' : 'Tümünü Seç'}
+                        </button>
+                        <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>{selectedIds.size} seçili</span>
+                    </div>
+                )}
+                <div className={selectMode ? 'admin-select-actions' : 'admin-users-actions'} style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', flex: '1 1 auto', justifyContent: 'flex-end', minWidth: 0 }}>
                     {selectMode ? (
                         <>
-                            <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{selectedIds.size} seçili</span>
-                            <button onClick={toggleSelectAll} className="btn btn-ghost btn-sm" disabled={selectableUsers.length === 0}>
-                                {allSelected ? 'Seçimi Kaldır' : 'Tümünü Seç'}
-                            </button>
                             <button onClick={handleBatchDelete} disabled={selectedIds.size === 0}
                                 style={{ padding: '6px 14px', borderRadius: '8px', fontSize: '13px', fontWeight: 600, background: selectedIds.size === 0 ? 'rgba(248,113,113,0.1)' : 'rgba(248,113,113,0.2)', color: '#f87171', border: '1px solid rgba(248,113,113,0.3)', cursor: selectedIds.size === 0 ? 'not-allowed' : 'pointer', opacity: selectedIds.size === 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
                                 Sil ({selectedIds.size})
                             </button>
-                            <button onClick={exitSelectMode} className="btn btn-ghost btn-sm">Vazgeç</button>
+                            <button onClick={exitSelectMode}
+                                style={{ padding: '6px 14px', borderRadius: '8px', fontSize: '13px', fontWeight: 600, background: 'rgba(255,255,255,0.08)', color: 'var(--text-secondary)', border: '1px solid rgba(255,255,255,0.18)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                Vazgeç
+                            </button>
                         </>
                     ) : (
                         <>
@@ -76,11 +85,11 @@ export default function UserList({
                                 </svg>
                                 Çoklu Seç
                             </button>
-                            <div style={{ flex: '1 1 180px', maxWidth: '260px', minWidth: 0 }}>
+                            <div className="admin-search" style={{ flex: '1 1 180px', maxWidth: '260px', minWidth: 0 }}>
                                 <SearchInput value={search} onChange={onSearchChange} placeholder="Kullanıcı ara..." />
                             </div>
                             {onBulkImport && (
-                                <button onClick={onBulkImport}
+                                <button onClick={onBulkImport} className="admin-users-cta"
                                     title="Excel ile toplu kullanıcı yükle"
                                     style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '10px', fontSize: '14px', fontWeight: 500, color: '#86efac', background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.35)', cursor: 'pointer', whiteSpace: 'nowrap' }}
                                     onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(34,197,94,0.22)'; e.currentTarget.style.color = '#fff'; }}
@@ -93,7 +102,7 @@ export default function UserList({
                                     Excel Yükle
                                 </button>
                             )}
-                            <button onClick={onAdd}
+                            <button onClick={onAdd} className="admin-users-cta"
                                 style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '10px', fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)', background: 'var(--accent)', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}
                                 onMouseEnter={(e) => e.currentTarget.style.opacity = '0.85'}
                                 onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}>
@@ -116,10 +125,10 @@ export default function UserList({
                 const isSelected = selectMode && selectedIds.has(u.id);
                 return (
                     <div key={u.id}
-                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid var(--border)', transition: 'background 0.15s', background: isSelected ? 'rgba(var(--accent-rgb),0.08)' : 'transparent' }}
+                        style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '8px 12px', padding: '14px clamp(12px, 2.5vw, 20px)', borderBottom: '1px solid var(--border)', transition: 'background 0.15s', background: isSelected ? 'rgba(var(--accent-rgb),0.08)' : 'transparent' }}
                         onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = 'var(--surface2)'; }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = isSelected ? 'rgba(var(--accent-rgb),0.08)' : 'transparent'; }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flex: '1 1 220px' }}>
                             {selectMode && (
                                 <input
                                     type="checkbox"
@@ -130,7 +139,7 @@ export default function UserList({
                                     style={{ width: '16px', height: '16px', cursor: isAdmin ? 'not-allowed' : 'pointer', accentColor: 'var(--accent-light)', flexShrink: 0 }}
                                 />
                             )}
-                            <div style={{ width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontWeight: 600, fontSize: '14px', background: isAdmin ? 'rgba(var(--accent-rgb),0.2)' : 'rgba(100,116,139,0.2)', color: isAdmin ? '#c4b5fd' : '#94a3b8' }}>
+                            <div style={{ width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontWeight: 600, fontSize: '14px', background: isAdmin ? 'rgba(var(--accent-rgb),0.24)' : 'rgba(148,163,184,0.16)', color: isAdmin ? '#d8ccff' : 'var(--text-secondary)' }}>
                                 {u.fullName?.charAt(0)?.toUpperCase() || '?'}
                             </div>
                             <div style={{ minWidth: 0 }}>
@@ -142,7 +151,7 @@ export default function UserList({
                             </div>
                         </div>
                         {!isAdmin && !selectMode && (
-                            <div style={{ display: 'flex', gap: '4px', flexShrink: 0, marginLeft: '8px' }}>
+                            <div className="admin-row-actions" style={{ display: 'flex', gap: '4px', flexShrink: 0, marginLeft: 'auto' }}>
                                 <IconButton onClick={() => onEdit(u)} title="Düzenle" hoverColor="var(--accent-light)" hoverBg="rgba(var(--accent-light-rgb),0.1)">
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />

@@ -20,7 +20,7 @@
     --accent-3: #06b6d4;
     --gray-dark: #14161e;
     --gray-mid: #24272f;
-    --gray-light: #a1a1aa;
+    --gray-light: #d6dbe6;
     --border: rgba(255, 255, 255, 0.08);
     --border-strong: rgba(255, 255, 255, 0.14);
     --surface: rgba(30, 35, 55, 0.55);
@@ -30,13 +30,13 @@
     --glass-bg: rgba(30, 35, 55, 0.55);
     --glass-border: rgba(255, 255, 255, 0.1);
     --text-primary: #f1f5f9;
-    --text-secondary: #cbd5e1;
-    --text-muted: #94a3b8;
-    --prose-text: #cbd5e1;
+    --text-secondary: #eaedf4;
+    --text-muted: #d6dbe6;
+    --prose-text: #eaedf4;
     --prose-heading: #f8fafc;
     --prose-code-bg: rgba(99, 102, 241, 0.12);
     --prose-code-color: #a5b4fc;
-    --prose-thead-bg: rgba(99, 102, 241, 0.15);
+    --prose-thead-bg: rgba(99, 102, 241, 0.22);
     --prose-tr-hover: rgba(99, 102, 241, 0.06);
     --scrollbar-track: transparent;
     --scrollbar-thumb: rgba(148, 163, 184, 0.2);
@@ -59,8 +59,18 @@ textarea::placeholder {
     opacity: 1;
 }
 
+html {
+    /* Scrollbar belirip kaybolduğunda (kısa/uzun içerikli sekme geçişleri) sayfanın
+       yana kaymasını önler: çubuğun yeri her zaman rezerve edilir. */
+    scrollbar-gutter: stable;
+}
+
 body {
     margin: 0;
+    /* Endüstri standardı minimum layout genişliği: bunun altında layout KÜÇÜLMEZ, sabit kalır.
+       Böylece hiçbir eleman hiçbir genişlikte kutusundan taşamaz (aşırı dar pencerede
+       tarayıcı yatay kaydırma gösterir — WhatsApp/Discord dahil tüm gerçek uygulamalar böyle). */
+    min-width: 320px;
     font-family: 'DM Sans', sans-serif;
     background: var(--gradient-bg);
     background-attachment: fixed;
@@ -163,12 +173,12 @@ body {
 /* Ghost: hover'da yumuşak bg */
 .btn-ghost {
     background: transparent;
-    color: rgba(255,255,255,0.7);
+    color: var(--text-secondary);
     border: 1px solid transparent;
 }
 .btn-ghost:hover:not(:disabled) {
-    background: rgba(255,255,255,0.06);
-    color: rgba(255,255,255,0.95);
+    background: rgba(255,255,255,0.08);
+    color: #fff;
 }
 
 /* Danger: kırmızı outline */
@@ -233,10 +243,11 @@ body {
     content: '';
     position: absolute;
     left: 50%;
-    bottom: -55%;
-    width: 130%;
+    /* Merkeze çapalı (kenara değil): ışığın konumu kap boyutundan bağımsız — dar ekranda kaymaz */
+    top: 58%;
+    width: max(130%, 900px);
     aspect-ratio: 1;
-    transform: translateX(-50%);
+    transform: translate(-50%, -50%);
     background: radial-gradient(circle at center,
         rgba(var(--accent-rgb), 0.85) 0%,
         rgba(var(--accent-deep-rgb), 0.55) 18%,
@@ -252,10 +263,10 @@ body {
     content: '';
     position: absolute;
     left: 50%;
-    bottom: -45%;
-    width: 110%;
+    top: 62%;
+    width: max(110%, 760px);
     aspect-ratio: 1;
-    transform: translateX(-50%);
+    transform: translate(-50%, -50%);
     background: radial-gradient(circle at center,
         rgba(var(--accent-light-rgb), 0.7) 0%,
         rgba(var(--accent-rgb), 0.35) 12%,
@@ -267,13 +278,13 @@ body {
 }
 
 @keyframes violet-dome-pulse {
-    0%, 100% { transform: translateX(-50%) scale(1) translateY(0); opacity: 0.85; }
-    50% { transform: translateX(-50%) scale(1.05) translateY(-2%); opacity: 1; }
+    0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.85; }
+    50% { transform: translate(-50%, -52%) scale(1.05); opacity: 1; }
 }
 
 @keyframes violet-dome-pulse-2 {
-    0%, 100% { transform: translateX(-50%) scale(1) translateY(0); opacity: 0.7; }
-    50% { transform: translateX(-50%) scale(1.08) translateY(-3%); opacity: 0.95; }
+    0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.7; }
+    50% { transform: translate(-50%, -53%) scale(1.08); opacity: 0.95; }
 }
 
 /* ── Violet drift (mesaj sonrası / admin zemin) ── */
@@ -292,6 +303,25 @@ body {
     pointer-events: none;
     background:
         radial-gradient(ellipse 100% 60% at 50% 0%, rgba(var(--accent-rgb), 0.12), transparent 70%);
+}
+
+/* Aktif sohbet zemini: hero (violet-dome) ile aynı aile — siyah taban + yumuşak mor ışıma.
+   Dome'un yoğun halinin okumayı yormayan soft versiyonu. */
+.violet-dome-soft {
+    position: relative;
+    /* Saf siyah yerine çok koyu mor taban — kenarlar zifiri kalmaz */
+    background: linear-gradient(180deg, #110d22 0%, #0c0918 100%);
+    isolation: isolate;
+}
+
+.violet-dome-soft::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+        radial-gradient(ellipse 70% 62% at 50% 38%, rgba(var(--accent-rgb), 0.26), rgba(var(--accent-deep-rgb), 0.11) 50%, transparent 78%);
 }
 
 /* ── Aurora animated background ── */
@@ -412,9 +442,9 @@ body {
 }
 
 .prose-dark th {
-    color: var(--accent-light, #60a5fa);
+    color: var(--text-primary);  /* beyaz — başlıklar net okunur */
     padding: 9px 14px;
-    text-align: left;
+    text-align: center;
     font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -488,12 +518,6 @@ input::-webkit-textfield-decoration-container {
 
 /* ── Admin responsive ── */
 @media (max-width: 640px) {
-    .admin-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 12px;
-    }
-
     .admin-tabs {
         width: 100%;
     }
@@ -507,29 +531,83 @@ input::-webkit-textfield-decoration-container {
         padding: 16px;
     }
 
+    /* Liste başlığı dar ekranda: bloklar alt alta, TAM genişlik, hepsi sola yaslı */
     .admin-list-header {
         flex-direction: column;
-        align-items: flex-start;
+        align-items: stretch;
         gap: 10px;
     }
 
     .admin-search {
         width: 100%;
+        max-width: none !important;  /* inline maxWidth: 260px'i ez — arama tam genişlik */
+        flex: 1 1 auto !important;
     }
 
+    .admin-list-actions,
     .admin-users-actions {
         width: 100%;
         display: flex;
         gap: 8px;
+        justify-content: flex-start !important;  /* dar ekranda sağa değil sola yaslı */
+    }
+
+    /* Şablonu İndir: dar ekranda (metnin altına sarınca) tam genişlik, ortalı */
+    .bulk-template-btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    /* Excel Yükle + Ekle: dar ekranda eşit genişlik (50/50), ortalı */
+    .admin-users-cta {
+        flex: 1 1 0;
+        justify-content: center;
+    }
+
+    /* Seçim modu: üst satır (Tümünü Seç | X seçili) iki uca yaslı, tam genişlik */
+    .admin-select-info {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    /* Seçim modu aksiyonları: 2 sütunlu EŞİT grid — düzensiz sarma olmaz */
+    .admin-select-actions {
+        width: 100%;
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+    .admin-select-actions > button {
+        width: 100%;
+        justify-content: center;
     }
 
     .admin-tab-label {
         display: none;
     }
 
+    /* Satır aksiyonları alta sardığında: sağda asılı durmak yerine tam genişlik,
+       eşit aralıklı, üstünde ince ayırıcı olan düzenli bir aksiyon şeridi */
+    .admin-row-actions {
+        width: 100%;
+        margin-left: 0 !important;
+        justify-content: space-evenly;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255,255,255,0.06);
+    }
+
     .doc-status-badge {
         display: none;
     }
+}
+
+/* ── Profil responsive ── */
+@media (max-width: 480px) {
+    /* Dar ekranda dekoratif ikon kutuları gizlenir → başlık/yazı tam genişlik alır, sıkışmaz */
+    .profile-section-icon { display: none !important; }
+    /* Geri butonunda yazı gizlenir, sadece ok kalır → navbar'da yer açılır */
+    .profile-back-text { display: none; }
+    .profile-hero-avatar { width: 64px !important; height: 64px !important; font-size: 24px !important; border-radius: 18px !important; }
 }
 
 /* ── Chat responsive ── */

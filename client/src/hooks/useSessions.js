@@ -110,9 +110,21 @@ export function useSessions() {
                 const bp = b.pinnedAt ? new Date(b.pinnedAt).getTime() : 0;
                 if (ap !== bp) return bp - ap;
             }
-            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+            // Non-pinned: son aktiviteye göre (updatedAt=son mesaj, yoksa createdAt) → yeni yazılan üstte
+            const at = new Date(a.updatedAt || a.createdAt).getTime();
+            const bt = new Date(b.updatedAt || b.createdAt).getTime();
+            return bt - at;
         });
     }, []);
+
+    // Bir sohbete mesaj yazılınca optimistik olarak "son aktivite"yi şimdi yapıp non-pinned
+    // tepesine (sabitlerin altına) taşır. Backend de UpdatedAt bump ediyor; bu anlık karşılığı.
+    const bumpSessionActivity = useCallback((sessionId) => {
+        if (!sessionId) return;
+        setSessions(prev => sortSessionsClientSide(
+            prev.map(s => s.id === sessionId ? { ...s, updatedAt: new Date().toISOString() } : s)
+        ));
+    }, [sortSessionsClientSide]);
 
     const handlePinSession = useCallback(async (sessionId) => {
         setBusy({ id: sessionId, action: 'pin' });
@@ -164,6 +176,23 @@ export function useSessions() {
             toast.success(`${success} sohbet arşivlendi.`);
         }
         if (failed > 0) toast.error(`${failed} sohbet arşivlenemedi.`);
+        return success;
+    }, [toast]);
+
+    const handleBatchUnarchiveSessions = useCallback(async (ids) => {
+        // Batch archive'ın simetriği — arşiv görünümünde çoklu seçimle geri çıkarma.
+        let success = 0, failed = 0;
+        for (const id of ids) {
+            setBusy({ id, action: 'archive' });
+            try { await unarchiveSession(id); success++; } catch { failed++; }
+        }
+        setBusy(null);
+        if (success > 0) {
+            setSessions(prev => prev.filter(s => !ids.includes(s.id)));
+            setArchivedCount(c => Math.max(0, c - success));
+            toast.success(`${success} sohbet arşivden çıkarıldı.`);
+        }
+        if (failed > 0) toast.error(`${failed} sohbet çıkarılamadı.`);
         return success;
     }, [toast]);
 
@@ -221,6 +250,8 @@ export function useSessions() {
 
     return {
         sessions, setSessions,
+        sortSessionsClientSide,
+        bumpSessionActivity,
         activeSession, setActiveSession,
         sessionsLoading,
         editingSessionId, setEditingSessionId,
@@ -243,5 +274,6 @@ export function useSessions() {
         handlePinSession,
         handleUnpinSession,
         handleBatchArchiveSessions,
+        handleBatchUnarchiveSessions,
     };
 }

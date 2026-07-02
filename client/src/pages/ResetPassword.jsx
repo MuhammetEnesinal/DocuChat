@@ -90,7 +90,7 @@ export default function ResetPassword() {
 
                 <FormInput
                     label="Şifreyi Tekrarla"
-                    type={showPassword ? 'text' : 'password'}
+                    type="password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="••••••••"

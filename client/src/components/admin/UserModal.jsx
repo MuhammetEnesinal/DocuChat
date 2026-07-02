@@ -90,13 +90,14 @@ export default function UserModal({ onClose, onSubmit, user, onChange, error, lo
                         )}
                     </div>
                 ))}
-                <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                {/* flexWrap + basis 140px: dar ekranda butonlar alt alta tam genişlik geçer */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 12px', marginTop: '8px' }}>
                     <button type="button" onClick={onClose}
-                        style={{ flex: 1, padding: '12px', borderRadius: '10px', fontSize: '14px', fontWeight: 500, color: 'var(--text-muted)', background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer' }}>
+                        style={{ flex: '1 1 140px', padding: '12px', borderRadius: '10px', fontSize: '14px', fontWeight: 500, color: 'var(--text-secondary)', background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer' }}>
                         İptal
                     </button>
                     <button type="submit" disabled={loading}
-                        style={{ flex: 1, padding: '12px', borderRadius: '10px', fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', background: loading ? 'var(--navy-light)' : 'var(--accent)', border: 'none', cursor: loading ? 'not-allowed' : 'pointer' }}>
+                        style={{ flex: '1 1 140px', padding: '12px', borderRadius: '10px', fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', background: loading ? 'var(--navy-light)' : 'var(--accent)', border: 'none', cursor: loading ? 'not-allowed' : 'pointer' }}>
                         {loading ? (isEdit ? 'Kaydediliyor...' : 'Oluşturuluyor...') : (isEdit ? 'Kaydet' : 'Oluştur')}
                     </button>
                 </div>

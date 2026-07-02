@@ -108,17 +108,23 @@ export default function DocumentList({
         <>
             <div style={{ borderRadius: '16px', overflow: 'hidden', background: 'rgba(32, 26, 58, 0.55)', border: '1px solid rgba(var(--accent-light-rgb),0.14)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', boxShadow: '0 8px 28px -10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)' }}>
                 <div className="admin-list-header" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
-                        <h2 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Yüklü Belgeler</h2>
-                        <span style={{ fontSize: '13px', color: 'var(--gray-light)' }}>{total ?? documents.length} belge</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flex: '1 1 auto', justifyContent: 'flex-end', minWidth: 0 }}>
+                    {/* Seçim modunda başlık gizlenir; yerine sol tarafta seçim kontrolleri gelir */}
+                    {!selectMode ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                            <h2 style={{ fontSize: '16.5px', fontWeight: 700, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.01em' }}>Yüklü Belgeler</h2>
+                            <span style={{ fontSize: '12px', fontWeight: 600, padding: '3px 10px', borderRadius: '999px', background: 'rgba(var(--accent-rgb),0.16)', border: '1px solid rgba(var(--accent-light-rgb),0.25)', color: '#d8ccff', whiteSpace: 'nowrap' }}>{total ?? documents.length} belge</span>
+                        </div>
+                    ) : (
+                        <div className="admin-select-info" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                            <button onClick={toggleSelectAll} className="btn btn-ghost btn-sm" disabled={selectableDocs.length === 0}>
+                                {allSelected ? 'Seçimi Kaldır' : 'Tümünü Seç'}
+                            </button>
+                            <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>{selectedIds.size} seçili</span>
+                        </div>
+                    )}
+                    <div className={selectMode ? 'admin-select-actions' : 'admin-list-actions'} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flex: '1 1 auto', justifyContent: 'flex-end', minWidth: 0 }}>
                         {selectMode ? (
                             <>
-                                <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{selectedIds.size} seçili</span>
-                                <button onClick={toggleSelectAll} className="btn btn-ghost btn-sm" disabled={selectableDocs.length === 0}>
-                                    {allSelected ? 'Seçimi Kaldır' : 'Tümünü Seç'}
-                                </button>
                                 {/* İndir */}
                                 <button onClick={handleBatchDownload} disabled={selectedIds.size === 0}
                                     title="Seçili belgeleri indir"
@@ -143,7 +149,10 @@ export default function DocumentList({
                                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
                                     Sil ({selectedIds.size})
                                 </button>
-                                <button onClick={exitSelectMode} className="btn btn-ghost btn-sm">Vazgeç</button>
+                                <button onClick={exitSelectMode}
+                                    style={{ padding: '6px 14px', borderRadius: '8px', fontSize: '13px', fontWeight: 600, background: 'rgba(255,255,255,0.08)', color: 'var(--text-secondary)', border: '1px solid rgba(255,255,255,0.18)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    Vazgeç
+                                </button>
                             </>
                         ) : (
                             <>
@@ -164,7 +173,7 @@ export default function DocumentList({
 
                 {loading ? <DocumentSkeleton /> : documents.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '48px 16px' }}>
-                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#334155" strokeWidth="1.5" style={{ margin: '0 auto 12px', display: 'block' }}>
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5" style={{ margin: '0 auto 12px', display: 'block', opacity: 0.7 }}>
                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
                         </svg>
                         <p style={{ fontSize: '14px', color: 'var(--gray-light)' }}>{search ? 'Sonuç bulunamadı' : 'Henüz belge yüklenmedi'}</p>
@@ -174,10 +183,11 @@ export default function DocumentList({
                     const fi = fileIcon(doc.contentType, doc.fileName);
                     const isProcessing = doc.status === 'Processing' || doc.status === 'Pending';
                     return (
-                        <div key={doc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid var(--border)', transition: 'background 0.15s', background: selectMode && selectedIds.has(doc.id) ? 'rgba(var(--accent-rgb),0.08)' : 'transparent' }}
+                        <div key={doc.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '8px 12px', padding: '14px clamp(12px, 2.5vw, 20px)', borderBottom: '1px solid var(--border)', transition: 'background 0.15s', background: selectMode && selectedIds.has(doc.id) ? 'rgba(var(--accent-rgb),0.08)' : 'transparent' }}
                             onMouseEnter={(e) => { if (!(selectMode && selectedIds.has(doc.id))) e.currentTarget.style.background = 'var(--surface2)'; }}
                             onMouseLeave={(e) => { e.currentTarget.style.background = selectMode && selectedIds.has(doc.id) ? 'rgba(var(--accent-rgb),0.08)' : 'transparent'; }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                            {/* flex-basis 240px: ada 240px'ten az yer kalırsa aksiyonlar alt satıra iner — yazı asla harf harf sıkışmaz */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flex: '1 1 240px' }}>
                                 {selectMode && (
                                     <input
                                         type="checkbox"
@@ -208,8 +218,8 @@ export default function DocumentList({
                                     {doc.processingNotes && <p style={{ fontSize: '12px', color: '#fb923c', marginTop: '2px' }}>⚠ {doc.processingNotes}</p>}
                                 </div>
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: '12px' }}>
-                                <span style={{
+                            <div className="admin-row-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: 'auto' }}>
+                                <span className="doc-status-badge" style={{
                                     fontSize: '12px', padding: '3px 10px', borderRadius: '8px', fontWeight: 500,
                                     background: st.bg, color: st.color,
                                     display: 'inline-flex', alignItems: 'center', gap: '6px',

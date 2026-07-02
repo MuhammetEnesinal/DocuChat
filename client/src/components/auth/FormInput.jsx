@@ -7,7 +7,7 @@ export default function FormInput({
     return (
         <div>
             {label && (
-                <label className="block text-sm font-medium mb-2" style={{ color: '#cbd5e1' }}>{label}</label>
+                <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>{label}</label>
             )}
             <div className="relative">
                 <input
@@ -20,7 +20,7 @@ export default function FormInput({
                     style={{
                         background: 'rgba(255,255,255,0.04)',
                         border: `1px solid ${error ? 'rgba(248,113,113,0.5)' : 'rgba(255,255,255,0.1)'}`,
-                        color: '#f1f5f9',
+                        color: 'var(--text-primary)',
                         fontSize: '0.92rem',
                         paddingRight: suffix ? '48px' : undefined,
                         WebkitAppearance: 'none',
@@ -45,7 +45,7 @@ export default function FormInput({
                     </div>
                 )}
             </div>
-            {hint && <p className="text-xs mt-1.5" style={{ color: '#64748b' }}>{hint}</p>}
+            {hint && <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>{hint}</p>}
             {error && <p className="text-xs mt-1.5" style={{ color: '#f87171' }}>{error}</p>}
         </div>
     );

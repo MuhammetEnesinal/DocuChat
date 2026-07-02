@@ -9,17 +9,17 @@ export default function IconButton({ onClick, title, hoverColor, hoverBg, disabl
             style={{
                 padding: '6px', borderRadius: '8px', background: 'none',
                 border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
-                color: '#64748b', opacity: disabled ? 0.5 : 1, display: 'flex',
+                color: 'var(--text-muted)', opacity: disabled ? 0.5 : 1, display: 'flex',
                 alignItems: 'center', justifyContent: 'center',
             }}
             onMouseEnter={(e) => {
                 if (!disabled) {
-                    e.currentTarget.style.color = hoverColor ?? '#94a3b8';
+                    e.currentTarget.style.color = hoverColor ?? 'var(--text-secondary)';
                     e.currentTarget.style.background = hoverBg ?? 'transparent';
                 }
             }}
             onMouseLeave={(e) => {
-                e.currentTarget.style.color = '#64748b';
+                e.currentTarget.style.color = 'var(--text-muted)';
                 e.currentTarget.style.background = 'transparent';
             }}
         >

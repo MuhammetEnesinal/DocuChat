@@ -14,7 +14,8 @@ export function useUsers() {
     const [userSearch, setUserSearch] = useState('');
     // Server-side pagination + search
     const [page, setPage] = useState(1);
-    const [totalCount, setTotalCount] = useState(0);
+    const [totalCount, setTotalCount] = useState(0);      // aktif filtreye göre (arama dahil)
+    const [grandTotal, setGrandTotal] = useState(0);      // aramasız GENEL toplam — sekme rozeti için
     const pageRef = useRef(1);
     const searchRef = useRef('');
     const searchTimerRef = useRef(null);
@@ -45,6 +46,7 @@ export function useUsers() {
 
             setUsers(items);
             setTotalCount(total);
+            if (!searchRef.current) setGrandTotal(total);  // arama yokken gelen total = genel toplam
         } catch (err) { if (!silent) showApiError(toast, err, 'Kullanıcılar yüklenemedi.'); }
         finally { if (!silent) setUsersLoading(false); }
     }, [toast]);
@@ -244,7 +246,7 @@ export function useUsers() {
         usersLoading,
         userSearch, setUserSearch: handleUserSearch,
         // pagination
-        page, totalCount, pageSize: PAGE_SIZE, goToUsersPage,
+        page, totalCount, grandTotal, pageSize: PAGE_SIZE, goToUsersPage,
         showUserModal,
         editingUser,
         userForm,
