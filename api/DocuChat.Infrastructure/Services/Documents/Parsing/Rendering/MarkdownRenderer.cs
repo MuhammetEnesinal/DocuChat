@@ -160,9 +160,14 @@ public sealed class MarkdownRenderer : IMarkdownRenderer
 
         var canPlaceInCells = imageColIdx >= 0 && block.Images.Count > 0 && dataRowEmptyCount > 0;
 
-        // Header
+        // Header — "colN" pozisyonel placeholder'ları (TableExtractor'ın boş başlık dolgusu)
+        // kullanıcıya/LLM'e SIZMASIN: markdown'da boş hücre olarak yazılır.
         sb.Append('|');
-        foreach (var h in table.Headers) sb.Append(' ').Append(EscapeCell(h)).Append(" |");
+        for (var hIdx = 0; hIdx < table.Headers.Count; hIdx++)
+        {
+            var h = IsColPlaceholder(table.Headers[hIdx], hIdx) ? string.Empty : table.Headers[hIdx];
+            sb.Append(' ').Append(EscapeCell(h)).Append(" |");
+        }
         sb.AppendLine();
 
         // Separator
@@ -271,11 +276,17 @@ public sealed class MarkdownRenderer : IMarkdownRenderer
     private static string EscapeCell(string s) =>
         string.IsNullOrEmpty(s) ? string.Empty : s.Replace("|", "\\|").Replace("\n", " ").Trim();
 
+    // "colN" pozisyonel placeholder mı? (TableExtractor boş başlık hücresine col{i+1} basar.)
+    private static bool IsColPlaceholder(string header, int index) =>
+        string.Equals(header, $"col{index + 1}", StringComparison.Ordinal);
+
     private static string TableToCleanText(StructuredTable? table)
     {
         if (table == null) return string.Empty;
         var sb = new StringBuilder();
-        sb.Append(string.Join(" ", table.Headers));
+        // colN placeholder'ları embedding metnine de girmesin (anlamsız token)
+        var realHeaders = table.Headers.Where((h, i) => !IsColPlaceholder(h, i));
+        sb.Append(string.Join(" ", realHeaders));
         foreach (var row in table.Rows)
         {
             sb.Append(' ');

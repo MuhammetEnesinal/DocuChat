@@ -1,10 +1,11 @@
 using System.Reflection;
 using System.Text;
 using System.Threading.RateLimiting;
-using DocuChat.API.Filters;
-using DocuChat.API.Middleware;
+using DocuChat.API.Common;
 using DocuChat.Infrastructure;
 using DocuChat.Infrastructure.Persistence;
+using DocuChat.Infrastructure.Persistence.Context;
+using DocuChat.Infrastructure.Persistence.Exceptions;
 using DocuChat.Infrastructure.Persistence.Seed;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;

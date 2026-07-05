@@ -294,10 +294,17 @@ internal static class LlmPrompts
             // "El-Aletleri.xlsx" → "el aletleri", "YapayZekaTümÖdevler.pdf" → "yapay zeka tüm ödevler"
             var topics = docs.Select(d =>
             {
-                var noExt = Path.GetFileNameWithoutExtension(d);
+                // Girdi "dosyaadi.ext — özet" biçiminde gelebilir (ChatUseCase ≤20 belge yolu).
+                // Özet kısmını ayırıp yalnız isim kısmını temizle; özeti aynen koru.
+                var sep = d.IndexOf(" — ", StringComparison.Ordinal);
+                var namePart = sep >= 0 ? d[..sep] : d;
+                var summaryPart = sep >= 0 ? d[(sep + 3)..].Trim() : null;
+
+                var noExt = Path.GetFileNameWithoutExtension(namePart);
                 var spaced = Regex.Replace(noExt, @"[-_]+", " ");
                 spaced = Regex.Replace(spaced, @"([a-zçğıöşü])([A-ZÇĞİÖŞÜ])", "$1 $2");
-                return spaced.Trim().ToLowerInvariant();
+                var topic = spaced.Trim().ToLowerInvariant();
+                return string.IsNullOrEmpty(summaryPart) ? topic : $"{topic} — {summaryPart}";
             }).Distinct().ToList();
             var topicLines = string.Join("\n", topics.Select((t, i) => $"{i + 1}. {t}"));
             return
@@ -354,6 +361,9 @@ internal static class LlmPrompts
             "• Belge dilini koru (Türkçe belge → Türkçe cümle).\n" +
             "• Tablo chunk: '[konu] kapsamında {N} satırlık tablo' formatı.\n" +
             "• Liste chunk: '[konu] kapsamında {N} maddeli liste' formatı.\n" +
+            "• Content başındaki 'YAPI:' satırı KOD tarafından hesaplanmıştır — satır/madde\n" +
+            "  sayısı için ORADAKİ sayıyı kullan, kendin sayma.\n" +
+            "• Content'teki [...] atlama işaretidir (baş+orta+son kesit) — chunk'ın bütününü temsil eder.\n" +
             "• Tırnak, prefix, açıklama YOK.\n\n" +
             "ÇIKTI BİÇİMİ: Yalnızca JSON array, başka metin yok. N elemanlı, sırayla:\n" +
             "  [{\"context\":\"...\"},{\"context\":\"...\"}, ...]\n" +
@@ -370,7 +380,9 @@ internal static class LlmPrompts
             for (var i = 0; i < chunks.Count; i++)
             {
                 var (h, c) = chunks[i];
-                var content = c.Length > 500 ? c[..500] : c;
+                // İçerik çağıran tarafta örneklenmiş gelir (YAPI metası + baş/orta/son kesit,
+                // ~600 kar) — buradaki 900 yalnız güvenlik tavanı.
+                var content = c.Length > 900 ? c[..900] : c;
                 sb.Append('[').Append(i).Append("]\n");
                 sb.Append("Header: ").Append(string.IsNullOrWhiteSpace(h) ? "(yok)" : h!.Trim()).Append('\n');
                 sb.Append("Content: ").Append(content).Append("\n\n");

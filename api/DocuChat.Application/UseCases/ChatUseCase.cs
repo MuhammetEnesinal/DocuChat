@@ -5,12 +5,29 @@ using Mapster;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using DocuChat.Application.Interfaces.UseCases;
-using DocuChat.Application.Interfaces.Services;
+using DocuChat.Application.Interfaces.Services.Ai.Embedding;
+using DocuChat.Application.Interfaces.Services.Ai.Llm;
+using DocuChat.Application.Interfaces.Services.Ai.Reranker;
+using DocuChat.Application.Interfaces.Services.Ai.Retrieval;
+using DocuChat.Application.Interfaces.Services.Documents;
+using DocuChat.Application.Interfaces.Services.Auth;
+using DocuChat.Application.Interfaces.Services.UserManagement;
+using DocuChat.Application.Interfaces.Services.Email;
+using DocuChat.Application.Interfaces.Services.Storage;
+using DocuChat.Application.Interfaces.Services.Persistence;
 using DocuChat.Application.Interfaces.Repositories;
+using DocuChat.Application.Interfaces.Repositories.Common;
+using DocuChat.Application.Interfaces.Repositories.Chat;
+using DocuChat.Application.Interfaces.Repositories.Documents;
+using DocuChat.Application.Interfaces.Repositories.Caching;
 using DocuChat.Application.Common.Results;
 using DocuChat.Application.Common.Specifications;
 using DocuChat.Application.DTOs.Chat;
 using DocuChat.Domain.Entities;
+using DocuChat.Domain.Entities.Common;
+using DocuChat.Domain.Entities.Chat;
+using DocuChat.Domain.Entities.Documents;
+using DocuChat.Domain.Entities.Caching;
 using DocuChat.Domain.Enums;
 using DocuChat.Application.ServiceContracts;
 
@@ -279,7 +296,14 @@ public class ChatUseCase : IChatUseCase
 
         // Cache yok: önbelleğe alınabilirlik kontrolü + gerekirse netleştirme sorusu
         var docNamesWithSummary = await _uow.Documents.GetDocumentNamesAndSummariesAsync(ct);
-        var docNameStrings = docNamesWithSummary.Select(d => d.FileName).ToList();
+        // Netleştirme kalitesi: belge sayısı makulse "isim — kısa özet" ver → LLM, kriptik dosya
+        // adları yerine İÇERİKTEN seçenek üretir. Belge çoksa token korumak için yalnız isim
+        // (eski davranış) — büyük kurulumda hiçbir şey kötüleşmez.
+        var docNameStrings = docNamesWithSummary.Count <= 20
+            ? docNamesWithSummary.Select(d => string.IsNullOrWhiteSpace(d.Summary)
+                ? d.FileName
+                : $"{d.FileName} — {(d.Summary!.Length > 150 ? d.Summary[..150] : d.Summary)}").ToList()
+            : docNamesWithSummary.Select(d => d.FileName).ToList();
 
         // IsCacheable LLM helper'ına bağımlı. Helper çökerse chat'in tamamı durmasın diye
         // fail-open: geçmiş yoksa cacheable=true (ilk soru), varsa cacheable=false

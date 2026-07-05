@@ -5,9 +5,24 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using NpgsqlTypes;
 using Pgvector.EntityFrameworkCore;
-using DocuChat.Application.Interfaces.Services;
+using DocuChat.Application.Interfaces.Services.Ai.Embedding;
+using DocuChat.Application.Interfaces.Services.Ai.Llm;
+using DocuChat.Application.Interfaces.Services.Ai.Reranker;
+using DocuChat.Application.Interfaces.Services.Ai.Retrieval;
+using DocuChat.Application.Interfaces.Services.Documents;
+using DocuChat.Application.Interfaces.Services.Auth;
+using DocuChat.Application.Interfaces.Services.UserManagement;
+using DocuChat.Application.Interfaces.Services.Email;
+using DocuChat.Application.Interfaces.Services.Storage;
+using DocuChat.Application.Interfaces.Services.Persistence;
 using DocuChat.Application.Interfaces.Repositories;
+using DocuChat.Application.Interfaces.Repositories.Common;
+using DocuChat.Application.Interfaces.Repositories.Chat;
+using DocuChat.Application.Interfaces.Repositories.Documents;
+using DocuChat.Application.Interfaces.Repositories.Caching;
 using DocuChat.Infrastructure.Persistence;
+using DocuChat.Infrastructure.Persistence.Context;
+using DocuChat.Infrastructure.Persistence.Exceptions;
 using DocuChat.Application.ServiceContracts;
 
 namespace DocuChat.Infrastructure.Services.Ai.Retrieval;
@@ -297,23 +312,40 @@ public class VectorSearchService : IVectorSearch
         {
             var sb = new StringBuilder();
 
+            // Match'in [Bağlam] ön-eki pasajın EN BAŞINA taşınır (prev araya girince ortada
+            // kalmasın); komşuların [Bağlam] satırları tamamen atılır — pasaj ortası gürültüsü.
+            var (matchCtx, matchBody) = SplitContextPrefix(m.Content);
+            if (matchCtx.Length > 0) sb.Append(matchCtx).Append("\n\n");
+
             if (m.PrevId.HasValue && neighborContents.TryGetValue(m.PrevId.Value, out var prev))
             {
-                var prevClean = ImgMarkerRegex.Replace(prev, "").Trim();
+                var prevClean = ImgMarkerRegex.Replace(StripContextPrefix(prev), "").Trim();
                 if (prevClean.Length > 0) sb.Append(prevClean).Append("\n\n");
             }
 
-            sb.Append(m.Content);
+            sb.Append(matchBody);
 
             if (m.NextId.HasValue && neighborContents.TryGetValue(m.NextId.Value, out var next))
             {
-                var nextClean = ImgMarkerRegex.Replace(next, "").Trim();
+                var nextClean = ImgMarkerRegex.Replace(StripContextPrefix(next), "").Trim();
                 if (nextClean.Length > 0) sb.Append("\n\n").Append(nextClean);
             }
 
             return new ChunkResult(m.FileName, sb.ToString(), SerializeImagePaths(m.ImagePaths), m.Header, m.PageNumber, m.DocumentId);
         }).ToList();
     }
+
+    // Chunk DB formatı: "**[Bağlam]:** …\n\n(asıl içerik)" (DocumentUseCase chunk build).
+    // Stitch sırasında ön-ek ile gövdeyi ayırmak / sökmek için.
+    private static (string Ctx, string Body) SplitContextPrefix(string content)
+    {
+        if (!content.StartsWith("**[Bağlam]:**", StringComparison.Ordinal))
+            return (string.Empty, content);
+        var sep = content.IndexOf("\n\n", StringComparison.Ordinal);
+        return sep < 0 ? (string.Empty, content) : (content[..sep].Trim(), content[(sep + 2)..]);
+    }
+
+    private static string StripContextPrefix(string content) => SplitContextPrefix(content).Body;
 
     // ChunkResult.ImagePath JSON string formatını korur — LlmService.BuildContextAndImages
     // bu formatı parse edip [IMG:N] markerlarını çözer.

@@ -7,7 +7,16 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using DocuChat.Application.Common.Results;
 using DocuChat.Application.DTOs.Auth;
-using DocuChat.Application.Interfaces.Services;
+using DocuChat.Application.Interfaces.Services.Ai.Embedding;
+using DocuChat.Application.Interfaces.Services.Ai.Llm;
+using DocuChat.Application.Interfaces.Services.Ai.Reranker;
+using DocuChat.Application.Interfaces.Services.Ai.Retrieval;
+using DocuChat.Application.Interfaces.Services.Documents;
+using DocuChat.Application.Interfaces.Services.Auth;
+using DocuChat.Application.Interfaces.Services.UserManagement;
+using DocuChat.Application.Interfaces.Services.Email;
+using DocuChat.Application.Interfaces.Services.Storage;
+using DocuChat.Application.Interfaces.Services.Persistence;
 using DocuChat.Domain.Enums;
 using DocuChat.Infrastructure.Persistence.Identity;
 
@@ -275,68 +284,7 @@ public sealed class UserManagementService : IUserManagementService
 
     // ====== Bulk Import (Excel) ======
 
-    public async Task<Result<BulkImportUsersSummaryDto>> BulkImportUsersFromExcelAsync(
-        Stream excelStream, CancellationToken ct = default)
-    {
-        XLWorkbook workbook;
-        try
-        {
-            workbook = new XLWorkbook(excelStream);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[BulkImport] Excel parse hatası");
-            return Result<BulkImportUsersSummaryDto>.Failure(
-                Error.Validation("Excel dosyası okunamadı. Geçerli bir .xlsx dosyası olduğundan emin olun."));
-        }
-
-        using (workbook)
-        {
-            return await BulkImportFromWorkbookAsync(workbook, ct);
-        }
-    }
-
-    private async Task<Result<BulkImportUsersSummaryDto>> BulkImportFromWorkbookAsync(
-        XLWorkbook workbook, CancellationToken ct)
-    {
-        var worksheet = workbook.Worksheets.FirstOrDefault();
-        if (worksheet is null)
-            return Result<BulkImportUsersSummaryDto>.Failure(Error.Validation("Excel dosyasında sayfa bulunamadı."));
-
-        var firstRow = worksheet.FirstRowUsed();
-        if (firstRow is null)
-            return Result<BulkImportUsersSummaryDto>.Failure(Error.Validation("Excel dosyası boş."));
-
-        var lastRow = worksheet.LastRowUsed();
-        var dataStart = firstRow.RowNumber() + 1;
-        var dataEnd = lastRow!.RowNumber();
-
-        var results = new List<BulkImportUserResultDto>();
-        var successCount = 0;
-        var skippedCount = 0;
-        var totalRows = 0;
-
-        for (var rowNum = dataStart; rowNum <= dataEnd; rowNum++)
-        {
-            ct.ThrowIfCancellationRequested();
-            var row = ReadRow(worksheet, rowNum);
-            if (row is null) continue;  // tamamen boş satır
-
-            totalRows++;
-            var result = await ProcessImportRowAsync(rowNum, row.Value.FullName, row.Value.Email, row.Value.PersonnelCode, ct);
-            results.Add(result);
-            if (result.Status == "success") successCount++; else skippedCount++;
-        }
-
-        _logger.LogInformation(
-            "[BulkImport] Toplam {Total} satır işlendi: {Success} oluşturuldu, {Skipped} atlandı",
-            totalRows, successCount, skippedCount);
-
-        return Result<BulkImportUsersSummaryDto>.Success(
-            new BulkImportUsersSummaryDto(totalRows, successCount, skippedCount, results));
-    }
-
-    // Streaming variant — per satır SSE event yield eder.
+    // Per satır SSE event yield eder.
     // Pattern: start → progress × N → done. Hata olursa error event sonrası yield break.
     public async IAsyncEnumerable<object> BulkImportUsersFromExcelStreamAsync(
         Stream excelStream,

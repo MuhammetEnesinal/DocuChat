@@ -2,6 +2,17 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using DocuChat.Application.Common.Imaging;
+using DocuChat.Application.Interfaces.Services.Ai.Embedding;
+using DocuChat.Application.Interfaces.Services.Ai.Llm;
+using DocuChat.Application.Interfaces.Services.Ai.Reranker;
+using DocuChat.Application.Interfaces.Services.Ai.Retrieval;
+using DocuChat.Application.Interfaces.Services.Documents;
+using DocuChat.Application.Interfaces.Services.Auth;
+using DocuChat.Application.Interfaces.Services.UserManagement;
+using DocuChat.Application.Interfaces.Services.Email;
+using DocuChat.Application.Interfaces.Services.Storage;
+using DocuChat.Application.Interfaces.Services.Persistence;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -14,6 +25,7 @@ internal sealed class MistralChatClient
     private readonly HttpClient _mainHttp;
     private readonly IHttpClientFactory _httpFactory;
     private readonly IConfiguration _cfg;
+    private readonly IFileStorage _fileStorage;
     private readonly ILogger _logger;
 
     public string MainProvider { get; }
@@ -32,11 +44,13 @@ internal sealed class MistralChatClient
         HttpClient mainHttp,
         IHttpClientFactory httpFactory,
         IConfiguration cfg,
+        IFileStorage fileStorage,
         ILogger logger)
     {
         _mainHttp = mainHttp;
         _httpFactory = httpFactory;
         _cfg = cfg;
+        _fileStorage = fileStorage;
         _logger = logger;
 
         MainProvider = cfg["Llm:Provider"] ?? "OpenAI";
@@ -165,18 +179,20 @@ internal sealed class MistralChatClient
         {
             try
             {
-                var fullPath = Path.Combine("uploads", imgPath);
-                if (!File.Exists(fullPath))
+                // Disk erişimi IFileStorage üzerinden — Storage:LocalPath config'ine uyar.
+                byte[] imgBytes;
+                using (var imgStream = _fileStorage.OpenRead(imgPath))
+                using (var ms = new MemoryStream())
                 {
-                    _logger.LogWarning("[LLM] Resim bulunamadi: {FullPath}", fullPath);
-                    continue;
+                    await imgStream.CopyToAsync(ms, ct);
+                    imgBytes = ms.ToArray();
                 }
-                var imgBytes = await File.ReadAllBytesAsync(fullPath, ct);
-                var ext = imgPath.EndsWith(".jpg") || imgPath.EndsWith(".jpeg") ? "jpeg" : "png";
+                // MIME gerçek içerikten (magic bytes) — uzantıya güvenilmez.
+                var mime = ImageMagicBytes.DetectMimeType(imgBytes);
                 var base64 = Convert.ToBase64String(imgBytes);
-                userContent.Add(new { type = "image_url", image_url = new { url = $"data:image/{ext};base64,{base64}" } });
+                userContent.Add(new { type = "image_url", image_url = new { url = $"data:{mime};base64,{base64}" } });
             }
-            catch (Exception ex) { _logger.LogWarning("[LLM] Resim eklenemedi: {Message}", ex.Message); }
+            catch (Exception ex) { _logger.LogWarning("[LLM] Resim eklenemedi ({Path}): {Message}", imgPath, ex.Message); }
         }
 
         var msgList = new List<object> { new { role = "system", content = system } };

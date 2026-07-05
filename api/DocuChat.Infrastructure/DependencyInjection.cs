@@ -4,25 +4,44 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using DocuChat.Application.Interfaces.Services;
+using DocuChat.Application.Interfaces.Services.Ai.Embedding;
+using DocuChat.Application.Interfaces.Services.Ai.Llm;
+using DocuChat.Application.Interfaces.Services.Ai.Reranker;
+using DocuChat.Application.Interfaces.Services.Ai.Retrieval;
+using DocuChat.Application.Interfaces.Services.Documents;
+using DocuChat.Application.Interfaces.Services.Auth;
+using DocuChat.Application.Interfaces.Services.UserManagement;
+using DocuChat.Application.Interfaces.Services.Email;
+using DocuChat.Application.Interfaces.Services.Storage;
+using DocuChat.Application.Interfaces.Services.Persistence;
 using DocuChat.Application.Interfaces.UseCases;
 using DocuChat.Application.Interfaces.Repositories;
+using DocuChat.Application.Interfaces.Repositories.Common;
+using DocuChat.Application.Interfaces.Repositories.Chat;
+using DocuChat.Application.Interfaces.Repositories.Documents;
+using DocuChat.Application.Interfaces.Repositories.Caching;
 using DocuChat.Application.Mappings;
 using DocuChat.Application.UseCases;
 using DocuChat.Infrastructure.Persistence.Identity;
 using DocuChat.Infrastructure.Persistence;
+using DocuChat.Infrastructure.Persistence.Context;
+using DocuChat.Infrastructure.Persistence.Exceptions;
 using DocuChat.Infrastructure.Persistence.Repositories;
+using DocuChat.Infrastructure.Persistence.Repositories.Common;
+using DocuChat.Infrastructure.Persistence.Repositories.Chat;
+using DocuChat.Infrastructure.Persistence.Repositories.Documents;
+using DocuChat.Infrastructure.Persistence.Repositories.Caching;
 using DocuChat.Infrastructure.Services.Ai.Embedding;
-using DocuChat.Infrastructure.Services.Ai.Llm;
+using DocuChat.Infrastructure.Services.Ai.Llm.Orchestration;
 using DocuChat.Infrastructure.Services.Ai.Reranker;
 using DocuChat.Infrastructure.Services.Ai.Retrieval;
 using DocuChat.Infrastructure.Services.Auth;
 using DocuChat.Infrastructure.Services.UserManagement;
-using DocuChat.Infrastructure.Services.BackgroundJobs;
+using DocuChat.Infrastructure.Services.BackgroundJobs.DocumentProcessing;
+using DocuChat.Infrastructure.Services.BackgroundJobs.Maintenance;
 using DocuChat.Infrastructure.Services.Email;
 using DocuChat.Infrastructure.Services.Storage;
-using DocuChat.Infrastructure.Services.Documents;
-using DocuChat.Infrastructure.Services.Persistence;
+using DocuChat.Infrastructure.Services.Documents.Parsing.Orchestration;
 
 namespace DocuChat.Infrastructure;
 
@@ -151,7 +170,7 @@ public static class DependencyInjection
         var maxConcurrentDocs = cfg.GetValue<int>("DocumentProcessing:MaxConcurrent", 2);
         var queueCapacity = cfg.GetValue<int>("DocumentProcessing:QueueCapacity", 1000);
         services.AddSingleton(sp => new DocumentProcessingQueue(queueCapacity));
-        services.AddSingleton<DocuChat.Application.Interfaces.Services.IDocumentProcessingScheduler>(
+        services.AddSingleton<DocuChat.Application.Interfaces.Services.Documents.IDocumentProcessingScheduler>(
             sp => sp.GetRequiredService<DocumentProcessingQueue>());
         services.AddHostedService(sp => new DocumentProcessingConsumer(
             sp.GetRequiredService<DocumentProcessingQueue>(),

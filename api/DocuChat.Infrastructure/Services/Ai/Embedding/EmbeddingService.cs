@@ -6,7 +6,16 @@ using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using DocuChat.Application.Interfaces.Services;
+using DocuChat.Application.Interfaces.Services.Ai.Embedding;
+using DocuChat.Application.Interfaces.Services.Ai.Llm;
+using DocuChat.Application.Interfaces.Services.Ai.Reranker;
+using DocuChat.Application.Interfaces.Services.Ai.Retrieval;
+using DocuChat.Application.Interfaces.Services.Documents;
+using DocuChat.Application.Interfaces.Services.Auth;
+using DocuChat.Application.Interfaces.Services.UserManagement;
+using DocuChat.Application.Interfaces.Services.Email;
+using DocuChat.Application.Interfaces.Services.Storage;
+using DocuChat.Application.Interfaces.Services.Persistence;
 
 namespace DocuChat.Infrastructure.Services.Ai.Embedding;
 
@@ -200,9 +209,8 @@ public class EmbeddingService : IEmbeddingService
 
     private void RecordCacheHitStats(bool hit)
     {
-        var totalNow = hit
-            ? System.Threading.Interlocked.Increment(ref _hits)
-            : System.Threading.Interlocked.Increment(ref _misses);
+        if (hit) System.Threading.Interlocked.Increment(ref _hits);
+        else System.Threading.Interlocked.Increment(ref _misses);
         var grandTotal = System.Threading.Interlocked.Read(ref _hits) + System.Threading.Interlocked.Read(ref _misses);
         if (grandTotal % StatsLogEvery == 0)
         {

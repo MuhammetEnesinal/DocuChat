@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using DocuChat.Infrastructure.Persistence;
+using DocuChat.Infrastructure.Persistence.Context;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -29,7 +30,7 @@ namespace DocuChat.Infrastructure.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.ChatMessage", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Chat.ChatMessage", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -69,7 +70,7 @@ namespace DocuChat.Infrastructure.Migrations
                     b.ToTable("ChatMessages");
                 });
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.ChatMessageFeedback", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Chat.ChatMessageFeedback", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -166,7 +167,7 @@ namespace DocuChat.Infrastructure.Migrations
                     b.ToTable("ChatMessageFeedbackChunks");
                 });
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.ChatSession", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Chat.ChatSession", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -194,7 +195,7 @@ namespace DocuChat.Infrastructure.Migrations
                     b.ToTable("ChatSessions");
                 });
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.ChunkImage", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Documents.ChunkImage", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -227,7 +228,7 @@ namespace DocuChat.Infrastructure.Migrations
                     b.ToTable("ChunkImages");
                 });
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.Document", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Documents.Document", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -288,7 +289,7 @@ namespace DocuChat.Infrastructure.Migrations
                     b.ToTable("Documents");
                 });
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.DocumentChunk", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Documents.DocumentChunk", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -351,7 +352,7 @@ namespace DocuChat.Infrastructure.Migrations
                     b.ToTable("DocumentChunks");
                 });
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.DocumentImage", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Documents.DocumentImage", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -394,7 +395,7 @@ namespace DocuChat.Infrastructure.Migrations
                     b.ToTable("DocumentImages");
                 });
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.QuestionCache", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Caching.QuestionCache", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -648,14 +649,14 @@ namespace DocuChat.Infrastructure.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.ChatMessage", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Chat.ChatMessage", b =>
                 {
-                    b.HasOne("DocuChat.Domain.Entities.ChatMessage", "ResponseToMessage")
+                    b.HasOne("DocuChat.Domain.Entities.Chat.ChatMessage", "ResponseToMessage")
                         .WithMany()
                         .HasForeignKey("ResponseToMessageId")
                         .OnDelete(DeleteBehavior.SetNull);
 
-                    b.HasOne("DocuChat.Domain.Entities.ChatSession", "Session")
+                    b.HasOne("DocuChat.Domain.Entities.Chat.ChatSession", "Session")
                         .WithMany("Messages")
                         .HasForeignKey("SessionId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -666,9 +667,9 @@ namespace DocuChat.Infrastructure.Migrations
                     b.Navigation("Session");
                 });
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.ChatMessageFeedback", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Chat.ChatMessageFeedback", b =>
                 {
-                    b.HasOne("DocuChat.Domain.Entities.ChatMessage", "Message")
+                    b.HasOne("DocuChat.Domain.Entities.Chat.ChatMessage", "Message")
                         .WithMany()
                         .HasForeignKey("MessageId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -679,13 +680,13 @@ namespace DocuChat.Infrastructure.Migrations
 
             modelBuilder.Entity("DocuChat.Domain.Entities.ChatMessageFeedbackChunk", b =>
                 {
-                    b.HasOne("DocuChat.Domain.Entities.DocumentChunk", "Chunk")
+                    b.HasOne("DocuChat.Domain.Entities.Documents.DocumentChunk", "Chunk")
                         .WithMany()
                         .HasForeignKey("ChunkId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("DocuChat.Domain.Entities.ChatMessageFeedback", "Feedback")
+                    b.HasOne("DocuChat.Domain.Entities.Chat.ChatMessageFeedback", "Feedback")
                         .WithMany("ChunkLinks")
                         .HasForeignKey("FeedbackId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -696,7 +697,7 @@ namespace DocuChat.Infrastructure.Migrations
                     b.Navigation("Feedback");
                 });
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.ChatSession", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Chat.ChatSession", b =>
                 {
                     b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppUser", null)
                         .WithMany()
@@ -705,15 +706,15 @@ namespace DocuChat.Infrastructure.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.ChunkImage", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Documents.ChunkImage", b =>
                 {
-                    b.HasOne("DocuChat.Domain.Entities.DocumentChunk", "Chunk")
+                    b.HasOne("DocuChat.Domain.Entities.Documents.DocumentChunk", "Chunk")
                         .WithMany("ImageLinks")
                         .HasForeignKey("ChunkId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("DocuChat.Domain.Entities.DocumentImage", "Image")
+                    b.HasOne("DocuChat.Domain.Entities.Documents.DocumentImage", "Image")
                         .WithMany("ChunkLinks")
                         .HasForeignKey("ImageId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -724,7 +725,7 @@ namespace DocuChat.Infrastructure.Migrations
                     b.Navigation("Image");
                 });
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.Document", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Documents.Document", b =>
                 {
                     b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppUser", null)
                         .WithMany()
@@ -733,9 +734,9 @@ namespace DocuChat.Infrastructure.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.DocumentChunk", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Documents.DocumentChunk", b =>
                 {
-                    b.HasOne("DocuChat.Domain.Entities.Document", "Document")
+                    b.HasOne("DocuChat.Domain.Entities.Documents.Document", "Document")
                         .WithMany("Chunks")
                         .HasForeignKey("DocumentId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -744,9 +745,9 @@ namespace DocuChat.Infrastructure.Migrations
                     b.Navigation("Document");
                 });
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.DocumentImage", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Documents.DocumentImage", b =>
                 {
-                    b.HasOne("DocuChat.Domain.Entities.Document", "Document")
+                    b.HasOne("DocuChat.Domain.Entities.Documents.Document", "Document")
                         .WithMany("Images")
                         .HasForeignKey("DocumentId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -806,29 +807,29 @@ namespace DocuChat.Infrastructure.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.ChatMessageFeedback", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Chat.ChatMessageFeedback", b =>
                 {
                     b.Navigation("ChunkLinks");
                 });
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.ChatSession", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Chat.ChatSession", b =>
                 {
                     b.Navigation("Messages");
                 });
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.Document", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Documents.Document", b =>
                 {
                     b.Navigation("Chunks");
 
                     b.Navigation("Images");
                 });
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.DocumentChunk", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Documents.DocumentChunk", b =>
                 {
                     b.Navigation("ImageLinks");
                 });
 
-            modelBuilder.Entity("DocuChat.Domain.Entities.DocumentImage", b =>
+            modelBuilder.Entity("DocuChat.Domain.Entities.Documents.DocumentImage", b =>
                 {
                     b.Navigation("ChunkLinks");
                 });

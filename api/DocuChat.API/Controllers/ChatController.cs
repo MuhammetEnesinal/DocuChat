@@ -7,7 +7,6 @@ using Microsoft.AspNetCore.RateLimiting;
 using DocuChat.Application.Common.Results;
 using DocuChat.Application.Interfaces.UseCases;
 using DocuChat.Application.DTOs.Chat;
-using DocuChat.API.Extensions;
 using DocuChat.API.Common;
 
 namespace DocuChat.API.Controllers;

@@ -11,12 +11,29 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using DocuChat.Application.Interfaces.UseCases;
-using DocuChat.Application.Interfaces.Services;
+using DocuChat.Application.Interfaces.Services.Ai.Embedding;
+using DocuChat.Application.Interfaces.Services.Ai.Llm;
+using DocuChat.Application.Interfaces.Services.Ai.Reranker;
+using DocuChat.Application.Interfaces.Services.Ai.Retrieval;
+using DocuChat.Application.Interfaces.Services.Documents;
+using DocuChat.Application.Interfaces.Services.Auth;
+using DocuChat.Application.Interfaces.Services.UserManagement;
+using DocuChat.Application.Interfaces.Services.Email;
+using DocuChat.Application.Interfaces.Services.Storage;
+using DocuChat.Application.Interfaces.Services.Persistence;
 using DocuChat.Application.Interfaces.Repositories;
+using DocuChat.Application.Interfaces.Repositories.Common;
+using DocuChat.Application.Interfaces.Repositories.Chat;
+using DocuChat.Application.Interfaces.Repositories.Documents;
+using DocuChat.Application.Interfaces.Repositories.Caching;
 using DocuChat.Application.Common.Imaging;
 using DocuChat.Application.Common.Results;
 using DocuChat.Application.DTOs.Document;
 using DocuChat.Domain.Entities;
+using DocuChat.Domain.Entities.Common;
+using DocuChat.Domain.Entities.Chat;
+using DocuChat.Domain.Entities.Documents;
+using DocuChat.Domain.Entities.Caching;
 using DocuChat.Domain.Enums;
 using DocuChat.Application.ServiceContracts;
 
@@ -108,6 +125,62 @@ public class DocumentUseCase : IDocumentUseCase
         }
     }
 
+    // ── [Bağlam] üretici girdisi ──
+    // LLM'e chunk'ın tamamını göstermek pahalı; yalnız BAŞINI göstermek yanıltıcı:
+    // uzun düz metinde sondaki konu görünmez, tabloda/listede sayılar yanlış sayılır.
+    // Çözüm iki parça (içerik tipi fark etmeksizin):
+    //   1) Kod-hesaplı YAPI metası — satır/madde/kelime sayılarını LLM tahmin etmez, kod sayar.
+    //   2) Baş+orta+son örnekleme — chunk uzunsa üç bölgeden kesit; bütünün şekli görünür.
+    private static string BuildContextSample(ParsedChunk p)
+    {
+        var meta = BuildStructureMeta(p);
+        var sample = SampleHeadMidTail(p.Content ?? string.Empty, head: 250, mid: 125, tail: 125);
+        return meta.Length > 0 ? meta + "\n" + sample : sample;
+    }
+
+    private static string BuildStructureMeta(ParsedChunk p)
+    {
+        var content = p.Content ?? string.Empty;
+        int tableRows = 0, listItems = 0;
+        var hasCode = false;
+
+        foreach (var rawLine in content.Split('\n'))
+        {
+            var line = rawLine.TrimStart();
+            if (line.StartsWith('|'))
+            {
+                if (!line.Contains("---")) tableRows++;   // separator satırı sayılmaz
+            }
+            else if (line.StartsWith("- ") || line.StartsWith("* "))
+                listItems++;
+            else if (line.Length > 2 && char.IsDigit(line[0]))
+            {
+                var dot = line.IndexOf(". ", StringComparison.Ordinal);
+                if (dot > 0 && dot < 4) listItems++;      // "1. ", "12. " numaralı madde
+            }
+            else if (line.StartsWith("```"))
+                hasCode = true;
+        }
+
+        var parts = new List<string>(4);
+        if (tableRows >= 2) parts.Add($"tablo({tableRows - 1} veri satırı)");  // başlık satırı düşüldü
+        if (listItems >= 2) parts.Add($"liste({listItems} madde)");
+        if (hasCode) parts.Add("kod bloğu");
+        var words = (p.CleanContent ?? content).Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+        parts.Add($"~{words} kelime");
+
+        return "YAPI: " + string.Join("; ", parts);
+    }
+
+    private static string SampleHeadMidTail(string content, int head, int mid, int tail)
+    {
+        if (content.Length <= head + mid + tail + 40) return content;
+        var midStart = (content.Length - mid) / 2;
+        return content[..head] + "\n[...]\n"
+             + content.Substring(midStart, mid) + "\n[...]\n"
+             + content[^tail..];
+    }
+
     // Chunk context'lerini paralel batch'ler halinde üretir. Batch'ler chunk token sayısına
     // göre oluşturulur (ortalama ~18K input/batch) → Mistral Small 32K limitini aşmaz. Bir
     // batch başarısız olursa o chunk'lar boş context alır, sistem normal çalışmaya devam eder.
@@ -156,7 +229,7 @@ public class DocumentUseCase : IDocumentUseCase
             await batchSem.WaitAsync(ct);
             try
             {
-                var inputs = batch.Items.Select(p => ((string?)p.Header, p.Content)).ToList();
+                var inputs = batch.Items.Select(p => ((string?)p.Header, BuildContextSample(p))).ToList();
                 // Geçici hatalara (429, 5xx) karşı 2 retry + exponential backoff (1s, 2s).
                 // Sessiz boş-context'e düşmek yerine kısa direnç → chunk context kalitesi korunur.
                 IReadOnlyList<string> contexts = Array.Empty<string>();
@@ -220,8 +293,10 @@ public class DocumentUseCase : IDocumentUseCase
         var emptyHashes = new Dictionary<string, string?>(StringComparer.Ordinal);
         if (!_captionEnabled) return (result, emptyHashes);
 
-        // [1] Tüm chunks'tan benzersiz path'leri topla
-        var allPaths = new HashSet<string>(StringComparer.Ordinal);
+        // [1] Tüm chunks'tan benzersiz path'leri topla — belge (chunk) sırası korunur ki
+        // quota kesimi deterministik "ilk N" olsun (HashSet sırası öngörülemez).
+        var seenPaths = new HashSet<string>(StringComparer.Ordinal);
+        var allPaths = new List<string>();
         foreach (var parsed in parsedList)
         {
             if (string.IsNullOrWhiteSpace(parsed.ImagePath)) continue;
@@ -229,7 +304,7 @@ public class DocumentUseCase : IDocumentUseCase
             {
                 var paths = JsonSerializer.Deserialize<List<string>>(parsed.ImagePath) ?? new();
                 foreach (var p in paths)
-                    if (!string.IsNullOrWhiteSpace(p)) allPaths.Add(p);
+                    if (!string.IsNullOrWhiteSpace(p) && seenPaths.Add(p)) allPaths.Add(p);
             }
             catch (Exception ex)
             {
@@ -528,22 +603,6 @@ public class DocumentUseCase : IDocumentUseCase
         return (validChunks, alignedCaptions);
     }
 
-    // captionMap'ten chunk'a ait path'lerin caption'larını sıralı döndürür.
-    private static List<string?> LookupCaptionsFromMap(
-        string? imagePathJson, IReadOnlyDictionary<string, string?> captionMap)
-    {
-        if (string.IsNullOrWhiteSpace(imagePathJson)) return new List<string?>();
-        try
-        {
-            var paths = JsonSerializer.Deserialize<List<string>>(imagePathJson) ?? new();
-            return paths.Select(p => captionMap.TryGetValue(p, out var c) ? c : null).ToList();
-        }
-        catch
-        {
-            return new List<string?>();
-        }
-    }
-
     /// <summary>
     /// Chunk içinde aynı ContentHash'li path'leri (PdfPig + Mistral aynı görseli yakaladıysa)
     /// tek marker'a indirir:
@@ -766,11 +825,23 @@ public class DocumentUseCase : IDocumentUseCase
     // Belgenin baş + orta + son bölgelerinden örnek chunk'lar alıp LLM ile 1-2 cümlelik özet
     // üretir. Baş/orta/son örnekleme, kapak veya içindekiler sayfasına takılıp kalmayı önler ve
     // belgeyi daha iyi temsil eder. contents, chunk içeriklerini ChunkIndex sırasında alır.
-    private async Task<string?> TryGenerateSummaryAsync(IReadOnlyList<string> contents, CancellationToken ct)
+    private async Task<string?> TryGenerateSummaryAsync(IReadOnlyList<ParsedChunk> parsedList, CancellationToken ct)
     {
         try
         {
-            var sample = BuildSpreadSample(contents, perRegion: 2, maxCharsPerChunk: SummarySampleMaxCharsPerChunk);
+            // Belge boyutuyla ölçeklenen eşit-aralıklı örnekleme: sabit 6 örnek (baş/orta/son)
+            // 2200 chunk'lık belgede içeriğin binde 3'ünü temsil ediyordu. Şimdi örnek sayısı
+            // chunk sayısıyla büyür (40 chunk'a 1, 6-24 arası) ve TÜM belgeye eşit yayılır.
+            var contents = parsedList.Select(p => p.Content).ToList();
+            var sampleCount = Math.Clamp(contents.Count / 40, 6, 24);
+            var sample = BuildEvenSpreadSample(contents, sampleCount, SummarySampleMaxCharsPerChunk);
+
+            // Başlık iskeleti — parse'tan zaten elimizde olan gerçek "içindekiler"; sıfır ek
+            // maliyetle özete belgenin tam yapısını gösterir (örnekler kaçırsa bile).
+            var skeleton = BuildHeaderSkeleton(parsedList);
+            if (skeleton.Length > 0)
+                sample = "BÖLÜM İSKELETİ:\n" + skeleton + "\n\nÖRNEK İÇERİK:\n" + sample;
+
             return await _llm.GenerateDocumentSummaryAsync(sample, ct);
         }
         catch (Exception ex)
@@ -780,35 +851,45 @@ public class DocumentUseCase : IDocumentUseCase
         }
     }
 
-    // Her örneklenen chunk için max char (~120 token). 6 chunk × 500 char = ~720 token sample,
-    // ek summary prompt template ile ~1200 token toplam → Mistral Small cost ↓.
-    private const int SummarySampleMaxCharsPerChunk = 500;
+    // Örnek başına max char — örnek sayısı arttığı için 500→300 (24 örnek × 300 ≈ 7.2K kar girdi)
+    private const int SummarySampleMaxCharsPerChunk = 300;
 
-    /// <summary>
-    /// Belgenin BAŞ/ORTA/SON bölgelerinden N chunk seçip birleştirir, her chunk'tan max char
-    /// keser (token sınırını korumak için). Kısa belgelerde (≤ perRegion×3) tüm chunk'lar.
-    /// </summary>
-    private static string BuildSpreadSample(IReadOnlyList<string> contents, int perRegion, int maxCharsPerChunk)
+    // Eşit aralıklı örnekleme: stride = toplam/örnekSayısı → belgenin her bölgesi temsil edilir.
+    private static string BuildEvenSpreadSample(IReadOnlyList<string> contents, int sampleCount, int maxCharsPerChunk)
     {
         if (contents.Count == 0) return string.Empty;
 
         IEnumerable<string> selected;
-        if (contents.Count <= perRegion * 3)
+        if (contents.Count <= sampleCount)
         {
             selected = contents;
         }
         else
         {
-            var list = new List<string>(perRegion * 3);
-            list.AddRange(contents.Take(perRegion));                                  // ilk N
-            var midStart = (contents.Count - perRegion) / 2;
-            for (var i = 0; i < perRegion; i++) list.Add(contents[midStart + i]);    // orta N
-            list.AddRange(contents.Skip(contents.Count - perRegion));                 // son N
+            var list = new List<string>(sampleCount);
+            var step = (double)contents.Count / sampleCount;
+            for (var i = 0; i < sampleCount; i++)
+                list.Add(contents[(int)(i * step)]);
             selected = list;
         }
 
         return string.Join("\n", selected.Select(c =>
             c.Length > maxCharsPerChunk ? c[..maxCharsPerChunk] : c));
+    }
+
+    // Tekilleştirilmiş header listesi (ilk görülme sırasıyla, max 40 satır) — özet prompt'u için.
+    private static string BuildHeaderSkeleton(IReadOnlyList<ParsedChunk> parsedList)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var lines = new List<string>();
+        foreach (var p in parsedList)
+        {
+            var h = p.Header?.Trim();
+            if (string.IsNullOrEmpty(h) || !seen.Add(h)) continue;
+            lines.Add("- " + h);
+            if (lines.Count >= 40) break;
+        }
+        return string.Join("\n", lines);
     }
 
     public async Task<Result<DocumentResponseDto>> UploadAsync(
@@ -823,10 +904,17 @@ public class DocumentUseCase : IDocumentUseCase
                 Error.Conflict($"'{req.FileName}' isimli bir belge zaten yüklü. Önce silin veya farklı isimde yükleyin."));
         }
 
+        var declaredType = DetectFileType(req.ContentType);
+        if (declaredType is null)
+        {
+            return Result<DocumentResponseDto>.Failure(Error.Validation(
+                $"Desteklenmeyen dosya türü: {req.ContentType}. Kabul edilen türler: PDF, DOC, DOCX, XLSX, CSV."));
+        }
+        var declared = declaredType.Value;
+
         // Magic byte validation + content hash — tek pass'te. Disk'e yazmadan önce stream'i
         // okuyarak bellek-içi byte buffer'ı çıkarıyoruz → hem header validation hem SHA256
         // tek read'le yapılır, sonra MemoryStream'den SaveAsync'e geçirilir.
-        var declared = DetectFileType(req.ContentType);
         if (req.FileStream.CanSeek) req.FileStream.Position = 0;
         using var contentMs = new MemoryStream(capacity: (int)Math.Min(req.FileSizeBytes, int.MaxValue));
         await req.FileStream.CopyToAsync(contentMs, ct);
@@ -861,7 +949,7 @@ public class DocumentUseCase : IDocumentUseCase
             ContentType = req.ContentType,
             FileSizeBytes = req.FileSizeBytes,
             StoragePath = storagePath,
-            FileType = DetectFileType(req.ContentType),
+            FileType = declared,
             ContentHash = contentHash,
             Status = DocumentStatus.Pending,
         };
@@ -921,10 +1009,9 @@ public class DocumentUseCase : IDocumentUseCase
             using var stream = _fileStorage.OpenRead(doc.StoragePath);
             var parsedList = (await _parser.ParseAsync(stream, doc.FileType, ct)).ToList();
 
-            // Contextual Retrieval: BAŞ + ORTA + SON chunk'lardan özet (TOC/kapak sayfasına saplanmaz).
-            // parsedList zaten chunk sırasında — fake DocumentChunk wrapping'e gerek yok.
-            var sampleContents = parsedList.Select(c => c.Content).ToList();
-            var earlySummary = await TryGenerateSummaryAsync(sampleContents, ct) ?? string.Empty;
+            // Contextual Retrieval: belge boyutuyla ölçeklenen eşit-aralıklı örnekler + başlık
+            // iskeleti üzerinden özet (TOC/kapak sayfasına saplanmaz, büyük belgede temsil düşmez).
+            var earlySummary = await TryGenerateSummaryAsync(parsedList, ct) ?? string.Empty;
 
             // CAPTION HASH-FIRST: Aynı görsel için Pixtral SADECE BİR KEZ çağrılır.
             // Hem caption hem pathToHash döner — pathToHash chunk-level path dedup için kullanılır.
@@ -1309,13 +1396,14 @@ public class DocumentUseCase : IDocumentUseCase
         }
     }
 
-    private static FileType DetectFileType(string contentType) => contentType switch
+    // Bilinmeyen tip null döner — çağıran 400 Validation üretir (throw edilirse upload 500'e dönüşür).
+    private static FileType? DetectFileType(string contentType) => contentType switch
     {
         "application/pdf" => FileType.Pdf,
         "application/msword" => FileType.Doc,
         var t when t.Contains("wordprocessingml") => FileType.Docx,
         var t when t.Contains("spreadsheetml") => FileType.Xlsx,
         "text/csv" => FileType.Csv,
-        _ => throw new NotSupportedException($"Desteklenmeyen content type: {contentType}"),
+        _ => null,
     };
 }

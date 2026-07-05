@@ -4,10 +4,18 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using DocuChat.Application.Interfaces.Services;
+using DocuChat.Application.Interfaces.Services.Ai.Embedding;
+using DocuChat.Application.Interfaces.Services.Ai.Llm;
+using DocuChat.Application.Interfaces.Services.Ai.Reranker;
+using DocuChat.Application.Interfaces.Services.Ai.Retrieval;
+using DocuChat.Application.Interfaces.Services.Documents;
+using DocuChat.Application.Interfaces.Services.Auth;
+using DocuChat.Application.Interfaces.Services.UserManagement;
+using DocuChat.Application.Interfaces.Services.Email;
+using DocuChat.Application.Interfaces.Services.Storage;
+using DocuChat.Application.Interfaces.Services.Persistence;
 using DocuChat.Application.DTOs.Auth;
 using DocuChat.API.Common;
-using DocuChat.API.Extensions;
 using DocuChat.Domain.Enums;
 
 namespace DocuChat.API.Controllers;
@@ -142,32 +150,7 @@ public class AdminController : ControllerBase
             "kullanici-toplu-yukleme-sablonu.xlsx");
     }
 
-    // Excel'den toplu kullanıcı import — multipart .xlsx, per-row sonuç raporu döner.
-    // user-write rate limit'inde — bulk işlem tek istek olduğu için yeterli.
-    [HttpPost("users/bulk-import")]
-    [EnableRateLimiting("user-write")]
-    [ProducesResponseType(typeof(ApiResponse<BulkImportUsersSummaryDto>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
-    public async Task<IActionResult> BulkImportUsers(IFormFile file, CancellationToken ct)
-    {
-        if (file is null || file.Length == 0)
-            return new[] { "Dosya boş veya seçilmedi." }
-                .ToValidationResult<BulkImportUsersSummaryDto>();
-
-        var ext = System.IO.Path.GetExtension(file.FileName)?.ToLowerInvariant();
-        if (ext != ".xlsx")
-            return new[] { "Sadece .xlsx formatı kabul edilir." }
-                .ToValidationResult<BulkImportUsersSummaryDto>();
-
-        using var stream = file.OpenReadStream();
-        var result = await _userManagement.BulkImportUsersFromExcelAsync(stream, ct);
-        return result.ToActionResult();
-    }
-
-    // Streaming variant — SSE ile per-row ilerleme + final summary.
+    // Excel'den toplu kullanıcı import — SSE ile per-row ilerleme + final summary.
     // ChatController.AskStream ile aynı pattern.
     // Event tipleri: start | progress | done | error
     [HttpPost("users/bulk-import/stream")]

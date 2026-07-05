@@ -2,7 +2,16 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using DocuChat.Application.Interfaces.Services;
+using DocuChat.Application.Interfaces.Services.Ai.Embedding;
+using DocuChat.Application.Interfaces.Services.Ai.Llm;
+using DocuChat.Application.Interfaces.Services.Ai.Reranker;
+using DocuChat.Application.Interfaces.Services.Ai.Retrieval;
+using DocuChat.Application.Interfaces.Services.Documents;
+using DocuChat.Application.Interfaces.Services.Auth;
+using DocuChat.Application.Interfaces.Services.UserManagement;
+using DocuChat.Application.Interfaces.Services.Email;
+using DocuChat.Application.Interfaces.Services.Storage;
+using DocuChat.Application.Interfaces.Services.Persistence;
 using DocuChat.Application.Common.Results;
 using DocuChat.Application.DTOs.Auth;
 using DocuChat.Infrastructure.Persistence.Identity;
@@ -95,13 +104,23 @@ public sealed class AuthService : IAuthService
     public async Task<Result<bool>> ResetPasswordAsync(
         string email, string token, string newPassword, CancellationToken ct = default)
     {
+        // User enumeration önleme: e-posta kayıtlı değilse de token geçersizmiş gibi aynı
+        // generic mesaj döner (ForgotPassword da kayıtlılığı gizliyor — iki uç tutarlı olmalı).
+        const string invalidLinkMsg =
+            "Şifre sıfırlama bağlantısı geçersiz veya süresi dolmuş. Lütfen yeni bir bağlantı isteyin.";
+
         var user = await _userManager.FindByEmailAsync(email);
         if (user is null)
-            return Result<bool>.Failure(Error.NotFound("Kullanıcı bulunamadı."));
+            return Result<bool>.Failure(Error.Validation(invalidLinkMsg));
 
         var result = await _userManager.ResetPasswordAsync(user, token, newPassword);
         if (!result.Succeeded)
         {
+            // Token hatası da generic mesaja katlanır; şifre-politikası hataları (kısa şifre vb.)
+            // kullanıcının düzeltebilmesi için aynen iletilir.
+            if (result.Errors.Any(e => e.Code == "InvalidToken"))
+                return Result<bool>.Failure(Error.Validation(invalidLinkMsg));
+
             var msg = string.Join(", ", result.Errors.Select(e => e.Description));
             return Result<bool>.Failure(Error.Validation(msg));
         }

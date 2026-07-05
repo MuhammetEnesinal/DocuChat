@@ -1,6 +1,10 @@
 // DocuChat.Application/Mappings/MappingConfig.cs
 using Mapster;
 using DocuChat.Domain.Entities;
+using DocuChat.Domain.Entities.Common;
+using DocuChat.Domain.Entities.Chat;
+using DocuChat.Domain.Entities.Documents;
+using DocuChat.Domain.Entities.Caching;
 using DocuChat.Application.DTOs.Document;
 using DocuChat.Application.DTOs.Chat;
 using DocuChat.Application.DTOs.Auth;
