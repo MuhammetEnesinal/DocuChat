@@ -370,3 +370,6 @@ FodyWeavers.xsd
 *.doc
 # Uploaded documents (kept locally, not tracked)
 /api/DocuChat.API/uploads/
+
+# Docker Compose secrets — asla commit edilmez
+/.env

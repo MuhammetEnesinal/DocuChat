@@ -9,6 +9,7 @@ using DocuChat.Infrastructure.Persistence.Exceptions;
 using DocuChat.Infrastructure.Persistence.Seed;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -238,7 +239,12 @@ try
     var app = builder.Build();
 
     using (var scope = app.Services.CreateScope())
+    {
+        // Taze kurulumda (Docker/yeni DB) bekleyen migration'lar otomatik uygulanır;
+        // güncel DB'de no-op. Seed, şema garanti olduktan sonra çalışır.
+        await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
         await SeedData.SeedRolesAndAdminAsync(scope.ServiceProvider);
+    }
 
     // NOT: Pending/Processing'de kalan belgelerin recovery'si DocumentRecoveryService (IHostedService)
     // tarafından yapılır — orada queue'ya enqueue edilir, DocumentProcessingConsumer bounded

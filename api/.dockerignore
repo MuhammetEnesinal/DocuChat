@@ -1,0 +1,5 @@
+**/bin/
+**/obj/
+DocuChat.API/uploads/
+DocuChat.API/logs/
+**/*.user

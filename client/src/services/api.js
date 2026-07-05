@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5025';
+// ?? (|| değil): Docker build'de VITE_API_URL="" verilir → boş string = AYNI ORIGIN
+// (nginx /api ve /uploads'ı proxy'ler). Tanımsızsa (lokal dev) localhost fallback'i.
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:5025';
 export { API_BASE };
 
 const api = axios.create({

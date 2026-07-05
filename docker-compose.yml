@@ -1,0 +1,84 @@
+# DocuChat — tüm sistem tek komutla: docker compose up -d --build
+# Sırlar kökteki .env dosyasından okunur (bkz. .env.example).
+#
+# Host portları lokal geliştirme servisleriyle ÇAKIŞMAZ:
+#   web   → http://localhost:8080   (uygulamanın adresi)
+#   api   → http://localhost:5026   (Swagger/direkt erişim; içerde 5025)
+#   db    → localhost:5433          (lokal Postgres 5432'ye dokunmaz)
+#   ollama/reranker → dışarı açılmaz (yalnız container ağı)
+
+services:
+  db:
+    restart: unless-stopped
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: DocuChatDB
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d DocuChatDB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  ollama:
+    restart: unless-stopped
+    image: ollama/ollama
+    # serve başlar, bge-m3 çekilir (varsa anında geçer), sonra serve'e bağlı kalınır
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 4; ollama pull bge-m3; wait"]
+    volumes:
+      - ollama:/root/.ollama
+
+  reranker:
+    restart: unless-stopped
+    build: ./rerank-service
+    volumes:
+      - hfcache:/models
+
+  api:
+    restart: unless-stopped
+    build: ./api
+    depends_on:
+      db:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+      reranker:
+        condition: service_started
+    environment:
+      ASPNETCORE_URLS: http://+:5025
+      ConnectionStrings__Default: Host=db;Port=5432;Database=DocuChatDB;Username=postgres;Password=${POSTGRES_PASSWORD}
+      Embedding__BaseUrl: http://ollama:11434
+      Reranker__BaseUrl: http://reranker:8085
+      LibreOffice__Path: soffice
+      Storage__LocalPath: /app/uploads
+      AllowedOrigins__0: http://localhost:8080
+      Jwt__Secret: ${JWT_SECRET}
+      Llm__ApiKey: ${MISTRAL_API_KEY}
+      LlmHelper__ApiKey: ${MISTRAL_HELPER_API_KEY}
+      Email__Password: ${EMAIL_PASSWORD}
+    volumes:
+      - uploads:/app/uploads
+    ports:
+      - "5026:5025"
+
+  web:
+    restart: unless-stopped
+    build:
+      context: ./client
+      args:
+        VITE_API_URL: ""   # boş = aynı origin; nginx /api ve /uploads'ı api'ye proxy'ler
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+
+volumes:
+  pgdata:    # veritabanı
+  ollama:    # bge-m3 modeli (~1.2 GB, bir kez iner)
+  hfcache:   # reranker modeli (~2.2 GB, bir kez iner)
+  uploads:   # yüklenen belgeler + görseller
