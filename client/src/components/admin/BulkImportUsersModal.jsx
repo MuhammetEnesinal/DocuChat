@@ -237,7 +237,10 @@ export default function BulkImportUsersModal({
                         <div className="rounded-lg overflow-hidden"
                             style={{ border: '1px solid rgba(255,255,255,0.08)', maxHeight: '300px', overflowY: 'auto', overflowX: 'auto' }}>
                             <table className="w-full text-xs">
-                                <thead style={{ background: 'rgba(255,255,255,0.04)', position: 'sticky', top: 0 }}>
+                                {/* Sticky başlık OPAK zeminli olmalı — yarı saydam olursa kaydırmada
+                                    altından geçen satırlar görünür ("iç içe binme"). zIndex: satır
+                                    içeriklerinin üstünde kalsın. */}
+                                <thead style={{ background: '#221c3a', position: 'sticky', top: 0, zIndex: 1 }}>
                                     <tr>
                                         <th className="px-3 py-2 text-left" style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Satır</th>
                                         <th className="px-3 py-2 text-left" style={{ color: 'var(--text-primary)', fontWeight: 600 }}>E-posta</th>
