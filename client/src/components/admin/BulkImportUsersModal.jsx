@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import Modal from '../shared/Modal';
+import { useToast } from '../shared/Toast';
 
 /**
  * Excel ile toplu kullanıcı yükleme modal'ı.
@@ -22,6 +23,7 @@ export default function BulkImportUsersModal({
     const fileInputRef = useRef(null);
     const [dragOver, setDragOver] = useState(false);
     const [selectedFile, setSelectedFile] = useState(null);
+    const toast = useToast();
 
     if (!open) return null;
 
@@ -29,7 +31,7 @@ export default function BulkImportUsersModal({
         if (!file) return;
         const ext = file.name.split('.').pop()?.toLowerCase();
         if (ext !== 'xlsx') {
-            alert('Sadece .xlsx formatı kabul edilir.');
+            toast.error('Sadece .xlsx formatı kabul edilir.');
             return;
         }
         setSelectedFile(file);

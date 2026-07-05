@@ -8,6 +8,18 @@ import FormInput from '../components/auth/FormInput';
 import PasswordToggle from '../components/auth/PasswordToggle';
 import SubmitButton from '../components/auth/SubmitButton';
 
+// Backend kuralıyla birebir (ResetPasswordRequestDtoValidator):
+// 8+ karakter, büyük harf, küçük harf, rakam, özel karakter.
+function validatePassword(pwd) {
+    if (!pwd) return 'Şifre boş olamaz.';
+    if (pwd.length < 8) return 'Şifre en az 8 karakter olmalıdır.';
+    if (!/[A-ZÇĞİÖŞÜ]/.test(pwd)) return 'Şifre en az bir büyük harf içermelidir.';
+    if (!/[a-zçğıöşü]/.test(pwd)) return 'Şifre en az bir küçük harf içermelidir.';
+    if (!/\d/.test(pwd)) return 'Şifre en az bir rakam içermelidir.';
+    if (!/[^a-zA-ZÇĞİÖŞÜçğıöşü0-9]/.test(pwd)) return 'Şifre en az bir özel karakter içermelidir.';
+    return null;
+}
+
 export default function ResetPassword() {
     const [searchParams] = useSearchParams();
     const email = searchParams.get('email') || '';
@@ -44,8 +56,9 @@ export default function ResetPassword() {
             setError('Şifreler eşleşmiyor.');
             return;
         }
-        if (newPassword.length < 8) {
-            setError('Şifre en az 8 karakter olmalıdır.');
+        const pwdErr = validatePassword(newPassword);
+        if (pwdErr) {
+            setError(pwdErr);
             return;
         }
 

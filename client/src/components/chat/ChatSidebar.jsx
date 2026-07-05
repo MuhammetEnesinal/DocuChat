@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SessionSkeleton } from '../shared/Skeleton';
 import SidebarButton from './SidebarButton';
@@ -17,7 +17,6 @@ export default function ChatSidebar({
 }) {
     // Helper: spesifik action için busy mi?
     const isBusy = (sessionId, action) => busy?.id === sessionId && busy?.action === action;
-    const renameInputRef = useRef(null);
     const navigate = useNavigate();
     const [selectMode, setSelectMode] = useState(false);
     const [selectedIds, setSelectedIds] = useState(new Set());
@@ -245,7 +244,7 @@ export default function ChatSidebar({
                                 />
                             )}
                             {editingSessionId === s.id ? (
-                                <input ref={renameInputRef} value={editingTitle}
+                                <input value={editingTitle}
                                     onChange={(e) => onSetEditingTitle(e.target.value)}
                                     onBlur={() => onCommitRename(s.id)}
                                     onKeyDown={(e) => { if (e.key === 'Enter') onCommitRename(s.id); if (e.key === 'Escape') onSetEditingSessionId(null); }}

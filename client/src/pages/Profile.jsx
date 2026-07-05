@@ -21,12 +21,15 @@ function initials(fullName) {
         .toUpperCase();
 }
 
+// Backend kuralıyla birebir (ChangePasswordRequestDtoValidator):
+// 8+ karakter, büyük harf, küçük harf, rakam, özel karakter.
 function validatePassword(pwd) {
     if (!pwd) return 'Yeni şifre boş olamaz.';
     if (pwd.length < 8) return 'Şifre en az 8 karakter olmalıdır.';
     if (!/[A-ZÇĞİÖŞÜ]/.test(pwd)) return 'Şifre en az bir büyük harf içermelidir.';
     if (!/[a-zçğıöşü]/.test(pwd)) return 'Şifre en az bir küçük harf içermelidir.';
     if (!/\d/.test(pwd)) return 'Şifre en az bir rakam içermelidir.';
+    if (!/[^a-zA-ZÇĞİÖŞÜçğıöşü0-9]/.test(pwd)) return 'Şifre en az bir özel karakter içermelidir.';
     return null;
 }
 
@@ -217,7 +220,7 @@ export default function Profile() {
                         </h3>
                     </div>
                     <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 20px' }}>
-                        En az 8 karakter, bir büyük harf, bir küçük harf ve bir rakam içermelidir.
+                        En az 8 karakter; bir büyük harf, bir küçük harf, bir rakam ve bir özel karakter içermelidir.
                     </p>
 
                     <ErrorAlert message={formError} />

@@ -229,7 +229,6 @@ function ClickableImage({ src, alt = 'görsel', inTable = false, onOpen }) {
 
 export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarificationSelect, onClarificationDismiss, onFollowUpSelect, onFeedbackGiven }) {
     const isUser = msg.role === 'User';
-    const images = msg.images || [];
     const [modalSrc, setModalSrc] = useState(null);
 
     // Feedback state — sadece bu mesaj instance'ı için

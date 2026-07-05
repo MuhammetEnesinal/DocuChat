@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 
 // ── Toast context & hook ───────────────────────────────────────────────────
 import { createContext, useContext } from 'react';
@@ -70,19 +70,23 @@ export function ToastProvider({ children }) {
         setToasts(prev => prev.filter(t => t.id !== id));
     }, []);
 
-    const toast = useCallback((message, type = 'info', duration = 3500) => {
-        const id = Date.now() + Math.random();
-        setToasts(prev => {
-            if (prev.some(t => t.message === message && t.type === type)) return prev;
-            const trimmed = prev.length >= 5 ? prev.slice(1) : prev;
-            return [...trimmed, { id, message, type, duration }];
-        });
+    // useMemo: fonksiyon + kısayol metodları BİR KEZ kurulur (render gövdesinde her
+    // render'da yeniden atama yapılmaz — React render saflığı korunur).
+    const toast = useMemo(() => {
+        const fn = (message, type = 'info', duration = 3500) => {
+            const id = Date.now() + Math.random();
+            setToasts(prev => {
+                if (prev.some(t => t.message === message && t.type === type)) return prev;
+                const trimmed = prev.length >= 5 ? prev.slice(1) : prev;
+                return [...trimmed, { id, message, type, duration }];
+            });
+        };
+        fn.success = (msg, dur) => fn(msg, 'success', dur);
+        fn.error = (msg, dur) => fn(msg, 'error', dur);
+        fn.info = (msg, dur) => fn(msg, 'info', dur);
+        fn.warning = (msg, dur) => fn(msg, 'warning', dur);
+        return fn;
     }, []);
-
-    toast.success = (msg, dur) => toast(msg, 'success', dur);
-    toast.error = (msg, dur) => toast(msg, 'error', dur);
-    toast.info = (msg, dur) => toast(msg, 'info', dur);
-    toast.warning = (msg, dur) => toast(msg, 'warning', dur);
 
     return (
         <ToastContext.Provider value={toast}>

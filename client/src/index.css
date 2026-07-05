@@ -88,23 +88,6 @@ body {
     border: 1px solid var(--glass-border);
 }
 
-.glass-strong {
-    background: var(--glass-bg);
-    backdrop-filter: blur(50px) saturate(200%);
-    -webkit-backdrop-filter: blur(50px) saturate(200%);
-    border: 1px solid var(--glass-border);
-    box-shadow: 0 20px 60px -15px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-
-.vibrancy-panel {
-    background: rgba(28, 30, 38, 0.6);
-    backdrop-filter: blur(50px) saturate(180%);
-    -webkit-backdrop-filter: blur(50px) saturate(180%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 16px;
-    box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.04) inset, 0 12px 40px -12px rgba(0, 0, 0, 0.5);
-}
-
 .gradient-text {
     background: var(--gradient-accent);
     -webkit-background-clip: text;
@@ -199,30 +182,9 @@ body {
 .btn-icon { padding: 0; width: 36px; height: 36px; border-radius: 10px; }
 .btn-icon.btn-sm { width: 30px; height: 30px; border-radius: 8px; }
 
-/* Pill chip */
-.btn-pill {
-    border-radius: 999px;
-    padding: 8px 14px;
-    font-size: 13px;
-}
-
-@keyframes float-orb {
-    0%, 100% { transform: translate(0, 0) scale(1); }
-    50% { transform: translate(20px, -30px) scale(1.05); }
-}
-
-@keyframes fade-in-up {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
 @keyframes docStatusPulse {
     0%, 100% { opacity: 1; }
     50%      { opacity: 0.55; }
-}
-
-.animate-fade-in-up {
-    animation: fade-in-up 0.4s ease-out;
 }
 
 /* Mesaj listesi alt kenarında yumuşak fade (ChatInput'a yaklaşan satırları soluklaştırır) */
@@ -287,24 +249,6 @@ body {
     50% { transform: translate(-50%, -53%) scale(1.08); opacity: 0.95; }
 }
 
-/* ── Violet drift (mesaj sonrası / admin zemin) ── */
-.violet-drift {
-    position: relative;
-    background:
-        linear-gradient(180deg, #211a3d 0%, #1b1532 50%, #15102a 100%);
-    isolation: isolate;
-}
-
-.violet-drift::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    background:
-        radial-gradient(ellipse 100% 60% at 50% 0%, rgba(var(--accent-rgb), 0.12), transparent 70%);
-}
-
 /* Aktif sohbet zemini: hero (violet-dome) ile aynı aile — siyah taban + yumuşak mor ışıma.
    Dome'un yoğun halinin okumayı yormayan soft versiyonu. */
 .violet-dome-soft {
@@ -322,50 +266,6 @@ body {
     pointer-events: none;
     background:
         radial-gradient(ellipse 70% 62% at 50% 38%, rgba(var(--accent-rgb), 0.26), rgba(var(--accent-deep-rgb), 0.11) 50%, transparent 78%);
-}
-
-/* ── Aurora animated background ── */
-.aurora-bg {
-    position: relative;
-    background: #0a0f1a;
-    overflow: hidden;
-    isolation: isolate;
-}
-
-.aurora-bg::before,
-.aurora-bg::after {
-    content: '';
-    position: absolute;
-    inset: -20%;
-    z-index: -1;
-    pointer-events: none;
-    filter: blur(80px) saturate(140%);
-    opacity: 0.55;
-    background:
-        radial-gradient(ellipse 50% 40% at 20% 30%, #10b981 0%, transparent 60%),
-        radial-gradient(ellipse 40% 50% at 80% 20%, var(--accent) 0%, transparent 60%),
-        radial-gradient(ellipse 50% 40% at 70% 80%, #06b6d4 0%, transparent 60%),
-        radial-gradient(ellipse 40% 40% at 30% 90%, var(--accent-deep) 0%, transparent 60%);
-    animation: aurora-shift 22s ease-in-out infinite alternate;
-}
-
-.aurora-bg::after {
-    opacity: 0.35;
-    filter: blur(100px) saturate(160%);
-    animation: aurora-shift-2 28s ease-in-out infinite alternate;
-}
-
-@keyframes aurora-shift {
-    0%   { transform: translate(0, 0) rotate(0deg) scale(1); }
-    33%  { transform: translate(8%, -6%) rotate(40deg) scale(1.08); }
-    66%  { transform: translate(-6%, 4%) rotate(-30deg) scale(0.95); }
-    100% { transform: translate(4%, 8%) rotate(20deg) scale(1.05); }
-}
-
-@keyframes aurora-shift-2 {
-    0%   { transform: translate(0, 0) rotate(0deg) scale(1); }
-    50%  { transform: translate(-10%, 6%) rotate(-50deg) scale(1.1); }
-    100% { transform: translate(8%, -4%) rotate(30deg) scale(0.9); }
 }
 
 /* ── Gradient beam (horizon ışın çizgisi) ── */

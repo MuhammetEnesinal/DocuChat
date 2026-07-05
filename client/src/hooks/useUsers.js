@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
     adminGetUsers, adminCreateUser, adminUpdateUser, adminDeleteUser, adminDeleteUsersBatch,
     adminDownloadBulkImportTemplate, adminBulkImportUsersStream
@@ -25,6 +25,11 @@ export function useUsers() {
     const [userFormError, setUserFormError] = useState('');
     const [userFormLoading, setUserFormLoading] = useState(false);
     const toast = useToast();
+
+    // Unmount'ta bekleyen arama debounce'u iptal — sayfadan çıkınca hayalet fetch atılmasın.
+    useEffect(() => {
+        return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+    }, []);
 
     const fetchUsers = useCallback(async (silent = false) => {
         if (!silent) setUsersLoading(true);

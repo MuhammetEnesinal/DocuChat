@@ -23,9 +23,13 @@ export function useDocuments() {
     const searchRef = useRef('');   // aynı şekilde güncel aramayı okur
     const toast = useToast();
     const pollTimerRef = useRef(null);
+    const searchTimerRef = useRef(null);
 
     useEffect(() => {
-        return () => { if (pollTimerRef.current) clearTimeout(pollTimerRef.current); };
+        return () => {
+            if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+            if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+        };
     }, []);
 
     const fetchDocs = useCallback(async (silent = false) => {
@@ -63,7 +67,6 @@ export function useDocuments() {
         fetchDocs(false);
     }, [fetchDocs]);
 
-    const searchTimerRef = useRef(null);
     const handleDocSearch = useCallback((value) => {
         setDocSearch(value);
         searchRef.current = value;
@@ -209,9 +212,8 @@ export function useDocuments() {
 
         if (valid.length === 0) return;
 
-        // Throttled upload — max 3 paralel, sonra sıradakiler.
+        // Throttled upload — 5'li gruplar: bir grup tamamen bitmeden sonraki başlamaz.
         // Sebep: backend upload rate limit (10/dk) + Mistral OCR rate limit + browser network sıkışması.
-        // 3 paralel = backend rahat işler, kullanıcı progress'i akıcı görür.
         (async () => {
             const BATCH = 5;
             for (let i = 0; i < valid.length; i += BATCH) {

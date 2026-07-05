@@ -163,37 +163,41 @@ export function useSessions() {
     const handleBatchArchiveSessions = useCallback(async (ids) => {
         // Sequential — her arşivleme yan etkili (DB write), N tek istek de mevcut user-write
         // rate-limit'inde rahat sığar (typically <20).
-        let success = 0, failed = 0;
+        // Listeden yalnız GERÇEKTEN arşivlenenler düşürülür; başarısız olanlar yerinde kalır
+        // (aksi halde arşivlenmemiş sohbet refresh'e kadar kaybolmuş görünüyordu).
+        const archivedIds = new Set();
+        let failed = 0;
         for (const id of ids) {
             setBusy({ id, action: 'archive' });
-            try { await archiveSession(id); success++; } catch { failed++; }
+            try { await archiveSession(id); archivedIds.add(id); } catch { failed++; }
         }
         setBusy(null);
-        if (success > 0) {
-            setSessions(prev => prev.filter(s => !ids.includes(s.id)));
-            setActiveSession(prev => prev && ids.includes(prev.id) ? null : prev);
-            setArchivedCount(c => c + success);
-            toast.success(`${success} sohbet arşivlendi.`);
+        if (archivedIds.size > 0) {
+            setSessions(prev => prev.filter(s => !archivedIds.has(s.id)));
+            setActiveSession(prev => prev && archivedIds.has(prev.id) ? null : prev);
+            setArchivedCount(c => c + archivedIds.size);
+            toast.success(`${archivedIds.size} sohbet arşivlendi.`);
         }
         if (failed > 0) toast.error(`${failed} sohbet arşivlenemedi.`);
-        return success;
+        return archivedIds.size;
     }, [toast]);
 
     const handleBatchUnarchiveSessions = useCallback(async (ids) => {
         // Batch archive'ın simetriği — arşiv görünümünde çoklu seçimle geri çıkarma.
-        let success = 0, failed = 0;
+        const unarchivedIds = new Set();
+        let failed = 0;
         for (const id of ids) {
             setBusy({ id, action: 'archive' });
-            try { await unarchiveSession(id); success++; } catch { failed++; }
+            try { await unarchiveSession(id); unarchivedIds.add(id); } catch { failed++; }
         }
         setBusy(null);
-        if (success > 0) {
-            setSessions(prev => prev.filter(s => !ids.includes(s.id)));
-            setArchivedCount(c => Math.max(0, c - success));
-            toast.success(`${success} sohbet arşivden çıkarıldı.`);
+        if (unarchivedIds.size > 0) {
+            setSessions(prev => prev.filter(s => !unarchivedIds.has(s.id)));
+            setArchivedCount(c => Math.max(0, c - unarchivedIds.size));
+            toast.success(`${unarchivedIds.size} sohbet arşivden çıkarıldı.`);
         }
         if (failed > 0) toast.error(`${failed} sohbet çıkarılamadı.`);
-        return success;
+        return unarchivedIds.size;
     }, [toast]);
 
     const handleBatchDeleteSessions = useCallback(async (ids, onDeleted) => {

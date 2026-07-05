@@ -234,16 +234,7 @@ export const adminDeleteUsersBatch = (ids) =>
 export const adminDownloadBulkImportTemplate = () =>
     api.get('/admin/users/bulk-import/template', { responseType: 'blob' });
 
-// Excel ile toplu kullanıcı yükleme — multipart upload, per-row sonuç raporu döner
-export const adminBulkImportUsers = (file) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    return api.post('/admin/users/bulk-import', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-    });
-};
-
-// Excel ile toplu kullanıcı yükleme — SSE streaming variant.
+// Excel ile toplu kullanıcı yükleme — SSE streaming.
 // Backend her satır işlendikçe progress event yollar. Büyük dosyalarda (2000+ satır)
 // "donmuş mu?" hissini engellemek için kullanılır.
 //

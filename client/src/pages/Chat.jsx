@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Virtuoso } from 'react-virtuoso';
 import { getPopularQuestions } from '../services/api';
@@ -9,7 +9,6 @@ import { useSessions } from '../hooks/useSessions';
 import { useChatMessages } from '../hooks/useChatMessages';
 import ChatSidebar from '../components/chat/ChatSidebar';
 import MessageBubble from '../components/chat/MessageBubble';
-import EmptyState from '../components/chat/EmptyState';
 import NewChatHero from '../components/chat/NewChatHero';
 import ChatInput from '../components/chat/ChatInput';
 import { MessageSkeleton } from '../components/shared/Skeleton';
@@ -212,7 +211,9 @@ export default function Chat() {
         } catch { /* toast hook'ta atıldı */ }
     };
 
-    const virtualItems = buildVirtualItems(messages);
+    // useMemo: input'a her tuş vuruşu Chat'i render eder; mesaj listesi değişmediyse
+    // separator hesabı tekrarlanmasın (uzun sohbetlerde gereksiz CPU).
+    const virtualItems = useMemo(() => buildVirtualItems(messages), [messages]);
 
     const renderVirtualItem = (index) => {
         const item = virtualItems[index];
