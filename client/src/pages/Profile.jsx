@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { getMe, changePassword } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/shared/Toast';
-import { formatDate, showApiError, getApiErrorMessage } from '../utils/format';
+import { formatDate, showApiError, getApiErrorMessage } from '../lib/format';
 import FormInput from '../components/auth/FormInput';
 import PasswordToggle from '../components/auth/PasswordToggle';
 import ErrorAlert from '../components/auth/ErrorAlert';

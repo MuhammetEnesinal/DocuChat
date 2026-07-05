@@ -10,7 +10,7 @@ import UserModal from '../components/admin/UserModal';
 import BulkImportUsersModal from '../components/admin/BulkImportUsersModal';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import { useToast } from '../components/shared/Toast';
-import { showApiError } from '../utils/format';
+import { showApiError } from '../lib/format';
 import { useDocuments } from '../hooks/useDocuments';
 import { useUsers } from '../hooks/useUsers';
 

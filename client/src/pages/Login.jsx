@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { login } from '../services/api';
-import { showApiError, getApiErrorMessage } from '../utils/format';
+import { showApiError, getApiErrorMessage } from '../lib/format';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/shared/Toast';
 import AuthCard from '../components/auth/AuthCard';

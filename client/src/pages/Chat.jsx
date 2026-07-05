@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Virtuoso } from 'react-virtuoso';
 import { getPopularQuestions } from '../services/api';
-import { formatDateShort } from '../utils/format';
+import { formatDateShort } from '../lib/format';
 import { useToast } from '../components/shared/Toast';
 import { useAuth } from '../hooks/useAuth';
 import { useSessions } from '../hooks/useSessions';

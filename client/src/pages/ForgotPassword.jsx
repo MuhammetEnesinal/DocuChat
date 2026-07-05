@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { forgotPassword } from '../services/api';
 import { useToast } from '../components/shared/Toast';
-import { showApiError } from '../utils/format';
+import { showApiError } from '../lib/format';
 import AuthCard from '../components/auth/AuthCard';
 import FormInput from '../components/auth/FormInput';
 import SubmitButton from '../components/auth/SubmitButton';

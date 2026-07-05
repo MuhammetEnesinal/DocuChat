@@ -5,7 +5,7 @@ import {
     getArchivedSessionCount
 } from '../services/api';
 import { useToast } from '../components/shared/Toast';
-import { showApiError } from '../utils/format';
+import { showApiError } from '../lib/format';
 import {
     subscribeSessions,
     broadcastSessionDeleted,

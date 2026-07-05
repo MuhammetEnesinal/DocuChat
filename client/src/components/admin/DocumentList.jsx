@@ -1,10 +1,10 @@
 import { useState, useCallback } from 'react';
 import { reprocessDocument } from '../../services/api';
-import { formatDate, formatSize } from '../../utils/format';
+import { formatDate, formatSize } from '../../lib/format';
 import SearchInput from '../shared/SearchInput';
 import { DocumentSkeleton } from '../shared/Skeleton';
 import { useToast } from '../shared/Toast';
-import { showApiError } from '../../utils/format';
+import { showApiError } from '../../lib/format';
 import Spinner from '../shared/Spinner';
 import IconButton from '../shared/IconButton';
 import Pagination from '../shared/Pagination';

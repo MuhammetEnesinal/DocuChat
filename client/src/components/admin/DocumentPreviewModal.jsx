@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../../services/api';
-import { formatSize } from '../../utils/format';
+import { formatSize } from '../../lib/format';
 import { useToast } from '../shared/Toast';
 import Spinner from '../shared/Spinner';
 

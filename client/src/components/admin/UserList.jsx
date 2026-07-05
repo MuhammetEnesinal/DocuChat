@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import SearchInput from '../shared/SearchInput';
 import { UserSkeleton } from '../shared/Skeleton';
-import { formatDate } from '../../utils/format';
+import { formatDate } from '../../lib/format';
 import IconButton from '../shared/IconButton';
 import Spinner from '../shared/Spinner';
 import Pagination from '../shared/Pagination';

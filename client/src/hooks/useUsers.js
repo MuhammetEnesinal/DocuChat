@@ -4,7 +4,7 @@ import {
     adminDownloadBulkImportTemplate, adminBulkImportUsersStream
 } from '../services/api';
 import { useToast } from '../components/shared/Toast';
-import { showApiError, getApiErrorMessage } from '../utils/format';
+import { showApiError, getApiErrorMessage } from '../lib/format';
 
 const PAGE_SIZE = 20;
 

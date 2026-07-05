@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { askQuestionStream, getMessages } from '../services/api';
-import { getRateLimitMessage, showApiError } from '../utils/format';
+import { getRateLimitMessage, showApiError } from '../lib/format';
 import { useToast } from '../components/shared/Toast';
 import { broadcastSessionCreated, broadcastSessionDeleted } from '../lib/sessionsChannel';
 

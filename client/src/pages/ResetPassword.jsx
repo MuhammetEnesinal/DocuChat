@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { resetPassword } from '../services/api';
 import { useToast } from '../components/shared/Toast';
-import { showApiError, getApiErrorMessage } from '../utils/format';
+import { showApiError, getApiErrorMessage } from '../lib/format';
 import AuthCard from '../components/auth/AuthCard';
 import FormInput from '../components/auth/FormInput';
 import PasswordToggle from '../components/auth/PasswordToggle';
