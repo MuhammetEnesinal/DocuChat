@@ -373,3 +373,11 @@ FodyWeavers.xsd
 
 # Docker Compose secrets — asla commit edilmez
 /.env
+
+# Python sanal ortamı (asla commitlenmez)
+rerank-service/venv/
+venv/
+**/venv/
+
+# Arşiv dosyaları
+*.zip
