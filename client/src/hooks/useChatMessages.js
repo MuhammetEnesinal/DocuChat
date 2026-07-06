@@ -108,7 +108,7 @@ export function useChatMessages(virtuosoRef) {
                     }
                     break;
                 }
-                // Arama/hazırlama aşaması göstergesi: content boşken MessageBubble statusText'i
+                // Arama/hazırlama sırasında gösterge: content boşken MessageBubble statusText'i
                 // gösterir, ilk token içeriği doldurunca otomatik kaybolur.
                 case 'searching': {
                     setMessages(prev => prev.map(m => m.id === assistantMsgId
@@ -201,9 +201,9 @@ export function useChatMessages(virtuosoRef) {
                 setMessages(prev => prev.map(m => m.id === assistantMsgId
                     ? { ...m, isStreaming: false, isAborted: !receivedAnyToken }
                     : m));
-                // İlk soru (yeni session) iptal edilip hiç cevap kaydedilmediyse: boş session'ı
-                // temizle. Diğer açık sekmelere de "silindi" broadcast'i at (create gitmişti) —
-                // hiçbir yerde ölü/mesajsız sohbet kalmasın. Çağıran taraf da UI'dan kaldırır.
+                // İlk soru (yeni session) iptal edilip hiç cevap kaydedilmediyse boş session'ı
+                // temizle ve diğer sekmelere "silindi" broadcast'i at; mesajsız sohbet kalmasın.
+                // Çağıran taraf da UI'dan kaldırır.
                 if (createdSessionId && !receivedComplete) broadcastSessionDeleted(createdSessionId);
                 return { aborted: true, createdSessionId, hadComplete: receivedComplete };
             }

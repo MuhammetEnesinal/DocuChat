@@ -15,7 +15,7 @@ export default function TextType({
     const texts = Array.isArray(text) ? text : [text];
     const [index, setIndex] = useState(0);
     const [display, setDisplay] = useState('');
-    const [phase, setPhase] = useState('typing'); // typing | pausing | deleting
+    const [phase, setPhase] = useState('typing'); // typing | deleting
     const timerRef = useRef(null);
 
     useEffect(() => {

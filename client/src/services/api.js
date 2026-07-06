@@ -36,7 +36,7 @@ api.interceptors.response.use(
 
 export default api;
 
-// ── Auth ──────────────────────────────────────────────────────────────────
+// Auth
 export const login = (email, password) =>
     api.post('/auth/login', { email, password });
 
@@ -55,7 +55,7 @@ export const changePassword = (currentPassword, newPassword) =>
     api.post('/auth/change-password', { currentPassword, newPassword });
 
 
-// ── Chat ──────────────────────────────────────────────────────────────────
+// Chat
 // SSE streaming — backend'in chat endpoint'i: /api/chat/ask-stream.
 // onEvent her event'te çağrılır.
 // Event tipleri: start | cache_hit | clarification | token | complete | done | error
@@ -152,7 +152,7 @@ export const deleteSession = (sessionId) =>
 export const deleteSessionsBatch = (ids) =>
     api.post('/chat/sessions/batch-delete', { ids });
 
-// ── Session: Arşivleme / Sabitleme / Export ──────────────────────────────
+// Session: arşivleme / sabitleme / export
 export const archiveSession = (sessionId) =>
     api.patch(`/chat/sessions/${sessionId}/archive`);
 
@@ -168,7 +168,7 @@ export const unpinSession = (sessionId) =>
 export const getArchivedSessionCount = () =>
     api.get('/chat/sessions/archived-count');
 
-// ── Documents ─────────────────────────────────────────────────────────────
+// Documents
 export const getDocuments = (params = {}) =>
     api.get('/documents', { params });
 
@@ -207,15 +207,15 @@ export const reprocessDocumentsBatch = (ids) =>
 export const getPopularQuestions = (limit = 6) =>
     api.get(`/chat/popular-questions?limit=${limit}`);
 
-// ── Chat Feedback ─────────────────────────────────────────────────────────
-// Bir asistan mesajına 👍 / 👎 + sebep gönderir. Sadece bir kez (UNIQUE per user-message).
+// Chat feedback
+// Bir asistan mesajına beğeni/beğenmeme + sebep gönderir. Kullanıcı başına bir mesaja tek kez.
 // rating: 1 (like) | -1 (dislike)
 // categories: opsiyonel, whitelist içinden ["wrong_info"|"missing_info"|"nonsense"|"doc_mismatch"|"image_issue"]
 // reasonText: opsiyonel, max 500 char serbest metin
 export const submitFeedback = ({ messageId, rating, categories = null, reasonText = null }) =>
     api.post('/chat/feedback', { messageId, rating, categories, reasonText });
 
-// ── Admin ─────────────────────────────────────────────────────────────────
+// Admin
 export const adminGetUsers = (params = {}) =>
     api.get('/admin/users', { params });
 

@@ -111,8 +111,8 @@ export default function Profile() {
         }
     };
 
-    // Chat balonları gibi zengin cam kart — her iki bölüm de kullanır (tutarlı görünüm).
-    // Padding clamp ile dar ekranda otomatik daralır; minWidth 0 içerik taşmasını engeller.
+    // Zengin cam kart; her iki bölüm de kullanır. Padding clamp ile dar ekranda daralır,
+    // minWidth 0 içerik taşmasını engeller.
     const cardStyle = {
         borderRadius: '18px',
         padding: 'clamp(20px, 5vw, 32px) clamp(14px, 4.5vw, 28px)',
@@ -126,7 +126,7 @@ export default function Profile() {
 
     return (
         <div style={{ minHeight: '100vh', position: 'relative', background: '#000', overflowX: 'clip' }}>
-            {/* Chat ana ekranıyla aynı atmosfer: siyah taban + merkezde güçlü mor ışıma kubbesi */}
+            {/* Siyah taban + merkezde mor ışıma kubbesi zemin */}
             <div aria-hidden style={{
                 position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
                 background:

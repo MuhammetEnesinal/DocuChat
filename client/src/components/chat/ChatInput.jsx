@@ -34,8 +34,8 @@ export default function ChatInput({ value, onChange, onSend, loading, onAbort, i
                         resize: 'none', minHeight: '48px', maxHeight: '180px',
                         overflowY: 'auto', background: 'transparent', border: 'none',
                         outline: 'none', color: 'var(--text-primary)', fontSize: '0.95rem',
-                        // minWidth 0: textarea'nın intrinsic min-genişliği flex kabını taşırmasın
-                        // (dar ekranda gönder butonunu dışarı itiyordu)
+                        // minWidth 0: textarea'nın intrinsic min-genişliği flex kabını taşırmasın,
+                        // gönder butonunu kutu dışına itmesin.
                         flex: '1 1 120px', minWidth: 0, padding: '10px 6px', lineHeight: '1.6',
                     }}
                 />

@@ -11,20 +11,16 @@ function formatTime(dateStr) {
     return new Date(dateStr).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 }
 
-/**
- * LLM bazen image syntax'ını bozuk üretir — markdown parser parse edemez, raw `![alt](` ve `)`
- * ekranda görünür. İki tipik bozulma:
- *   1. Nested:     ![alt]( ![alt](/uploads/img.png) )       → outer wrap atılır
- *   2. Multi-line: ![alt](\n /uploads/img.png \n)            → URL içindeki whitespace temizlenir
- *   3. URL'de boşluk:  ![alt]( /uploads/img.png )            → trim
- * Sıra önemli: nested önce, sonra whitespace.
- */
+// Bozuk üretilmiş markdown görsel söz dizimini düzeltir. Üç durumu ele alır:
+//   nested ![alt]( ![alt](url) ) → dış sarma atılır
+//   çok satırlı / URL'de boşluk ![alt](  url  ) → URL içindeki whitespace temizlenir
+// Önce nested katmanlar, sonra whitespace işlenir.
 function normalizeImageMarkdown(content) {
     if (!content) return content;
     let out = content;
     // [0] LLM görsel markdown'ını bazen backtick/inline-code içine sokuyor: `![alt](url)` →
     // bu durumda <img> yerine gri kod kutusu render edilir. Backtick'i soy ki resim görünsün.
-    // (Hem eski DB mesajları hem güvenlik — backend de yutuyor ama burada da garanti.)
+    // (Backend de temizliyor; burada güvence için tekrarlanır.)
     out = out.replace(/`+\s*(!\[[^\]]*\]\([^)]*\))\s*`+/g, '$1');
     // [1] Nested image wrap: outer ![..]( <inner image> ) → sadece inner
     // Iteratif uygula — birden fazla katman olabilir.
@@ -46,14 +42,8 @@ function normalizeImageMarkdown(content) {
     return out;
 }
 
-/**
- * Streaming sırasında YARIM markdown image syntax'ı gizler:
- *   ![alt](url... → (henüz `)` gelmedi) → kullanıcı çirkin text görmesin
- *
- * Mantık: stream içinde son yarım kalmış `![...]( ...` parçasını cevabın sonundan kırp.
- * Stream bittikten sonra TÜM cevap zaten tamamlanmış olur, normal render edilir.
- * Tamamlanmış görseller (kapanış `)` olan) etkilenmez — onlar normal render olur.
- */
+// Streaming sırasında yarım kalmış görsel söz dizimini (kapanış ")" henüz gelmemiş) cevabın
+// sonundan kırpar; kullanıcı ham metin görmesin. Kapanışı tamam olan görseller etkilenmez.
 function sanitizeStreamingMarkdown(content, isStreaming) {
     if (!content) return content;
     // Önce LLM bozulmalarını düzelt (her durumda — streaming dahil)
@@ -147,7 +137,7 @@ function ClarificationBubble({ msg, onClarificationSelect, onClarificationDismis
     );
 }
 
-// Arama/hazırlama aşaması göstergesi (dönen ikon + metin + animasyonlu noktalar). İçerik
+// Arama/hazırlama sırasında gösterge (dönen spinner + metin + animasyonlu noktalar). İçerik
 // akmaya başlayınca MessageBubble bunu göstermeyi keser.
 function StatusIndicator({ text }) {
     return (
@@ -404,9 +394,9 @@ export default function MessageBubble({ msg, copiedId, onCopy, onRetry, onClarif
                             </button>
                         )}
 
-                        {/* 👍 / 👎 — sadece DB'ye yazılmış (persisted) asistan mesajları için.
-                            İptal edilen/yarıda kesilen mesaj DB'de yok → feedback "Mesaj bulunamadı"
-                            hatası verir; o yüzden persisted değilse buton gösterilmez. */}
+                        {/* Beğeni/beğenmeme butonları yalnız DB'ye yazılmış (persisted) asistan
+                            mesajlarında gösterilir. İptal edilen/yarıda kesilen mesaj DB'de olmadığı
+                            için feedback "Mesaj bulunamadı" hatası verir. */}
                         {!isUser && !msg.isStreaming && !msg.isError && msg.id && msg.persisted && (
                             <>
                                 <button

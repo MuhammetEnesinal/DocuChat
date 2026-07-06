@@ -74,7 +74,7 @@ export function useSessions() {
         await fetchSessions(next);
     }, [showArchived, fetchSessions]);
 
-    // ── Archive / Unarchive ──
+    // Archive / Unarchive
     const handleArchiveSession = useCallback(async (sessionId) => {
         setBusy({ id: sessionId, action: 'archive' });
         try {
@@ -98,10 +98,9 @@ export function useSessions() {
         finally { setBusy(null); }
     }, [toast]);
 
-    // ── Pin / Unpin ── client-side reorder ile ANINDA tepeye/yerine al.
-    // Backend sıralaması: pinned önce (PinnedAt desc), sonra CreatedAt desc.
-    // fetchSessions() YAPILMIYOR — skeleton flash + ekstra round-trip yok.
-    // Hata durumunda fetchSessions ile gerçek state'e geri dön.
+    // Pin/Unpin sonrası listeyi client-side yeniden sıralar (sunucuya tekrar gitmeden).
+    // Sıralama: pinned önce (PinnedAt desc), sonra son aktivite. Hata olursa fetchSessions
+    // ile sunucu durumuna dönülür.
     const sortSessionsClientSide = useCallback((list) => {
         return [...list].sort((a, b) => {
             if (!!a.isPinned !== !!b.isPinned) return a.isPinned ? -1 : 1;
@@ -163,8 +162,7 @@ export function useSessions() {
     const handleBatchArchiveSessions = useCallback(async (ids) => {
         // Sequential — her arşivleme yan etkili (DB write), N tek istek de mevcut user-write
         // rate-limit'inde rahat sığar (typically <20).
-        // Listeden yalnız GERÇEKTEN arşivlenenler düşürülür; başarısız olanlar yerinde kalır
-        // (aksi halde arşivlenmemiş sohbet refresh'e kadar kaybolmuş görünüyordu).
+        // Listeden yalnız gerçekten arşivlenenler düşürülür; başarısız olanlar yerinde kalır.
         const archivedIds = new Set();
         let failed = 0;
         for (const id of ids) {

@@ -2,21 +2,9 @@ import { useRef, useState } from 'react';
 import Modal from '../shared/Modal';
 import { useToast } from '../shared/Toast';
 
-/**
- * Excel ile toplu kullanıcı yükleme modal'ı.
- *  - "Şablon İndir" → boş .xlsx + örnek satır + şifre kuralları
- *  - File picker veya drag-drop
- *  - Yükleme sonrası per-row sonuç tablosu (başarılı/atlanan + sebep)
- *
- * Props:
- *  - open: bool
- *  - onClose: () => void
- *  - onDownloadTemplate: () => void
- *  - onImport: (file: File) => Promise
- *  - loading: bool
- *  - result: { totalRows, successCount, skippedCount, results: [...] } | null
- *  - progress: { processed, total, successCount, skippedCount, lastRow, lastEmail, lastStatus } | null
- */
+// Excel ile toplu kullanıcı yükleme modal'ı: şablon indirme, drag-drop/file picker ile dosya
+// seçimi ve yükleme sonrası satır satır sonuç tablosu (başarılı/atlanan + sebep) gösterir.
+// Props: open, onClose, onDownloadTemplate, onImport(file), loading, result, progress.
 export default function BulkImportUsersModal({
     open, onClose, onDownloadTemplate, onImport, loading, result, progress,
 }) {

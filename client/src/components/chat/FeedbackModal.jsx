@@ -9,12 +9,8 @@ const CATEGORIES = [
     { key: 'image_issue',  label: 'Görsel yanlış / eksik' },
 ];
 
-/**
- * Dislike feedback modal — kategori checkbox + serbest metin.
- * - onSubmit: ({ categories, reasonText }) => Promise
- * - onClose: () => void
- * Backend POST /api/chat/feedback contract'ına uyumlu.
- */
+// Beğenmeme geri bildirim modal'ı: kategori checkbox'ları + serbest metin alır.
+// onSubmit({ categories, reasonText }) ve onClose alır; POST /api/chat/feedback ile uyumlu.
 export default function FeedbackModal({ open, onSubmit, onClose }) {
     const [categories, setCategories] = useState([]);
     const [reasonText, setReasonText] = useState('');

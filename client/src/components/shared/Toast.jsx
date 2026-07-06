@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 
-// ── Toast context & hook ───────────────────────────────────────────────────
+// Toast context & hook
 import { createContext, useContext } from 'react';
 
 const ToastContext = createContext(null);
@@ -11,7 +11,7 @@ export function useToast() {
     return ctx;
 }
 
-// ── Single Toast item ──────────────────────────────────────────────────────
+// Tek toast öğesi
 function ToastItem({ toast, onRemove }) {
     const timerRef = useRef(null);
 
@@ -62,7 +62,7 @@ function ToastItem({ toast, onRemove }) {
     );
 }
 
-// ── Provider ───────────────────────────────────────────────────────────────
+// Provider
 export function ToastProvider({ children }) {
     const [toasts, setToasts] = useState([]);
 

@@ -163,13 +163,13 @@ export default function Admin() {
 
     return (
         <div style={{ minHeight: '100vh', position: 'relative', background: 'linear-gradient(180deg, #110d22 0%, #0c0918 100%)', overflowX: 'clip' }}>
-            {/* Chat/Profil ile aynı atmosfer: koyu mor taban + sabit merkezi mor ışıma */}
+            {/* Koyu mor taban + sabit merkezi mor ışıma zemin */}
             <div aria-hidden style={{
                 position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
                 background:
                     'radial-gradient(ellipse 55% 48% at 50% 42%, rgba(var(--accent-rgb),0.26), rgba(var(--accent-deep-rgb),0.11) 48%, transparent 74%)',
             }} />
-            {/* Navbar — Profil sayfasıyla birebir aynı düzen: Geri tam solda, kimlik en sağda, sabit 74px */}
+            {/* Navbar: Geri tam solda, kimlik en sağda, sabit 74px */}
             <div className="glass" style={{ display: 'flex', alignItems: 'center', height: '74px', padding: '0 clamp(12px, 3.5vw, 28px)', borderBottom: '1px solid var(--glass-border)', position: 'sticky', top: 0, zIndex: 10, gap: '10px', minWidth: 0 }}>
                 <div className="gradient-beam" style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }} />
                 {/* Sol: geri butonu (tam sola yaslı) */}
@@ -180,7 +180,7 @@ export default function Admin() {
                     <span className="profile-back-text">Geri</span>
                 </button>
                 <div style={{ flex: 1 }} />
-                {/* Sağ: panel kimliği — profil sayfası düzeniyle aynı (ikon + başlık en sağda) */}
+                {/* Sağ: panel kimliği (ikon + başlık en sağda) */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flexShrink: 1 }}>
                     <div style={{ width: '30px', height: '30px', borderRadius: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--gradient-accent)', boxShadow: '0 6px 16px -6px rgba(var(--accent-rgb),0.6)', flexShrink: 0 }}>
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>
@@ -190,7 +190,7 @@ export default function Admin() {
             </div>
 
             <div className="admin-content" style={{ position: 'relative', zIndex: 1, maxWidth: '1100px', margin: '0 auto', padding: 'clamp(20px, 4vw, 40px) clamp(12px, 3vw, 28px)' }}>
-                {/* Sekmeler — navbar'dan çıkarıldı, içeriğin üstünde ortalı */}
+                {/* Sekmeler: içeriğin üstünde ortalı */}
                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 'clamp(16px, 3vw, 28px)' }}>
                     <div className="admin-tabs" style={{ display: 'flex', gap: '4px', padding: '5px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', backdropFilter: 'blur(20px) saturate(180%)' }}>
                         {[
