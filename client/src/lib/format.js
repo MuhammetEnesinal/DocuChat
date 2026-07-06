@@ -26,12 +26,8 @@ export function getRateLimitMessage(err) {
     const apiMsg = data?.error?.message || '';
 
     if (status === 429) {
-        // Kendi API'mizin 429 mesajı varsa doğrudan göster
-        if (apiMsg) return apiMsg;
-        // Groq/LLM token limit hatası
-        const retryMatch = apiMsg.match(/Please try again in ([\d.]+\s*\w+)/i);
-        const wait = retryMatch ? ` Lütfen ${retryMatch[1]} sonra tekrar deneyin.` : ' Lütfen birkaç saniye bekleyin.';
-        return `İstek limiti aşıldı.${wait}`;
+        // Backend'in 429 mesajı varsa doğrudan gösterilir; yoksa genel bekleme mesajı.
+        return apiMsg || 'İstek limiti aşıldı. Lütfen birkaç saniye bekleyin.';
     }
     // LLM sağlayıcısından gelen rate_limit hatası (500 olarak sarılmış)
     if (apiMsg.toLowerCase().includes('rate_limit') || apiMsg.toLowerCase().includes('rate limit')) {
@@ -42,14 +38,9 @@ export function getRateLimitMessage(err) {
     return apiMsg || 'Sunucuya bağlanılamadı.';
 }
 
-/**
- * Merkezi API hata mesajı çözücüsü.
- * - 429 → backend'in Türkçe rate-limit mesajını döner (Retry-After saniyesi ile).
- * - LLM sağlayıcısından gelen rate_limit (500'e sarılmış) → "Sunucu meşgul (AI limiti)" + bekleme süresi.
- * - 422 validation errors → mesajları birleştirir.
- * - Backend `error.message` varsa onu kullanır.
- * - Hiçbiri yoksa `fallback`.
- */
+// API hatasından kullanıcıya gösterilecek mesajı çözer:
+// 429 → backend'in rate-limit mesajı; rate_limit içeren 500 → "Sunucu meşgul (AI limiti)";
+// 422 → validation mesajlarını birleştirir; error.message varsa onu, yoksa fallback'i döner.
 export function getApiErrorMessage(err, fallback = 'Bir hata oluştu.') {
     if (!err) return fallback;
     const status = err?.response?.status;
@@ -75,12 +66,8 @@ export function getApiErrorMessage(err, fallback = 'Bir hata oluştu.') {
     return fallback;
 }
 
-/**
- * Hata türüne göre uygun toast tipini gösterir.
- * - 429 (rate limit) → warning (turuncu) — kalıcı hata değil, beklemesi yeterli
- * - Diğerleri → error (kırmızı)
- * Cancelled request'lerde hiçbir şey göstermez.
- */
+// Hataya göre toast gösterir: 429/rate-limit için warning, diğerleri için error.
+// İptal edilmiş isteklerde hiçbir şey göstermez.
 export function showApiError(toast, err, fallback = 'Bir hata oluştu.') {
     if (!err) { toast.error(fallback); return; }
     // Iptal edilmiş istek için toast atma

@@ -19,8 +19,6 @@ const useAuthStore = create((set) => ({
         localStorage.removeItem('user');
         set({ token: null, user: null });
     },
-
-    isAuthenticated: () => !!localStorage.getItem('token'),
 }));
 
 // Cross-tab senkronizasyonu: başka bir sekme token/user değiştirirse bu sekmenin state'ini de güncelle.

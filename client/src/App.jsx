@@ -64,7 +64,7 @@ export default function App() {
                         <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
                         <Route path="/admin" element={<PrivateRoute requiredRole="Admin"><Admin /></PrivateRoute>} />
                         <Route path="/404" element={<NotFound />} />
-                        <Route path="*" element={<Navigate to="/chat" replace />} />
+                        <Route path="*" element={<Navigate to="/404" replace />} />
                     </Routes>
                 </Suspense>
             </ErrorBoundary>
