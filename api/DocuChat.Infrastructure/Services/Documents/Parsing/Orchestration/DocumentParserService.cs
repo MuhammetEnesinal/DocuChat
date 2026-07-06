@@ -57,6 +57,10 @@ public class DocumentParserService : IDocumentParser
     // XLSX yapısal parse toggle — sorun çıkarsa geri dönüş: appsettings "Parsing:XlsxStructured": false
     private readonly bool _xlsxStructured;
 
+    // Bu parse çağrısında çıkarılan görsellerin kaydedileceği alt klasör (belge Id'si).
+    // Servis Scoped kayıtlı → her belge kendi instance'ında işlenir, çağrılar birbirine karışmaz.
+    private string? _imageSubFolder;
+
     private readonly ITokenCounter _tokens;
     private readonly MarkdownBlockExtractor _blockExtractor;
     private readonly BlockMerger _blockMerger;
@@ -112,8 +116,9 @@ public class DocumentParserService : IDocumentParser
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
     }
 
-    public async Task<IEnumerable<ParsedChunk>> ParseAsync(Stream stream, FileType fileType, CancellationToken ct = default)
+    public async Task<IEnumerable<ParsedChunk>> ParseAsync(Stream stream, FileType fileType, string? imageSubFolder = null, CancellationToken ct = default)
     {
+        _imageSubFolder = imageSubFolder;
         var bytes = await ReadAllBytesAsync(stream, ct);
 
         // DOCX / DOC: LibreOffice ile PDF'e çevir → PDF akışına yönlendir.
@@ -742,7 +747,7 @@ public class DocumentParserService : IDocumentParser
                     {
                         var ext = ImageMagicBytes.DetectExtension(imgBytes);
                         using var ms = new MemoryStream(imgBytes);
-                        path = await _fileStorage.SaveRawAsync(ms, $"img_{Guid.NewGuid()}.{ext}");
+                        path = await _fileStorage.SaveRawAsync(ms, $"img_{Guid.NewGuid()}.{ext}", _imageSubFolder);
                         globalHashToPath[hash] = path;
                     }
                     figs.Add(path);
@@ -858,7 +863,7 @@ public class DocumentParserService : IDocumentParser
 
                     var ext = ImageMagicBytes.DetectExtension(imgBytes);
                     using var ms = new MemoryStream(imgBytes);
-                    var path = await _fileStorage.SaveRawAsync(ms, $"img_{Guid.NewGuid()}.{ext}");
+                    var path = await _fileStorage.SaveRawAsync(ms, $"img_{Guid.NewGuid()}.{ext}", _imageSubFolder);
                     pagePaths.Add(path);
                 }
                 result.Add(pagePaths);
@@ -907,7 +912,7 @@ public class DocumentParserService : IDocumentParser
 
                     var ext = ImageMagicBytes.DetectExtension(imgBytes);
                     using var save = new MemoryStream(imgBytes);
-                    var path = await _fileStorage.SaveRawAsync(save, $"img_{Guid.NewGuid()}.{ext}");
+                    var path = await _fileStorage.SaveRawAsync(save, $"img_{Guid.NewGuid()}.{ext}", _imageSubFolder);
                     paths.Add(path);
 
                     var token = $"[[EMBED_IMG_{paths.Count - 1}]]";
@@ -1135,7 +1140,7 @@ public class DocumentParserService : IDocumentParser
 
                 var ext = ImageMagicBytes.DetectExtension(imgBytes);
                 using var save = new MemoryStream(imgBytes);
-                var path = await _fileStorage.SaveRawAsync(save, $"img_{Guid.NewGuid()}.{ext}");
+                var path = await _fileStorage.SaveRawAsync(save, $"img_{Guid.NewGuid()}.{ext}", _imageSubFolder);
 
                 var cell = pic.TopLeftCell;
                 if (cell is not null)

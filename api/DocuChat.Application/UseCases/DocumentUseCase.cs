@@ -929,20 +929,20 @@ public class DocumentUseCase : IDocumentUseCase
                 $"Bu belgenin içeriği daha önce '{existingByHash.FileName}' adıyla yüklenmiş. Aynı içerik tekrar yüklenemez."));
         }
 
-        contentMs.Position = 0;
-        var storagePath = await _fileStorage.SaveAsync(contentMs, req.FileName, ct);
-
+        // Belge kaydını önce oluştur ki dosya ve görselleri {belgeId}/ alt klasöründe toplansın.
         var doc = new Document
         {
             UserId = _currentUser.UserId,
             FileName = req.FileName,
             ContentType = req.ContentType,
             FileSizeBytes = req.FileSizeBytes,
-            StoragePath = storagePath,
             FileType = declared,
             ContentHash = contentHash,
             Status = DocumentStatus.Pending,
         };
+
+        contentMs.Position = 0;
+        doc.StoragePath = await _fileStorage.SaveAsync(contentMs, req.FileName, doc.Id.ToString(), ct);
 
         await _uow.Documents.AddAsync(doc, ct);
         try
@@ -953,7 +953,7 @@ public class DocumentUseCase : IDocumentUseCase
         {
             // DB unique index (UserId, FileName) — race koşulunda yakalanır (yukarıdaki check
             // ile aynı anda gelen ikinci istek). Disk'e yazılan dosyayı temizle.
-            try { await _fileStorage.DeleteAsync(storagePath, CancellationToken.None); } catch { }
+            try { await _fileStorage.DeleteAsync(doc.StoragePath!, CancellationToken.None); } catch { }
             return Result<DocumentResponseDto>.Failure(
                 Error.Conflict($"'{req.FileName}' isimli bir belge zaten yüklü. Önce silin veya farklı isimde yükleyin."));
         }
@@ -997,7 +997,7 @@ public class DocumentUseCase : IDocumentUseCase
         try
         {
             using var stream = _fileStorage.OpenRead(doc.StoragePath);
-            var parsedList = (await _parser.ParseAsync(stream, doc.FileType, ct)).ToList();
+            var parsedList = (await _parser.ParseAsync(stream, doc.FileType, doc.Id.ToString(), ct)).ToList();
 
             // Contextual Retrieval: belge boyutuyla ölçeklenen eşit-aralıklı örnekler + başlık
             // iskeleti üzerinden özet (TOC/kapak sayfasına saplanmaz, büyük belgede temsil düşmez).
@@ -1181,6 +1181,7 @@ public class DocumentUseCase : IDocumentUseCase
             allDeletedImagePaths.AddRange(deletedForDoc);
             if (doc.StoragePath is not null)
                 await _fileStorage.DeleteAsync(doc.StoragePath, ct);
+            await _fileStorage.DeleteDirectoryAsync(id.ToString(), ct);
             _uow.Documents.Delete(doc);
             deletedIds.Add(id);
         }
@@ -1214,6 +1215,7 @@ public class DocumentUseCase : IDocumentUseCase
         var deletedImagePaths = await DeleteChunkImagesAsync(docId, ct);
         if (doc.StoragePath is not null)
             await _fileStorage.DeleteAsync(doc.StoragePath, ct);
+        await _fileStorage.DeleteDirectoryAsync(docId.ToString(), ct);
 
         _uow.Documents.Delete(doc);
         await _uow.SaveChangesAsync(ct);

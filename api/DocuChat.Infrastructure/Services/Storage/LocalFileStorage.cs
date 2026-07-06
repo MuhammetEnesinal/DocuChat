@@ -27,23 +27,36 @@ public class LocalFileStorage : IFileStorage
     }
 
     public async Task<string> SaveAsync(
-        Stream stream, string fileName, CancellationToken ct = default)
+        Stream stream, string fileName, string? subFolder = null, CancellationToken ct = default)
     {
         var uniqueName = $"{Guid.NewGuid()}_{fileName}";
-        return await WriteAsync(stream, uniqueName, ct);
+        return await WriteAsync(stream, Combine(subFolder, uniqueName), ct);
     }
 
     public async Task<string> SaveRawAsync(
-        Stream stream, string exactFileName, CancellationToken ct = default)
+        Stream stream, string exactFileName, string? subFolder = null, CancellationToken ct = default)
     {
-        return await WriteAsync(stream, exactFileName, ct);
+        return await WriteAsync(stream, Combine(subFolder, exactFileName), ct);
     }
+
+    // Alt klasör (varsa) ile dosya adını URL uyumlu '/' ayracıyla birleştirir.
+    private static string Combine(string? subFolder, string name)
+        => string.IsNullOrEmpty(subFolder) ? name : $"{subFolder.Trim('/')}/{name}";
 
     public Task DeleteAsync(string storagePath, CancellationToken ct = default)
     {
         var fullPath = Path.Combine(_basePath, storagePath);
         if (File.Exists(fullPath))
             File.Delete(fullPath);
+        return Task.CompletedTask;
+    }
+
+    public Task DeleteDirectoryAsync(string relativeFolder, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(relativeFolder)) return Task.CompletedTask;
+        var fullPath = Path.Combine(_basePath, relativeFolder);
+        if (Directory.Exists(fullPath))
+            Directory.Delete(fullPath, recursive: true);
         return Task.CompletedTask;
     }
 
@@ -57,13 +70,16 @@ public class LocalFileStorage : IFileStorage
     }
 
     private async Task<string> WriteAsync(
-        Stream stream, string fileName, CancellationToken ct)
+        Stream stream, string relativePath, CancellationToken ct)
     {
-        var fullPath = Path.Combine(_basePath, fileName);
+        var fullPath = Path.Combine(_basePath, relativePath);
+        // Alt klasörlü yollarda hedef dizin yoksa oluştur.
+        var dir = Path.GetDirectoryName(fullPath);
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         await using var fs = File.Create(fullPath);
         // Caller stream'i kısmen okumuş olabilir — seekable ise baştan başla.
         if (stream.CanSeek) stream.Position = 0;
         await stream.CopyToAsync(fs, ct);
-        return fileName;
+        return relativePath;
     }
 }

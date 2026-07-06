@@ -5,5 +5,7 @@ namespace DocuChat.Application.Interfaces.Services.Documents;
 
 public interface IDocumentParser
 {
-    Task<IEnumerable<ParsedChunk>> ParseAsync(Stream stream, FileType fileType, CancellationToken ct = default);
+    // imageSubFolder verilirse, belgeden çıkarılan görseller o alt klasör altına kaydedilir
+    // (belge başına ayrı klasör). Verilmezse görseller düz olarak taban klasöre yazılır.
+    Task<IEnumerable<ParsedChunk>> ParseAsync(Stream stream, FileType fileType, string? imageSubFolder = null, CancellationToken ct = default);
 }
