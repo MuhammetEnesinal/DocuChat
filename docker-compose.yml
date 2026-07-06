@@ -62,7 +62,6 @@ services:
       LlmHelper__ApiKey: ${MISTRAL_HELPER_API_KEY}
       Mistral__ApiKey: ${MISTRAL_API_KEY}
       Caption__ApiKey: ${MISTRAL_API_KEY}
-      Email__From: ${EMAIL_FROM}
       Email__Password: ${EMAIL_PASSWORD}
     volumes:
       - uploads:/app/uploads
