@@ -133,7 +133,7 @@ export default function Profile() {
                     'radial-gradient(ellipse 46% 42% at 50% 46%, rgba(var(--accent-rgb),0.38), rgba(var(--accent-deep-rgb),0.18) 45%, transparent 72%),' +
                     'radial-gradient(ellipse 70% 60% at 50% 55%, rgba(var(--accent-deep-rgb),0.12), transparent 75%)',
             }} />
-            <div className="glass" style={{ display: 'flex', alignItems: 'center', height: '74px', padding: '0 clamp(12px, 3.5vw, 28px)', borderBottom: '1px solid var(--glass-border)', position: 'sticky', top: 0, zIndex: 10, gap: '10px', minWidth: 0 }}>
+            <div className="glass" style={{ background: 'rgba(28, 32, 52, 0.98)', display: 'flex', alignItems: 'center', height: '74px', padding: '0 clamp(12px, 3.5vw, 28px)', borderBottom: '1px solid var(--glass-border)', position: 'sticky', top: 0, zIndex: 10, gap: '10px', minWidth: 0 }}>
                 <div className="gradient-beam" style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }} />
                 <button onClick={() => navigate('/chat')} className="btn btn-ghost btn-sm">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

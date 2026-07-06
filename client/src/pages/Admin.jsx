@@ -170,7 +170,7 @@ export default function Admin() {
                     'radial-gradient(ellipse 55% 48% at 50% 42%, rgba(var(--accent-rgb),0.26), rgba(var(--accent-deep-rgb),0.11) 48%, transparent 74%)',
             }} />
             {/* Navbar: Geri tam solda, kimlik en sağda, sabit 74px */}
-            <div className="glass" style={{ display: 'flex', alignItems: 'center', height: '74px', padding: '0 clamp(12px, 3.5vw, 28px)', borderBottom: '1px solid var(--glass-border)', position: 'sticky', top: 0, zIndex: 10, gap: '10px', minWidth: 0 }}>
+            <div className="glass" style={{ background: 'rgba(28, 32, 52, 0.98)', display: 'flex', alignItems: 'center', height: '74px', padding: '0 clamp(12px, 3.5vw, 28px)', borderBottom: '1px solid var(--glass-border)', position: 'sticky', top: 0, zIndex: 10, gap: '10px', minWidth: 0 }}>
                 <div className="gradient-beam" style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }} />
                 {/* Sol: geri butonu (tam sola yaslı) */}
                 <button onClick={() => navigate('/chat')} className="btn btn-ghost btn-sm" style={{ flexShrink: 0 }}>
