@@ -16,15 +16,13 @@ public class UpdateUserRequestDtoValidator : AbstractValidator<UpdateUserRequest
             .EmailAddress().WithMessage("Geçerli bir e-posta adresi giriniz.")
             .MaximumLength(256).WithMessage("E-posta en fazla 256 karakter olabilir.");
 
-        // Password opsiyonel — sadece gönderildiğinde validate edilir
-        When(x => !string.IsNullOrWhiteSpace(x.Password), () =>
-        {
-            RuleFor(x => x.Password)
-                .MinimumLength(8).WithMessage("Şifre en az 8 karakter olmalıdır.")
-                .Matches("[A-ZÇĞİÖŞÜ]").WithMessage("Şifre en az bir büyük harf içermelidir.")
-                .Matches("[a-zçğıöşü]").WithMessage("Şifre en az bir küçük harf içermelidir.")
-                .Matches("[0-9]").WithMessage("Şifre en az bir rakam içermelidir.")
-                .Matches("[^a-zA-ZÇĞİÖŞÜçğıöşü0-9]").WithMessage("Şifre en az bir özel karakter içermelidir.");
-        });
+        // Personel kodu: harf + rakam karışık, boşluksuz. Oluşturmadaki kuralla aynı.
+        RuleFor(x => x.PersonnelCode)
+            .NotEmpty().WithMessage("Personel kodu boş olamaz.")
+            .MinimumLength(6).WithMessage("Personel kodu en az 6 karakter olmalıdır.")
+            .MaximumLength(50).WithMessage("Personel kodu en fazla 50 karakter olabilir.")
+            .Matches(@"^\S+$").WithMessage("Personel kodu boşluk içeremez.")
+            .Matches("[A-Za-zÇĞİÖŞÜçğıöşü]").WithMessage("Personel kodu en az bir harf içermelidir.")
+            .Matches("[0-9]").WithMessage("Personel kodu en az bir rakam içermelidir.");
     }
 }

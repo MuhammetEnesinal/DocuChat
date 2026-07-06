@@ -162,7 +162,13 @@ public sealed class UserManagementService : IUserManagementService
 
         var oldEmail = user.Email ?? string.Empty;
         var emailChanged = !string.Equals(oldEmail, req.Email, StringComparison.OrdinalIgnoreCase);
-        var passwordChanged = !string.IsNullOrWhiteSpace(req.Password);
+        var codeChanged = !string.Equals(user.PersonnelCode, req.PersonnelCode, StringComparison.Ordinal);
+
+        // Personel kodu benzersiz olmalı — kendisi hariç başka kullanıcıda varsa reddet.
+        if (codeChanged && await _userManager.Users.AnyAsync(
+                u => u.PersonnelCode == req.PersonnelCode && u.Id != userId, ct))
+            return Result<UserSummaryResponseDto>.Failure(
+                Error.Conflict("Bu personel kodu zaten kullanılıyor."));
 
         if (emailChanged)
         {
@@ -172,31 +178,26 @@ public sealed class UserManagementService : IUserManagementService
 
             user.Email = req.Email;
             user.UserName = req.Email;
-            var emailResult = await _userManager.UpdateAsync(user);
-            if (!emailResult.Succeeded)
-            {
-                var msg = string.Join(", ", emailResult.Errors.Select(e => e.Description));
-                return Result<UserSummaryResponseDto>.Failure(Error.Validation(msg));
-            }
         }
 
         user.FullName = req.FullName;
-        var updateResult = await _userManager.UpdateAsync(user);
+        user.PersonnelCode = req.PersonnelCode;
+
+        IdentityResult updateResult;
+        try
+        {
+            updateResult = await _userManager.UpdateAsync(user);
+        }
+        catch (Exception ex) when (_dbExceptionInspector.IsUniqueConstraintViolation(ex))
+        {
+            // Race: kontrolden sonra başka istek aynı personel kodunu aldı.
+            return Result<UserSummaryResponseDto>.Failure(
+                Error.Conflict("Bu personel kodu zaten kullanılıyor."));
+        }
         if (!updateResult.Succeeded)
         {
             var msg = string.Join(", ", updateResult.Errors.Select(e => e.Description));
             return Result<UserSummaryResponseDto>.Failure(Error.Validation(msg));
-        }
-
-        if (passwordChanged)
-        {
-            var token = await _userManager.GeneratePasswordResetTokenAsync(user);
-            var pwResult = await _userManager.ResetPasswordAsync(user, token, req.Password!);
-            if (!pwResult.Succeeded)
-            {
-                var msg = string.Join(", ", pwResult.Errors.Select(e => e.Description));
-                return Result<UserSummaryResponseDto>.Failure(Error.Validation(msg));
-            }
         }
 
         _logger.LogInformation("[UserManagement] Kullanıcı güncellendi. UserId: {UserId}", userId);
@@ -205,10 +206,6 @@ public sealed class UserManagementService : IUserManagementService
         {
             await SendEmailChangedNoticeAsync(oldEmail, req.Email, user.FullName ?? req.FullName, ct);
             await SendEmailChangedConfirmationAsync(req.Email, user.FullName ?? req.FullName, oldEmail, ct);
-        }
-        if (passwordChanged)
-        {
-            await SendPasswordChangedByAdminAsync(req.Email, user.FullName ?? req.FullName, req.Password!, ct);
         }
 
         var updatedRoles = await _userManager.GetRolesAsync(user);
@@ -591,41 +588,4 @@ public sealed class UserManagementService : IUserManagementService
         }
     }
 
-    private async Task SendPasswordChangedByAdminAsync(
-        string email, string fullName, string newPassword, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(email)) return;
-
-        var body = $"""
-            <div style="font-family:sans-serif;max-width:480px;margin:auto">
-              <h2 style="color:#3b82f6">Şifreniz Değiştirildi</h2>
-              <p>Merhaba <strong>{fullName}</strong>,</p>
-              <p>DocuChat hesabınızın şifresi yönetici tarafından sıfırlandı. Yeni giriş bilgileriniz:</p>
-              <table style="border-collapse:collapse;width:100%;margin:16px 0">
-                <tr>
-                  <td style="padding:8px 12px;background:#f1f5f9;font-weight:600;border-radius:4px 0 0 4px">E-posta</td>
-                  <td style="padding:8px 12px;background:#f8fafc;border-radius:0 4px 4px 0">{email}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 12px;background:#f1f5f9;font-weight:600;border-radius:4px 0 0 4px">Yeni Şifre</td>
-                  <td style="padding:8px 12px;background:#f8fafc;border-radius:0 4px 4px 0"><code style="font-family:monospace;font-size:14px">{newPassword}</code></td>
-                </tr>
-              </table>
-              <p style="color:#f59e0b;font-size:13px;padding:10px;background:#fffbeb;border-left:3px solid #f59e0b;border-radius:4px">
-                Güvenliğiniz için ilk girişten sonra Profil sayfasından şifrenizi değiştirmenizi öneririz.
-              </p>
-              <p style="color:#64748b;font-size:13px">Bu değişiklikten haberiniz yoksa sistem yöneticinizle iletişime geçin.</p>
-            </div>
-            """;
-
-        try
-        {
-            await _emailService.SendAsync(email, "DocuChat — Şifreniz Sıfırlandı", body, ct);
-            _logger.LogInformation("[UserManagement] Yeni şifre maili gönderildi: {Email}", email);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[UserManagement] Mail gönderilemedi: {Email}", email);
-        }
-    }
 }

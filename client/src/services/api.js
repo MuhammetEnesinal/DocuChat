@@ -222,8 +222,8 @@ export const adminGetUsers = (params = {}) =>
 export const adminCreateUser = (fullName, email, personnelCode) =>
     api.post('/admin/users', { fullName, email, personnelCode });
 
-export const adminUpdateUser = (id, fullName, email, password) =>
-    api.put(`/admin/users/${id}`, { fullName, email, password: password || null });
+export const adminUpdateUser = (id, fullName, email, personnelCode) =>
+    api.put(`/admin/users/${id}`, { fullName, email, personnelCode });
 
 export const adminDeleteUser = (id) =>
     api.delete(`/admin/users/${id}`);

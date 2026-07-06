@@ -4,12 +4,12 @@ public class UpdateUserRequestDto
 {
     public string FullName { get; set; }
     public string Email { get; set; }
-    public string? Password { get; set; }
+    public string PersonnelCode { get; set; }
 
-    public UpdateUserRequestDto(string FullName, string Email, string? Password)
+    public UpdateUserRequestDto(string FullName, string Email, string PersonnelCode)
     {
         this.FullName = FullName;
         this.Email = Email;
-        this.Password = Password;
+        this.PersonnelCode = PersonnelCode;
     }
 }

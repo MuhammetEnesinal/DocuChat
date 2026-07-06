@@ -86,7 +86,7 @@ export function useUsers() {
 
     const openEditModal = useCallback((u) => {
         setEditingUser(u);
-        setUserFormState({ fullName: u.fullName, email: u.email, password: '' });
+        setUserFormState({ fullName: u.fullName, email: u.email, personnelCode: u.personnelCode || '' });
         setUserFormError('');
         setShowUserModal(true);
     }, []);
@@ -102,7 +102,7 @@ export function useUsers() {
         setUserFormLoading(true);
         try {
             if (editingUser) {
-                await adminUpdateUser(editingUser.id, userForm.fullName, userForm.email, userForm.password);
+                await adminUpdateUser(editingUser.id, userForm.fullName, userForm.email, userForm.personnelCode);
                 toast.success(`"${userForm.fullName}" güncellendi.`);
             } else {
                 await adminCreateUser(userForm.fullName, userForm.email, userForm.personnelCode);
