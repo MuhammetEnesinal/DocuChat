@@ -15,7 +15,7 @@ public sealed class MarkdownRenderer : IMarkdownRenderer
 
         // RawMarkdown varsa → birebir orijinal markdown (nested list, bold, italic, link
         // — Mistral OCR'ın verdiği yapı %100 korunur). Sadece image marker'ları append edilir.
-        // RawMarkdown YOKSA (sentetik split piece'leri) → eski re-render fallback.
+        // RawMarkdown YOKSA (sentetik split piece'leri) → re-render fallback.
         if (!string.IsNullOrEmpty(block.RawMarkdown))
         {
             var sb = new StringBuilder(block.RawMarkdown);
@@ -205,8 +205,8 @@ public sealed class MarkdownRenderer : IMarkdownRenderer
             sb.AppendLine();
         }
 
-        // Hücreye yerleşmeyen görseller (image count > data row count veya image column yok) →
-        // tablo altına append (eski davranış).
+        // Hücreye yerleşmeyen görseller (görsel sayısı veri satırından fazla veya görsel
+        // kolonu yok) tablo altına eklenir.
         if (imgIdx < block.Images.Count)
         {
             var remaining = new List<ImageWithBbox>();
@@ -217,11 +217,9 @@ public sealed class MarkdownRenderer : IMarkdownRenderer
         return sb.ToString().TrimEnd();
     }
 
-    /// <summary>
-    /// Yapısal görsel kolonu tespiti — manuel kelime listesi yok, sadece veri kontrolü.
-    /// EN ÇOK boş hücreli kolon seçilir (≥%50 boş olmalı). Bu sayede sub-header satırlarda
-    /// kolon yazısı ("Resim") olsa bile, data row'ların boş hücreleri kolonu image column yapar.
-    /// </summary>
+    // Yapısal görsel kolonu tespiti — manuel kelime listesi yok, sadece veri kontrolü.
+    // EN ÇOK boş hücreli kolon seçilir (≥%50 boş olmalı). Bu sayede sub-header satırlarda
+    // kolon yazısı ("Resim") olsa bile, data row'ların boş hücreleri kolonu image column yapar.
     private static int DetectImageColumn(StructuredTable table)
     {
         if (table.Rows.Count == 0) return -1;
@@ -248,11 +246,9 @@ public sealed class MarkdownRenderer : IMarkdownRenderer
         return bestCol;
     }
 
-    /// <summary>
-    /// Sub-header (section/category) satır tespiti — yapısal, manuel kural yok.
-    /// Bir row'da hücrelerin ≥%50'si boşsa muhtemelen başlık satırıdır (örn. "Kullanılan El Aletleri")
-    /// veya kolon-label satırıdır. Bu satırlara görsel yerleştirilmez (sadece data row'lar).
-    /// </summary>
+    // Sub-header (section/category) satır tespiti — yapısal, manuel kural yok.
+    // Bir row'da hücrelerin ≥%50'si boşsa muhtemelen başlık satırıdır (örn. "Kullanılan El Aletleri")
+    // veya kolon-label satırıdır. Bu satırlara görsel yerleştirilmez (sadece data row'lar).
     private static bool IsLikelySubHeaderRow(IReadOnlyDictionary<string, string> row, IReadOnlyList<string> headers)
     {
         if (headers.Count == 0) return true;

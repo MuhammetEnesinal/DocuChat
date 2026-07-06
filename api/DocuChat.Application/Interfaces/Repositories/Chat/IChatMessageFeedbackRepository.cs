@@ -13,13 +13,11 @@ namespace DocuChat.Application.Interfaces.Repositories.Chat;
 
 public interface IChatMessageFeedbackRepository : IRepository<ChatMessageFeedback>
 {
-    /// <summary>Belirli user-message kombinasyonu için feedback var mı? (UNIQUE check)</summary>
+    // Belirli user-message kombinasyonu için feedback var mı? (UNIQUE check)
     Task<bool> ExistsByUserAndMessageAsync(string userId, Guid messageId, CancellationToken ct = default);
 
-    /// <summary>
-    /// Kullanıcının soru benzerliği eşleşen TÜM feedback'lerini (like + dislike) getirir.
-    /// Clustering ve net dislike count C# katmanında yapılır.
-    /// </summary>
+    // Kullanıcının soru benzerliği eşleşen TÜM feedback'lerini (like + dislike) getirir.
+    // Clustering ve net dislike count C# katmanında yapılır.
     Task<IReadOnlyList<ChatMessageFeedback>> GetSimilarFeedbacksAsync(
         string userId,
         float[] queryVector,
@@ -28,14 +26,11 @@ public interface IChatMessageFeedbackRepository : IRepository<ChatMessageFeedbac
         int maxCandidates,
         CancellationToken ct = default);
 
-    /// <summary>
-    /// Kullanıcının soru-benzerliği yüksek (≥ threshold) feedback'lerinde net skor:
-    ///   dislike_count - like_count
-    /// Cache HIT karar mantığı:
-    ///   net > 0  → dislike baskın → cache bypass (fresh cevap)
-    ///   net < 0  → like baskın    → validate atla, FAST cevap (kullanıcı zaten beğenmiş)
-    ///   net = 0  → nötr           → mevcut davranış (sim'e göre FAST veya validate)
-    /// </summary>
+    // Kullanıcının soru-benzerliği yüksek (≥ threshold) feedback'lerinde net skor döner
+    // (dislike_count - like_count). Cache HIT kararında kullanılır:
+    // net > 0  → dislike baskın → cache atlanır, taze cevap üretilir
+    // net < 0  → like baskın    → doğrulama atlanır, hızlı cevap döner
+    // net = 0  → nötr           → benzerliğe göre hızlı veya doğrulamalı cevap
     Task<int> GetSimilarFeedbackNetAsync(
         string userId,
         float[] queryVector,

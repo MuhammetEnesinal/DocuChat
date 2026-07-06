@@ -20,8 +20,8 @@ public class Document : BaseEntity
     public DocumentStatus Status { get; set; } = DocumentStatus.Pending;
     public FileType FileType { get; set; } = FileType.Pdf;
 
-    // SHA256 hex (64 char). Aynı içerik farklı isim altında ikinci kez yüklenirse rejected.
-    // FileName dedup yetmez (Test.pdf, Test-v2.pdf, Test-2024.pdf ↔ aynı içerik → 3 kopya).
+    // Dosya içeriğinin SHA256 hex'i (64 char). Aynı içeriğin farklı isimle ikinci kez
+    // yüklenmesini engellemek için içerik-bazlı tekillik anahtarıdır.
     public string? ContentHash { get; set; }
 
     // LLM ile üretilmiş 1-2 cümlelik konu özeti.

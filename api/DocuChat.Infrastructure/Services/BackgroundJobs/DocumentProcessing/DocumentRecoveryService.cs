@@ -21,20 +21,14 @@ using DocuChat.Domain.Enums;
 
 namespace DocuChat.Infrastructure.Services.BackgroundJobs.DocumentProcessing;
 
-/// <summary>
-/// Uygulama başlarken Pending veya Processing statüsünde KALMIŞ belgeleri tekrar
-/// background processing'e atar. Bir önceki run sırasında uygulamanın crash etmesi,
-/// deploy edilmesi veya manuel restart olması durumunda işin kaybolmasını önler.
-///
-/// AKIŞ:
-///   1. IHostedService olarak uygulama startup'ında ÇALIŞIR (StartAsync)
-///   2. DocumentRepository ile Pending+Processing statüsündeki belge ID'lerini çek
-///   3. Her bir ID için DocumentUseCase.ProcessPendingAsync'i background Task.Run ile başlat
-///   4. Service yaşamı boyunca tek seferlik çalışır, sonra idle olur
-///
-/// NOT: Burası "minimum viable" recovery. Gelecekte Hangfire / Quartz / DB-backed queue
-/// ile değiştirilebilir. Şimdilik in-memory ama startup ile birlikte tekrar denenir.
-/// </summary>
+// Uygulama başlarken Pending veya Processing statüsünde KALMIŞ belgeleri tekrar
+// background processing'e atar. Bir önceki run sırasında uygulamanın crash etmesi,
+// deploy edilmesi veya manuel restart olması durumunda işin kaybolmasını önler.
+// AKIŞ:
+// 1. IHostedService olarak uygulama startup'ında ÇALIŞIR (StartAsync)
+// 2. DocumentRepository ile Pending+Processing statüsündeki belge ID'lerini çek
+// 3. Her bir ID için DocumentUseCase.ProcessPendingAsync'i background Task.Run ile başlat
+// 4. Service yaşamı boyunca tek seferlik çalışır, sonra idle olur
 public sealed class DocumentRecoveryService : IHostedService
 {
     private readonly IServiceScopeFactory _scopeFactory;
@@ -92,7 +86,7 @@ public sealed class DocumentRecoveryService : IHostedService
             "[DocRecovery] Önceki run'da yarıda kalmış {Count} belge tespit edildi — kuyruğa ekleniyor",
             ids.Count);
 
-        // 🆕 Doğrudan Task.Run ile process etmek YERİNE queue'ya enqueue et —
+        // Doğrudan Task.Run ile process etmek YERİNE queue'ya enqueue et —
         // DocumentProcessingConsumer bounded concurrency ile işler.
         foreach (var docId in ids)
         {

@@ -18,10 +18,8 @@ using DocuChat.Infrastructure.Persistence.Identity;
 
 namespace DocuChat.Infrastructure.Services.Auth;
 
-/// <summary>
-/// Kimlik doğrulama operasyonları: login, password reset, kendi profilini görüntüleme ve şifre değiştirme.
-/// Admin tarafından kullanıcı yönetimi (CRUD) IUserManagementService üzerinden yapılır.
-/// </summary>
+// Kimlik doğrulama operasyonları: login, password reset, kendi profilini görüntüleme ve şifre değiştirme.
+// Admin tarafından kullanıcı yönetimi (CRUD) IUserManagementService üzerinden yapılır.
 public sealed class AuthService : IAuthService
 {
     private readonly UserManager<AppUser> _userManager;

@@ -225,7 +225,7 @@ public sealed class MarkdownBlockExtractor
                     if (node is ParagraphBlock paraNum && IsPageNumberOnly(paraNum, text))
                         break;
 
-                    // ⭐ HEADING PROMOTION:
+                    // HEADING PROMOTION:
                     // Mistral OCR bazen H1/H2 yerine **bold paragraph** üretir (özellikle taranmış
                     // belgelerde all-caps başlıklar). Belirgin "heading-look" pattern'leri yakala:
                     //   - "BÖLÜM", "MADDE", "KISIM", "EK", "SECTION", "PART", "CHAPTER" prefix
@@ -258,15 +258,13 @@ public sealed class MarkdownBlockExtractor
         return blocks;
     }
 
-    /// <summary>
-    /// Bold paragraph'ı heading olarak tespit eder (Mistral OCR bazen H1/H2 üretmek yerine
-    /// **bold** olarak başlıkları verir). Sadece NET sinyal varsa heading say:
-    ///   - Section keyword (BÖLÜM/MADDE/KISIM/EK/SECTION/PART/CHAPTER) → level 1
-    ///   - Numeric prefix "1.", "1.1.", "1.1.1." → level = dot count + 1 (max 4)
-    ///   - Roman numeral "I.", "II." → level 1
-    ///   - All-caps + length > 8 → level 1
-    /// Belirsiz durumlarda false → normal paragraph (false positive minimal).
-    /// </summary>
+    // Bold paragraph'ı heading olarak tespit eder (Mistral OCR bazen H1/H2 üretmek yerine
+    // **bold** olarak başlıkları verir). Sadece NET sinyal varsa heading say:
+    // - Section keyword (BÖLÜM/MADDE/KISIM/EK/SECTION/PART/CHAPTER) → level 1
+    // - Numeric prefix "1.", "1.1.", "1.1.1." → level = dot count + 1 (max 4)
+    // - Roman numeral "I.", "II." → level 1
+    // - All-caps + length > 8 → level 1
+    // Belirsiz durumlarda false → normal paragraph (false positive minimal).
     private static bool TryDetectBoldHeading(ParagraphBlock para, string text, out int level)
     {
         level = 0;
@@ -347,15 +345,12 @@ public sealed class MarkdownBlockExtractor
     private static readonly Regex RomanNumeralRegex =
         new(@"^[IVX]+\.\s", RegexOptions.Compiled);
 
-    /// <summary>
-    /// Sayfa içindeki block'ların TAHMİNİ dikey kapsamını (BboxTopNormY, BboxBottomNormY)
-    /// content-length oranıyla hesaplar. Uniform (i+0.5)/N spacing'den daha doğru:
-    ///   - Uzun paragraf → büyük slot
-    ///   - Kısa heading → küçük slot
-    ///   - Table/Code/Figure → ağırlıklı (RawMarkdown uzunluğu)
-    ///
-    /// Tek block ise tüm sayfa (0.0 - 1.0). Hiç block yoksa no-op.
-    /// </summary>
+    // Sayfa içindeki block'ların TAHMİNİ dikey kapsamını (BboxTopNormY, BboxBottomNormY)
+    // content-length oranıyla hesaplar. Uniform (i+0.5)/N spacing'den daha doğru:
+    // - Uzun paragraf → büyük slot
+    // - Kısa heading → küçük slot
+    // - Table/Code/Figure → ağırlıklı (RawMarkdown uzunluğu)
+    // Tek block ise tüm sayfa (0.0 - 1.0). Hiç block yoksa no-op.
     private static void ComputeBboxesForPage(List<SemanticBlock> blocks)
     {
         if (blocks.Count == 0) return;
@@ -406,15 +401,13 @@ public sealed class MarkdownBlockExtractor
         return string.Join("\n", mathBlock.Lines.Lines.Select(l => l.Slice.ToString())).TrimEnd();
     }
 
-    /// <summary>
-    /// ParagraphBlock'un sadece bir sayfa numarası olup olmadığını AST üzerinden tespit eder.
-    /// Koşullar (hepsi sağlanmalı):
-    ///   - Tek bir LiteralInline child'ı var
-    ///   - Trim edilmiş text 1-4 karakter
-    ///   - Tüm karakterler digit (0-9)
-    /// Mistral OCR sayfa başına/sonuna "1", "2"... gibi sayfa numarası ekleyebiliyor.
-    /// PageNumber metadata'da zaten var → content'te tekrarlama gereksiz gürültü.
-    /// </summary>
+    // ParagraphBlock'un sadece bir sayfa numarası olup olmadığını AST üzerinden tespit eder.
+    // Koşullar (hepsi sağlanmalı):
+    // - Tek bir LiteralInline child'ı var
+    // - Trim edilmiş text 1-4 karakter
+    // - Tüm karakterler digit (0-9)
+    // Mistral OCR sayfa başına/sonuna "1", "2"... gibi sayfa numarası ekleyebiliyor.
+    // PageNumber metadata'da zaten var → content'te tekrarlama gereksiz gürültü.
     private static bool IsPageNumberOnly(ParagraphBlock paragraph, string extractedText)
     {
         // Trim edilmiş text 1-4 karakter ve hepsi digit mi?

@@ -2,25 +2,21 @@ using DocuChat.Infrastructure.Services.Documents.Parsing.Models;
 
 namespace DocuChat.Infrastructure.Services.Documents.Parsing.Ast;
 
-/// <summary>
-/// Çok-sayfalı / çok-parçalı tabloların birleştirilmesindeki ORTAK mantık.
-/// Hem sayfa-içi (TableCoalescer) hem sayfa-sınırı (BlockMerger) birleştirme buradan beslenir;
-/// böylece tablonun kaç parçaya / kaç sayfaya bölündüğü fark etmeksizin aynı sağlam kurallar uygulanır.
-///
-/// Mistral OCR bir tabloyu parçalara böldüğünde devam parçası üç kılıkta gelebilir:
-///   • HEADER TEKRARI    : devam parçası aynı başlık satırını yeniden basar → tekrar başlık atılır.
-///   • TAM AUTO-HEADER   : Markdig başlık bulamayıp "col1,col2,col3" üretmiş; başlık YOK, direkt veri
-///                         → bu sahte başlık atılır, satırlar veri olarak alınır.
-///   • KISMİ AUTO-HEADER : devam parçasının İLK VERİ SATIRI başlık sanılmış; yalnız boş hücreler "colN",
-///                         diğerleri gerçek veri (örn. [7, col2, Tornavida, Vida]) → bu satır KAYIP
-///                         EDİLMEZ, veri satırına çevrilir.
-///
-/// Satırlar, parçanın kendi kolon adlarından ana tablonun kolonlarına POZİSYONEL eşlenir
-/// (Rows header-adıyla anahtarlı olduğundan zorunlu). Bilgi kaybı olmaz.
-/// </summary>
+// Çok-sayfalı / çok-parçalı tabloların birleştirilmesindeki ORTAK mantık.
+// Hem sayfa-içi (TableCoalescer) hem sayfa-sınırı (BlockMerger) birleştirme buradan beslenir;
+// böylece tablonun kaç parçaya / kaç sayfaya bölündüğü fark etmeksizin aynı sağlam kurallar uygulanır.
+// Mistral OCR bir tabloyu parçalara böldüğünde devam parçası üç kılıkta gelebilir:
+// • HEADER TEKRARI    : devam parçası aynı başlık satırını yeniden basar → tekrar başlık atılır.
+// • TAM AUTO-HEADER   : Markdig başlık bulamayıp "col1,col2,col3" üretmiş; başlık YOK, direkt veri
+// → bu sahte başlık atılır, satırlar veri olarak alınır.
+// • KISMİ AUTO-HEADER : devam parçasının İLK VERİ SATIRI başlık sanılmış; yalnız boş hücreler "colN",
+// diğerleri gerçek veri (örn. [7, col2, Tornavida, Vida]) → bu satır KAYIP
+// EDİLMEZ, veri satırına çevrilir.
+// Satırlar, parçanın kendi kolon adlarından ana tablonun kolonlarına POZİSYONEL eşlenir
+// (Rows header-adıyla anahtarlı olduğundan zorunlu). Bilgi kaybı olmaz.
 internal static class TableMergeHelper
 {
-    /// <summary>b, a'nın devam parçası mı? (aynı kolon sayısı + [herhangi colN] ya da [aynı başlık])</summary>
+    // b, a'nın devam parçası mı? (aynı kolon sayısı + [herhangi colN] ya da [aynı başlık])
     public static bool IsContinuation(StructuredTable a, StructuredTable b)
     {
         if (a.Headers.Count == 0 || a.Headers.Count != b.Headers.Count) return false;
@@ -28,10 +24,8 @@ internal static class TableMergeHelper
         return HeadersEqual(a.Headers, b.Headers);
     }
 
-    /// <summary>
-    /// a + b → tek tablo. a'nın kolon adları korunur; b'nin başlığı (sahte ise) veri satırına çevrilir;
-    /// b'nin tüm satırları a'nın kolonlarına pozisyonel eşlenir. Görsel birleştirme ÇAĞIRANIN işidir.
-    /// </summary>
+    // a + b → tek tablo. a'nın kolon adları korunur; b'nin başlığı (sahte ise) veri satırına çevrilir;
+    // b'nin tüm satırları a'nın kolonlarına pozisyonel eşlenir. Görsel birleştirme ÇAĞIRANIN işidir.
     public static StructuredTable Merge(StructuredTable a, StructuredTable b)
     {
         var aHeaders = a.Headers;

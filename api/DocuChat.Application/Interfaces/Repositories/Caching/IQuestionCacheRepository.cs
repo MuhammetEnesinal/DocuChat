@@ -25,32 +25,26 @@ public class CacheMatch
 
 public interface IQuestionCacheRepository : IRepository<QuestionCache>
 {
-    /// <summary>
-    /// Cosine similarity ile en yakın cache eşleşmesini döner (threshold altıysa null).
-    /// Similarity skoru da döner — caller yüksek-sim hit'lerde ekstra validation atlayabilir.
-    /// </summary>
+    // Cosine similarity ile en yakın cache eşleşmesini döner (threshold altıysa null).
+    // Similarity skoru da döner — caller yüksek-sim hit'lerde ekstra validation atlayabilir.
     Task<CacheMatch?> FindSimilarAsync(
         float[] queryVector,
         double threshold,
         CancellationToken ct = default);
 
-    /// <summary>
-    /// Upsert: aynı normalize edilmiş QuestionText varsa cevap/vector güncellenir ve HitCount++,
-    /// yoksa yeni kayıt eklenir. SaveChanges UoW'da çağrılmalı.
-    /// (IRepository.AddAsync vanilla INSERT yapar — bu metot upsert semantic için ayrı.)
-    /// </summary>
+    // Upsert: aynı normalize edilmiş QuestionText varsa cevap/vector güncellenir ve HitCount++,
+    // yoksa yeni kayıt eklenir. SaveChanges UoW'da çağrılmalı.
+    // (IRepository.AddAsync vanilla INSERT yapar — bu metot upsert semantic için ayrı.)
     Task UpsertAsync(QuestionCache entry, CancellationToken ct = default);
 
     Task IncrementHitAsync(Guid id, CancellationToken ct = default);
 
     Task<IReadOnlyList<string>> GetTopByHitCountAsync(int limit, CancellationToken ct = default);
 
-    /// <summary>maxAge süresi geçmiş, hiç kullanılmayan cache kayıtlarını siler.</summary>
+    // maxAge süresi geçmiş, hiç kullanılmayan cache kayıtlarını siler.
     Task<int> DeleteExpiredAsync(TimeSpan maxAge, CancellationToken ct = default);
 
-    /// <summary>
-    /// Per-document invalidation: SourceDocumentIds CSV'sinde verilen ID'yi içeren cache entry'leri siler.
-    /// includeUntracked=true ise SourceDocumentIds=NULL olan eski entries de silinir (geriye uyumluluk).
-    /// </summary>
+    // Per-document invalidation: SourceDocumentIds CSV'sinde verilen ID'yi içeren cache entry'leri siler.
+    // includeUntracked=true ise SourceDocumentIds=NULL (kaynağı bilinmeyen) kayıtlar da silinir.
     Task<int> DeleteByDocumentIdAsync(Guid documentId, bool includeUntracked, CancellationToken ct = default);
 }

@@ -223,11 +223,9 @@ public class DocumentParserService : IDocumentParser
             mistralPages[i] = mp;
         }
 
-        // ═══════════════════════════════════════════════════════════════════
-        //   MODE TOGGLE — config "Chunking:Mode"
+        // MODE TOGGLE — config "Chunking:Mode":
         //   "PageBased"  → Mistral OCR ham markdown'unu sayfa-bazlı chunkla (basit, deterministik)
-        //   "Semantic"   → Markdig AST + tüm coalescer'lar (mevcut karmaşık akış)
-        // ═══════════════════════════════════════════════════════════════════
+        //   "Semantic"   → Markdig AST + tüm coalescer'lar (varsayılan)
         if (string.Equals(_chunkingMode, "PageBased", StringComparison.OrdinalIgnoreCase))
         {
             return await ParseAsPageBasedAsync(mistralPages, pdfEmbeddedPerPage, fileType);
@@ -294,11 +292,10 @@ public class DocumentParserService : IDocumentParser
         // [5] Duplicate dedup — Mistral OCR'ın bazen tekrar ettiği içerik (SHA256 exact match)
         builtChunks = DeduplicateChunks(builtChunks);
 
-        // NOT: Mini-chunk merge (eski MergeSmallAdjacentChunks) KALDIRILDI.
-        // Sebep: rendered markdown'da string concat → [IMG:N] numaraları tekrar ediyor,
-        // farklı path'lere işaret ediyor, caption mapping bozuluyor, atomic tablolar parçalanıyor.
-        // Doğru katmandaki muadili: BlockCoalescer (SemanticBlock seviyesinde, AST temiz).
-        // NOT 2: < 30 char final filter KALDIRILDI — belgeden hiçbir bilgi atılmasın.
+        // Mini-paragraf birleştirme bu aşamada YAPILMAZ — BlockCoalescer (SemanticBlock
+        // seviyesinde) yapar; render edilmiş markdown'da birleştirme [IMG:N] numaralarını,
+        // caption eşlemesini ve atomik tabloları bozar. Kısa chunk filtresi de yoktur:
+        // belgedeki hiçbir içerik atılmaz.
 
         // [6] ParsedChunk dönüşümü
         var final = new List<ParsedChunk>(builtChunks.Count);
@@ -322,19 +319,16 @@ public class DocumentParserService : IDocumentParser
         return final;
     }
 
-    /// <summary>
-    /// PageBased mode parser — Markdig AST + HierarchicalChunker + Microsoft TextChunker.
-    ///
-    /// PIPELINE (sıfır regex, sıfır karakter eşiği, sıfır manuel kural):
-    ///   1. Mistral OCR markdown → MarkdownBlockExtractor (Markdig AST walker)
-    ///   2. HeaderChainTracker stack → her block kendi H1>H2>H3 hierarşisini taşır
-    ///   3. BlockMerger → multi-page tablo birleşimi
-    ///   4. TableCoalescer → sayfa içi tablo fragmanları
-    ///   5. BlockCoalescer → mini-paragraf birleşimi
-    ///   6. ImageLinker → PdfPig fallback görselleri Y-koordinat ile block'lara
-    ///   7. HierarchicalChunker → atomic preservation + token-bütçeli split
-    ///   8. SHA256 dedup
-    /// </summary>
+    // PageBased mode parser — Markdig AST + HierarchicalChunker + Microsoft TextChunker.
+    // PIPELINE (sıfır regex, sıfır karakter eşiği, sıfır manuel kural):
+    // 1. Mistral OCR markdown → MarkdownBlockExtractor (Markdig AST walker)
+    // 2. HeaderChainTracker stack → her block kendi H1>H2>H3 hierarşisini taşır
+    // 3. BlockMerger → multi-page tablo birleşimi
+    // 4. TableCoalescer → sayfa içi tablo fragmanları
+    // 5. BlockCoalescer → mini-paragraf birleşimi
+    // 6. ImageLinker → PdfPig fallback görselleri Y-koordinat ile block'lara
+    // 7. HierarchicalChunker → atomic preservation + token-bütçeli split
+    // 8. SHA256 dedup
     private async Task<IEnumerable<ParsedChunk>> ParseAsPageBasedAsync(
         List<MistralPage> mistralPages,
         IReadOnlyList<List<string>> pdfEmbeddedPerPage,
@@ -406,11 +400,9 @@ public class DocumentParserService : IDocumentParser
         return chunks;
     }
 
-    /// <summary>
-    /// ParsedChunk listesi için SHA256 hash-based dedup.
-    /// Aynı CleanContent'e sahip chunks tekilleşir. < 50 char chunks dedup'tan muaf
-    /// (tesadüfi hash çakışmasına karşı koruma).
-    /// </summary>
+    // ParsedChunk listesi için SHA256 hash-based dedup.
+    // Aynı CleanContent'e sahip chunks tekilleşir. < 50 char chunks dedup'tan muaf
+    // (tesadüfi hash çakışmasına karşı koruma).
     private List<ParsedChunk> DeduplicateParsedChunks(List<ParsedChunk> chunks)
     {
         if (chunks.Count <= 1) return chunks;

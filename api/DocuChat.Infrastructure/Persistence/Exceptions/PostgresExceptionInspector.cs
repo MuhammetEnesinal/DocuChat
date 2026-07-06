@@ -12,10 +12,8 @@ using Npgsql;
 
 namespace DocuChat.Infrastructure.Persistence.Exceptions;
 
-/// <summary>
-/// PostgreSQL/Npgsql exception inspeksiyonu. Application IDbExceptionInspector üzerinden
-/// kullanır → Application'a Npgsql tipi sızmaz.
-/// </summary>
+// PostgreSQL/Npgsql exception inspeksiyonu. Application IDbExceptionInspector üzerinden
+// kullanır → Application'a Npgsql tipi sızmaz.
 public sealed class PostgresExceptionInspector : IDbExceptionInspector
 {
     // PostgreSQL SQLSTATE 23505 = unique_violation

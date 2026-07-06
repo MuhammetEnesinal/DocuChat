@@ -12,17 +12,13 @@ using DocuChat.Application.Interfaces.Services.Persistence;
 
 namespace DocuChat.Infrastructure.Services.BackgroundJobs.DocumentProcessing;
 
-/// <summary>
-/// In-memory bounded channel queue — belge ID'lerini DocumentProcessingConsumer'ın
-/// işlemesi için sıraya alır. DocumentUseCase.UploadAsync ve DocumentRecoveryService
-/// burayı kullanır.
-///
-/// Persistence DocumentRecoveryService'te → app restart sonrası Pending/Processing
-/// statüsündeki belgeler tekrar enqueue edilir. Channel sadece concurrency kontrolü ve
-/// backpressure için.
-///
-/// Bounded capacity → "Wait" mode: kuyruk doluysa enqueue producer'ı bekletir.
-/// </summary>
+// In-memory bounded channel queue — belge ID'lerini DocumentProcessingConsumer'ın
+// işlemesi için sıraya alır. DocumentUseCase.UploadAsync ve DocumentRecoveryService
+// burayı kullanır.
+// Persistence DocumentRecoveryService'te → app restart sonrası Pending/Processing
+// statüsündeki belgeler tekrar enqueue edilir. Channel sadece concurrency kontrolü ve
+// backpressure için.
+// Bounded capacity → "Wait" mode: kuyruk doluysa enqueue producer'ı bekletir.
 public sealed class DocumentProcessingQueue : IDocumentProcessingScheduler
 {
     private readonly Channel<Guid> _channel;
@@ -37,11 +33,11 @@ public sealed class DocumentProcessingQueue : IDocumentProcessingScheduler
         });
     }
 
-    /// <summary>IDocumentProcessingScheduler implementation. Recovery service için bloklu.</summary>
+    // IDocumentProcessingScheduler implementation. Recovery service için bloklu.
     public ValueTask ScheduleAsync(Guid documentId, CancellationToken ct = default) =>
         _channel.Writer.WriteAsync(documentId, ct);
 
-    /// <summary>Timeout-aware enqueue — kuyruk doluysa süresiz bekleme YOK.</summary>
+    // Timeout-aware enqueue — kuyruk doluysa süresiz bekleme YOK.
     public async Task<bool> TryScheduleAsync(Guid documentId, TimeSpan timeout, CancellationToken ct = default)
     {
         // Önce non-blocking deneme
@@ -61,10 +57,10 @@ public sealed class DocumentProcessingQueue : IDocumentProcessingScheduler
         }
     }
 
-    /// <summary>Consumer için stream — döngüde await foreach ile okunur.</summary>
+    // Consumer için stream — döngüde await foreach ile okunur.
     public IAsyncEnumerable<Guid> ReadAllAsync(CancellationToken ct) =>
         _channel.Reader.ReadAllAsync(ct);
 
-    /// <summary>Kuyruğu kapat (app shutdown). Pending item'lar consumer'da işlenir.</summary>
+    // Kuyruğu kapat (app shutdown). Pending item'lar consumer'da işlenir.
     public void Complete() => _channel.Writer.TryComplete();
 }

@@ -59,7 +59,7 @@ public static class DependencyInjection
         services.AddIdentity<AppUser, AppRole>(o =>
         {
             // Personel kodu (örn. EMP1001) yeni kullanıcının İLK ŞİFRESİ olarak kullanılıyor.
-            // Bu yüzden şifre kuralları gevşetildi: büyük/küçük harf + sembol zorunluluğu yok,
+            // Bu yüzden şifre kuralları gevşektir: büyük/küçük harf + sembol zorunluluğu yok,
             // sadece minimum uzunluk. (Kullanıcı ilk girişte şifresini değiştirebilir.)
             o.Password.RequiredLength = 6;
             o.Password.RequireDigit = false;
@@ -166,7 +166,7 @@ public static class DependencyInjection
         // Background services + processing queue
         services.AddHostedService<CacheCleanupService>();
 
-        // 🆕 Bounded concurrency queue — paralel max N belge işlenir (config'den)
+        // Bounded concurrency queue — paralel max N belge işlenir (config'den)
         var maxConcurrentDocs = cfg.GetValue<int>("DocumentProcessing:MaxConcurrent", 2);
         var queueCapacity = cfg.GetValue<int>("DocumentProcessing:QueueCapacity", 1000);
         services.AddSingleton(sp => new DocumentProcessingQueue(queueCapacity));

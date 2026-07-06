@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 namespace DocuChat.Infrastructure.Services.Ai.Llm.Prompts;
 
 // LLM çağrılarında kullanılan tüm sistem/kullanıcı prompt metinleri.
-// LlmService'i kalabalık tutmamak için ayrılmıştır; içerik değişmedi.
+// LlmService'i kalabalık tutmamak için ayrı dosyada tutulur.
 internal static class LlmPrompts
 {
     public static class Answer

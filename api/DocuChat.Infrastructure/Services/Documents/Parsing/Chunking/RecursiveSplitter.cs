@@ -12,12 +12,10 @@ using DocuChat.Application.Interfaces.Services.Persistence;
 
 namespace DocuChat.Infrastructure.Services.Documents.Parsing.Chunking;
 
-/// <summary>
-/// Recursive separator hierarchy splitter — universal text/code yapı işaretleriyle çalışır.
-/// Sıfır dil-spesifik kural, sıfır kısaltma listesi.
-/// Sırayla daha küçük separator'lara iner: paragraf → satır → cümle → kelime → karakter.
-/// GARANTİ: kelime ortası ASLA bölünmez (separator listesindeki son boşluğa kadar denenir).
-/// </summary>
+// Recursive separator hierarchy splitter — universal text/code yapı işaretleriyle çalışır.
+// Sıfır dil-spesifik kural, sıfır kısaltma listesi.
+// Sırayla daha küçük separator'lara iner: paragraf → satır → cümle → kelime → karakter.
+// GARANTİ: kelime ortası ASLA bölünmez (separator listesindeki son boşluğa kadar denenir).
 internal static class RecursiveSplitter
 {
     // Metin için MİNİMAL UNIVERSAL separators — sıfır punctuation listesi.

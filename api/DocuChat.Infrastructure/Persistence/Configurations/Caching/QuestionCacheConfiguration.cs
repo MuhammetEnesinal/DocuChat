@@ -41,7 +41,7 @@ public class QuestionCacheConfiguration : IEntityTypeConfiguration<QuestionCache
         builder.HasIndex(x => x.LastHitAt);
         builder.HasIndex(x => x.CreatedAt);
 
-        // 🆕 Per-document invalidation için CSV alanı (text, nullable)
+        // Per-document invalidation için CSV alanı (text, nullable)
         // Format: "guid1,guid2,guid3". ILIKE ile substring match yapılır.
         builder.Property(x => x.SourceDocumentIds).HasColumnType("text");
     }

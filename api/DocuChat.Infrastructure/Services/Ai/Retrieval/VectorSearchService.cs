@@ -268,11 +268,9 @@ public class VectorSearchService : IVectorSearch
         }
     }
 
-    /// <summary>
-    /// Match'lerin PrevChunkId/NextChunkId komşularını yükler, içeriklerini stitch eder.
-    /// LLM bağlamı: [prev_content]\n\n[match_content]\n\n[next_content]
-    /// Komşu chunk'lardaki [IMG:N] markerları farklı chunk path mapping'ine ait → strip edilir.
-    /// </summary>
+    // Match'lerin PrevChunkId/NextChunkId komşularını yükler, içeriklerini stitch eder.
+    // LLM bağlamı: [prev_content]\n\n[match_content]\n\n[next_content]
+    // Komşu chunk'lardaki [IMG:N] markerları farklı chunk path mapping'ine ait → strip edilir.
     private async Task<List<ChunkResult>> ExpandWithNeighborsAsync(
         IReadOnlyList<MatchedChunk> matches, CancellationToken ct)
     {

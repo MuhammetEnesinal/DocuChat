@@ -22,11 +22,8 @@ using DocuChat.Infrastructure.Persistence.Identity;
 
 namespace DocuChat.Infrastructure.Services.UserManagement;
 
-/// <summary>
-/// Admin tarafından yapılan user CRUD operasyonları.
-/// ASP.NET Identity UserManager wrapper'ı + e-posta bildirimleri (welcome, email changed, password reset).
-/// IAuthService'ten ayrıldı (concern separation: auth ≠ user management).
-/// </summary>
+// Admin tarafından yapılan user CRUD operasyonları.
+// ASP.NET Identity UserManager wrapper'ı + e-posta bildirimleri (welcome, email changed, password reset).
 public sealed class UserManagementService : IUserManagementService
 {
     private readonly UserManager<AppUser> _userManager;
@@ -76,8 +73,8 @@ public sealed class UserManagementService : IUserManagementService
         }
         catch (Exception ex) when (_dbExceptionInspector.IsUniqueConstraintViolation(ex))
         {
-            // Race: AnyAsync kontrolünden sonra başka istek aynı personel kodunu ekledi →
-            // unique index reddetti. 500 yerine dostça mesaj.
+            // AnyAsync kontrolünden sonra başka istek aynı personel kodunu eklerse unique index
+            // reddeder; kullanıcıya çakışma mesajı döner.
             return Result<UserSummaryResponseDto>.Failure(
                 Error.Conflict("Bu personel kodu zaten kullanılıyor."));
         }

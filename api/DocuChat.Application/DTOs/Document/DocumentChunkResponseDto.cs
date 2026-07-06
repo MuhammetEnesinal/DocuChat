@@ -5,8 +5,7 @@ public class DocumentChunkResponseDto
     public Guid Id { get; set; }
     public int ChunkIndex { get; set; }
     public string Content { get; set; }
-    // ImagePath JSON kaldırıldı — yeni mimaride ChunkImages join'inden gelir.
-    // Frontend belge inceleme sayfasında chunk başına resimleri ayrı endpoint'ten alabilir.
+    // Chunk'a bağlı görsel yolları — ChunkImages join'inden doldurulur.
     public IReadOnlyList<string>? ImagePaths { get; set; }
     public int? PageNumber { get; set; }
     public string? Header { get; set; }

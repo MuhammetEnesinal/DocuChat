@@ -125,12 +125,9 @@ public class DocumentUseCase : IDocumentUseCase
         }
     }
 
-    // ── [Bağlam] üretici girdisi ──
-    // LLM'e chunk'ın tamamını göstermek pahalı; yalnız BAŞINI göstermek yanıltıcı:
-    // uzun düz metinde sondaki konu görünmez, tabloda/listede sayılar yanlış sayılır.
-    // Çözüm iki parça (içerik tipi fark etmeksizin):
-    //   1) Kod-hesaplı YAPI metası — satır/madde/kelime sayılarını LLM tahmin etmez, kod sayar.
-    //   2) Baş+orta+son örnekleme — chunk uzunsa üç bölgeden kesit; bütünün şekli görünür.
+    // [Bağlam] üreticisine verilecek chunk örneğini kurar. İki parçadan oluşur:
+    //   1) Kod-hesaplı yapı metası — satır/madde/kelime sayıları kod tarafından sayılır.
+    //   2) Baş+orta+son örnekleme — chunk uzunsa üç bölgeden kesit alınır, bütünün şekli görünür.
     private static string BuildContextSample(ParsedChunk p)
     {
         var meta = BuildStructureMeta(p);
@@ -277,11 +274,9 @@ public class DocumentUseCase : IDocumentUseCase
         return results;
     }
 
-    /// <summary>
-    /// CAPTION HASH-FIRST: Pixtral'a gitmeden önce tüm görsellerin SHA256 hash'i hesaplanır.
-    /// Aynı hash → aynı görsel → Pixtral SADECE BİR KEZ çağrılır.
-    /// Sonuç: path → caption sözlüğü + path → hash sözlüğü (chunk-level dedup için).
-    /// </summary>
+    // CAPTION HASH-FIRST: Pixtral'a gitmeden önce tüm görsellerin SHA256 hash'i hesaplanır.
+    // Aynı hash → aynı görsel → Pixtral SADECE BİR KEZ çağrılır.
+    // Sonuç: path → caption sözlüğü + path → hash sözlüğü (chunk-level dedup için).
     private async Task<(Dictionary<string, string?> CaptionMap, Dictionary<string, string?> PathToHash)>
         PreComputeImageCaptionsAsync(
         IReadOnlyList<ParsedChunk> parsedList,
@@ -487,7 +482,7 @@ public class DocumentUseCase : IDocumentUseCase
     {
         var results = new DocumentChunk[parsedList.Count];
         var captionsByChunk = new List<string?>[parsedList.Count];  // index → caption listesi
-        var embedTexts = new string[parsedList.Count];              // FAZ 1 çıktısı → FAZ 2 girdisi
+        var embedTexts = new string[parsedList.Count];              // embedding'e girecek metinler
         var finalContents = new string[parsedList.Count];           // DB'ye yazılacak chunk içeriği
         using var sem = new SemaphoreSlim(_maxParallelChunks);
         var processed = 0;
@@ -498,8 +493,8 @@ public class DocumentUseCase : IDocumentUseCase
         // Pre-compute: tüm chunk context'leri paralel batch (50 chunk → 5 batch ≈ 10sn)
         var precomputedContexts = await ComputeChunkContextsAsync(parsedList, earlySummary, ct);
 
-        // Faz 1 — Hazırlık (paralel, embedding yok): her chunk için embedText, DB içeriği ve
-        // caption hazırlanır. Embedding'ler toplanıp faz 2'de tek seferde batch'lenir.
+        // Hazırlık (paralel, embedding yok): her chunk için embedText, DB içeriği ve caption
+        // hazırlanır. Embedding'ler toplanıp aşağıda tek batch'te alınır.
         var prepTasks = parsedList.Select(async (parsed, idx) =>
         {
             await sem.WaitAsync(ct);
@@ -549,18 +544,17 @@ public class DocumentUseCase : IDocumentUseCase
         }).ToArray();
         await Task.WhenAll(prepTasks);
 
-        // ════════════════ FAZ 2 — BATCH EMBEDDING (A1) ════════════════
-        // Tüm embedText'ler tek çağrıda (servis içeride MaxBatchSize dilimlere bölüp /api/embed
-        // ile toplu gönderir). Cache'li metinler ağ trafiği yaratmaz. Batch desteklenmiyorsa
-        // servis otomatik tekil yola düşer. Embed alınamayan metin → null → chunk atlanır (A2).
+        // Tüm embedText'ler tek çağrıda alınır (servis içeride MaxBatchSize dilimlere bölüp
+        // /api/embed ile toplu gönderir). Cache'li metinler ağ trafiği yaratmaz. Batch
+        // desteklenmiyorsa servis tekil yola düşer. Embed alınamayan metin null döner, chunk atlanır.
         _logger.LogInformation("[ChunkBuild] {Total} chunk için batch embedding başlıyor", total);
         var vectors = await _embedder.GetEmbeddingsAsync(embedTexts, ct);
 
-        // ════════════════ FAZ 3 — CHUNK NESNELERİ ════════════════
+        // Vektörlerden DocumentChunk nesneleri kurulur.
         for (var idx = 0; idx < total; idx++)
         {
             var vec = vectors[idx];
-            if (vec is null) continue;  // embedding alınamadı → chunk atlanır (A2 uyarısı ProcessPending'de)
+            if (vec is null) continue;  // embedding alınamadı, chunk atlanır (uyarı ProcessPending'de)
 
             results[idx] = new DocumentChunk
             {
@@ -603,15 +597,13 @@ public class DocumentUseCase : IDocumentUseCase
         return (validChunks, alignedCaptions);
     }
 
-    /// <summary>
-    /// Chunk içinde aynı ContentHash'li path'leri (PdfPig + Mistral aynı görseli yakaladıysa)
-    /// tek marker'a indirir:
-    ///   1. parsed.ImagePath JSON'unu paths listesine deserialize et
-    ///   2. Her path için pathToHash lookup ile hash al; aynı hash → aynı canonical index
-    ///   3. Content içinde [IMG:N] markerlarını renumber: duplicate'ler ilk occurrence'a yönlendirilir
-    ///   4. Sonuç: dedup edilmiş content + paths listesi
-    /// Hash bilinmiyorsa (limit aşımı veya hesaplanamamış) path unique kabul edilir (kayıp riski yok).
-    /// </summary>
+    // Chunk içinde aynı ContentHash'li path'leri (PdfPig + Mistral aynı görseli yakaladıysa)
+    // tek marker'a indirir:
+    // 1. parsed.ImagePath JSON'unu paths listesine deserialize et
+    // 2. Her path için pathToHash lookup ile hash al; aynı hash → aynı canonical index
+    // 3. Content içinde [IMG:N] markerlarını renumber: duplicate'ler ilk occurrence'a yönlendirilir
+    // 4. Sonuç: dedup edilmiş content + paths listesi
+    // Hash bilinmiyorsa (limit aşımı veya hesaplanamamış) path unique kabul edilir (kayıp riski yok).
     private (string DedupedContent, List<string> DedupedPaths) DedupChunkPaths(
         string content,
         string? imagePathJson,
@@ -670,12 +662,10 @@ public class DocumentUseCase : IDocumentUseCase
         return (newContent, dedupPaths);
     }
 
-    /// <summary>
-    /// DocumentImage + ChunkImage entity'lerini chunk'lardan inşa eder.
-    /// Görsel path'leri parsedList'ten alınır. İki seviye dedupe:
-    ///   1. PATH (aynı dosya path'i → aynı image)
-    ///   2. CONTENT HASH (farklı path ama aynı byte içerik → aynı image)
-    /// </summary>
+    // DocumentImage + ChunkImage entity'lerini chunk'lardan inşa eder.
+    // Görsel path'leri parsedList'ten alınır. İki seviye dedupe:
+    // 1. PATH (aynı dosya path'i → aynı image)
+    // 2. CONTENT HASH (farklı path ama aynı byte içerik → aynı image)
     private async Task PersistImagesAndLinksAsync(
         Document doc,
         IReadOnlyList<DocumentChunk> chunks,
@@ -1023,10 +1013,9 @@ public class DocumentUseCase : IDocumentUseCase
             var (newChunks, captionsByChunk) = await BuildChunksAndCollectCaptionsAsync(
                 doc, parsedList, earlySummary, captionMap, pathToHash, ct);
 
-            // A2 — SESSİZ CHUNK KAYBINI GÖRÜNÜR KIL:
             // Embedding'i alınamayan chunk'lar atlanır (belge yine Ready olur). Atlanan sayı
-            // (parsedList.Count - newChunks.Count) ProcessingNotes'a yazılır → DocumentList'te
-            // uyarı olarak görünür, admin hangi içeriğin aranamaz olduğunu görüp Yeniden İşle yapabilir.
+            // ProcessingNotes'a yazılır; DocumentList'te uyarı olarak görünür ve admin hangi
+            // içeriğin aranamaz olduğunu görüp Yeniden İşle yapabilir.
             var skippedChunkCount = parsedList.Count - newChunks.Count;
             if (skippedChunkCount > 0)
             {
@@ -1199,8 +1188,8 @@ public class DocumentUseCase : IDocumentUseCase
         if (deletedIds.Count > 0)
         {
             await _uow.SaveChangesAsync(ct);
-            // 🆕 Per-document invalidation: sadece silinen belge ID'lerini içeren cache entries
-            // (eski untracked entries de güvenlik için silinir — geriye uyumluluk)
+            // Per-document invalidation: sadece silinen belge ID'lerini içeren cache entries
+            // (SourceDocumentIds=NULL kayıtlar da güvenlik için silinir)
             var totalCacheDeleted = 0;
             foreach (var delId in deletedIds)
                 totalCacheDeleted += await _uow.QuestionCache.DeleteByDocumentIdAsync(delId, includeUntracked: true, ct);
@@ -1331,7 +1320,7 @@ public class DocumentUseCase : IDocumentUseCase
     }
 
 
-    /// Controller IFileStorage'a dokunmadan dosyayı stream olarak alır.
+    // Controller IFileStorage'a dokunmadan dosyayı stream olarak alır.
 
     public async Task<Result<(Stream FileStream, string ContentType, string FileName)>> GetFileStreamAsync(
         Guid id, CancellationToken ct)

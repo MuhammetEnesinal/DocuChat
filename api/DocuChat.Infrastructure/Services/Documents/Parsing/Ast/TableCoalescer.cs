@@ -2,13 +2,10 @@ using DocuChat.Infrastructure.Services.Documents.Parsing.Models;
 
 namespace DocuChat.Infrastructure.Services.Documents.Parsing.Ast;
 
-/// <summary>
-/// Mistral OCR'ın AYNI SAYFA içinde fragmana böldüğü tabloları mantıksal bütüne dönüştürür.
-/// Birleştirme kuralları TableMergeHelper'da (sayfa-sınırı BlockMerger ile ortak): tekrar başlık,
-/// tam/kısmi "colN" auto-header ve sahte-başlık-veri durumlarının hepsi kayıpsız ele alınır.
-///
-/// BlockMerger sayfa SINIRI birleşimi yapar; bu sınıf sayfa İÇİ fragmanları toparlar.
-/// </summary>
+// Mistral OCR'ın AYNI SAYFA içinde fragmana böldüğü tabloları mantıksal bütüne dönüştürür.
+// Birleştirme kuralları TableMergeHelper'da (sayfa-sınırı BlockMerger ile ortak): tekrar başlık,
+// tam/kısmi "colN" auto-header ve sahte-başlık-veri durumlarının hepsi kayıpsız ele alınır.
+// BlockMerger sayfa SINIRI birleşimi yapar; bu sınıf sayfa İÇİ fragmanları toparlar.
 public sealed class TableCoalescer
 {
     public List<SemanticBlock> Coalesce(IReadOnlyList<SemanticBlock> blocks)

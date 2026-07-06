@@ -12,20 +12,15 @@ using DocuChat.Infrastructure.Services.Documents.Parsing.Models;
 
 namespace DocuChat.Infrastructure.Services.Documents.Parsing.Ast;
 
-/// <summary>
-/// Aynı semantik bölüm + aynı tip + ardışık MİNİ block'ları (token < minTokens) birleştirir.
-/// Amaç: chunker'a girmeden önce parçalı küçük yapıları mantıksal bütüne toparlamak,
-///       böylece post-chunk merge (eski MergeSmallAdjacentChunks) gereksiz hale gelir.
-///
-/// Bilgi kaybı: yok. Tüm TextContent + RawMarkdown + Images korunur, sadece concat edilir.
-///
-/// Kurallar:
-///   - Aynı HeaderChain (semantik bölüm sınırına saygı)
-///   - Aynı BlockType (Paragraph + List karışmaz — semantic purity)
-///   - Tek tek mini olmalı (ikisi de minTokens altında)
-///   - Birleşik token sayısı maxMergedTokens'ı aşmamalı (yeniden büyük block doğurma)
-///   - Quote, Table, Code BU SINIFTA HARİÇ — semantik birim olarak ayrı tutulur.
-/// </summary>
+// Aynı semantik bölüm + aynı tip + ardışık MİNİ block'ları (token < minTokens) birleştirir.
+// Amaç: chunker'a girmeden önce parçalı küçük yapıları mantıksal bütüne toparlamak.
+// Bilgi kaybı: yok. Tüm TextContent + RawMarkdown + Images korunur, sadece concat edilir.
+// Kurallar:
+// - Aynı HeaderChain (semantik bölüm sınırına saygı)
+// - Aynı BlockType (Paragraph + List karışmaz — semantic purity)
+// - Tek tek mini olmalı (ikisi de minTokens altında)
+// - Birleşik token sayısı maxMergedTokens'ı aşmamalı (yeniden büyük block doğurma)
+// - Quote, Table, Code BU SINIFTA HARİÇ — semantik birim olarak ayrı tutulur.
 public sealed class BlockCoalescer
 {
     private readonly ITokenCounter _tokens;

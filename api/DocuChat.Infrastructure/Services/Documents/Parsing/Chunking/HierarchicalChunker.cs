@@ -19,27 +19,23 @@ using Microsoft.SemanticKernel.Text;
 
 namespace DocuChat.Infrastructure.Services.Documents.Parsing.Chunking;
 
-/// <summary>
-/// HierarchicalChunker — sektör standardı RAG chunker.
-///
-/// FELSEFE: Sıfır regex, sıfır karakter eşiği, sıfır manuel desen detection.
-///   - Yapısal kararlar: Markdig AST node tipleri (HeadingBlock, Table, ListBlock, ...)
-///   - Boyut yönetimi: Microsoft Semantic Kernel TextChunker (oversized text için)
-///   - Header chain: HeaderChainTracker stack (H1 > H2 > H3 hierarşi)
-///   - Atomic preservation: Table & Code asla ortadan bölünmez
-///
-/// MİMARİ:
-///   1. AST'ten gelen SemanticBlock'lar → HeaderChain'e göre section'lara grupla
-///   2. Her section:
-///        - total tokens ≤ maxTokens → 1 chunk (tüm yapı bir arada)
-///        - total tokens > maxTokens → atomic-aware split:
-///            • Table/Code → kendi chunk'ı (atomic)
-///            • Text birikimi → token bütçesinde flush
-///            • Tek block > maxTokens → TextChunker fallback (line-aware)
-///   3. Her chunk başına HeaderChain prepend (LLM context için)
-///   4. [IMG_PATH:N] → [IMG:N] renumber (chunk-yerel, path dedup)
-///   5. CleanContent: Markdig AST text extraction (regex yok)
-/// </summary>
+// HierarchicalChunker — sektör standardı RAG chunker.
+// FELSEFE: Sıfır regex, sıfır karakter eşiği, sıfır manuel desen detection.
+// - Yapısal kararlar: Markdig AST node tipleri (HeadingBlock, Table, ListBlock, ...)
+// - Boyut yönetimi: Microsoft Semantic Kernel TextChunker (oversized text için)
+// - Header chain: HeaderChainTracker stack (H1 > H2 > H3 hierarşi)
+// - Atomic preservation: Table & Code asla ortadan bölünmez
+// MİMARİ:
+// 1. AST'ten gelen SemanticBlock'lar → HeaderChain'e göre section'lara grupla
+// 2. Her section:
+// - total tokens ≤ maxTokens → 1 chunk (tüm yapı bir arada)
+// - total tokens > maxTokens → atomic-aware split:
+// • Table/Code → kendi chunk'ı (atomic)
+// • Text birikimi → token bütçesinde flush
+// • Tek block > maxTokens → TextChunker fallback (line-aware)
+// 3. Her chunk başına HeaderChain prepend (LLM context için)
+// 4. [IMG_PATH:N] → [IMG:N] renumber (chunk-yerel, path dedup)
+// 5. CleanContent: Markdig AST text extraction (regex yok)
 public sealed class HierarchicalChunker
 {
     private readonly ITokenCounter _tokens;
@@ -88,12 +84,10 @@ public sealed class HierarchicalChunker
         return result;
     }
 
-    /// <summary>
-    /// Ardışık SemanticBlock'ları aynı HeaderChain.ToPath() altında grupla.
-    /// HeadingBlock'lar zaten block üretmez (sadece tracker'a push), boş heading
-    /// section'ları otomatik olarak bir sonraki content-bearing section'ın HeaderChain'ine
-    /// dahil edilir. AST-driven, manuel "trivial" tespiti gerekmez.
-    /// </summary>
+    // Ardışık SemanticBlock'ları aynı HeaderChain.ToPath() altında grupla.
+    // HeadingBlock'lar zaten block üretmez (sadece tracker'a push), boş heading
+    // section'ları otomatik olarak bir sonraki content-bearing section'ın HeaderChain'ine
+    // dahil edilir. AST-driven, manuel "trivial" tespiti gerekmez.
     private static List<List<SemanticBlock>> GroupByHeaderChain(IReadOnlyList<SemanticBlock> blocks)
     {
         var groups = new List<List<SemanticBlock>>();
@@ -120,13 +114,11 @@ public sealed class HierarchicalChunker
         return groups;
     }
 
-    /// <summary>
-    /// Section maxTokens'ı aşıyorsa atomic-aware split uygular:
-    ///   - Table/Code → kendi chunk'ı (asla bölünmez, sadece son çare aşırı büyükse TextChunker)
-    ///   - Diğer tipler → token bütçesinde birikir, taşarsa flush
-    ///   - Tek block > maxTokens → TextChunker line-aware fallback
-    /// Block tipi değişiminde de flush (Paragraph/List/Quote karışmasın).
-    /// </summary>
+    // Section maxTokens'ı aşıyorsa atomic-aware split uygular:
+    // - Table/Code → kendi chunk'ı (asla bölünmez, sadece son çare aşırı büyükse TextChunker)
+    // - Diğer tipler → token bütçesinde birikir, taşarsa flush
+    // - Tek block > maxTokens → TextChunker line-aware fallback
+    // Block tipi değişiminde de flush (Paragraph/List/Quote karışmasın).
     private List<ParsedChunk> SplitSection(List<SemanticBlock> section, string headerPath)
     {
         var chunks = new List<ParsedChunk>();
@@ -193,11 +185,9 @@ public sealed class HierarchicalChunker
         return chunks;
     }
 
-    /// <summary>
-    /// Tek block maxTokens'ı aşıyorsa Microsoft TextChunker ile line-aware splitting.
-    /// TextChunker markdown-aware: tablo satırı, liste maddesi, code line bütün kalır,
-    /// cümle ortasından kesmez. Son çare fallback.
-    /// </summary>
+    // Tek block maxTokens'ı aşıyorsa Microsoft TextChunker ile line-aware splitting.
+    // TextChunker markdown-aware: tablo satırı, liste maddesi, code line bütün kalır,
+    // cümle ortasından kesmez. Son çare fallback.
     private List<ParsedChunk> SplitOversizedBlockWithTextChunker(SemanticBlock block, string headerPath)
     {
         var rawMd = _renderer.Render(block);
@@ -218,18 +208,14 @@ public sealed class HierarchicalChunker
         return chunks;
     }
 
-    /// <summary>
-    /// SemanticBlock listesinden ParsedChunk üretir: render → renumber → clean → header prepend.
-    /// </summary>
+    // SemanticBlock listesinden ParsedChunk üretir: render → renumber → clean → header prepend.
     private ParsedChunk BuildChunk(List<SemanticBlock> blocks, string headerPath)
     {
         var rawMd = _renderer.Render(blocks);
         return BuildChunkFromRawMarkdown(rawMd, blocks[0].PageNumber, headerPath);
     }
 
-    /// <summary>
-    /// Ham markdown'dan ParsedChunk üretir (oversized block TextChunker output'u için).
-    /// </summary>
+    // Ham markdown'dan ParsedChunk üretir (oversized block TextChunker output'u için).
     private ParsedChunk BuildChunkFromRawMarkdown(string rawMd, int pageNumber, string headerPath)
     {
         var (content, paths) = RenumberImageMarkers(rawMd.Trim());
@@ -255,10 +241,8 @@ public sealed class HierarchicalChunker
             PageNumber: pageNumber > 0 ? pageNumber : null);
     }
 
-    /// <summary>
-    /// [IMG_PATH:abc] markerlarını [IMG:N] formuna çevirir (chunk-yerel, path dedup).
-    /// Bizim teknik marker'ımız — string match (regex değil).
-    /// </summary>
+    // [IMG_PATH:abc] markerlarını [IMG:N] formuna çevirir (chunk-yerel, path dedup).
+    // Bizim teknik marker'ımız — string match (regex değil).
     private static (string Text, List<string> Paths) RenumberImageMarkers(string text)
     {
         if (string.IsNullOrEmpty(text)) return (text, new List<string>());
@@ -293,10 +277,8 @@ public sealed class HierarchicalChunker
         return (sb.ToString(), paths);
     }
 
-    /// <summary>
-    /// Markdig AST üzerinden düz text çıkarımı (embedding + BM25 için).
-    /// Regex YOK — AST node tipleri kontrolü ile içerik toplanır.
-    /// </summary>
+    // Markdig AST üzerinden düz text çıkarımı (embedding + BM25 için).
+    // Regex YOK — AST node tipleri kontrolü ile içerik toplanır.
     private static string MakeCleanTextFromAst(string markdown)
     {
         if (string.IsNullOrWhiteSpace(markdown)) return string.Empty;

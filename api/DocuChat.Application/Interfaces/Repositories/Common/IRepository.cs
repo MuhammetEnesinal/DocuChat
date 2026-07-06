@@ -11,7 +11,7 @@ public interface IRepository<T> where T : BaseEntity
 {
     Task<T?> GetByIdAsync(Guid id, CancellationToken ct = default);
 
-    /// Birden fazla ID için tek SQL sorgusu.
+    // Birden fazla ID için tek SQL sorgusu.
     Task<IReadOnlyList<T>> GetByIdsAsync(IEnumerable<Guid> ids, CancellationToken ct = default);
 
     Task AddAsync(T entity, CancellationToken ct = default);

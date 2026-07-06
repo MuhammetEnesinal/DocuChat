@@ -1,6 +1,6 @@
 ﻿namespace DocuChat.Domain.Enums;
 
-// Enum değil static class — [Authorize(Roles = "Admin")] string ister
+// [Authorize(Roles = "Admin")] string sabit beklediği için rol adları burada tutulur.
 public static class Roles
 {
     public const string Admin = "Admin";

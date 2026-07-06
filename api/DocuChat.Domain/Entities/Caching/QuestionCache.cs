@@ -15,11 +15,9 @@ public class QuestionCache : BaseEntity
     // İlk yazımda henüz hit yok → null. İlk hit'te (IncrementHitAsync) doldurulur.
     public DateTime? LastHitAt { get; set; }
 
-    /// <summary>
-    /// Bu cache entry'nin cevabını üretirken referans edilen belge ID'leri (CSV).
-    /// Per-document cache invalidation için kullanılır. Belge reprocess/delete olunca
-    /// bu sütundaki ID'yi içeren tüm cache entries silinir.
-    /// Null = eski entries (bilinmiyor) → güvenlik için ClearAll fallback'e tabi.
-    /// </summary>
+    // Bu cache entry'nin cevabını üretirken referans edilen belge ID'leri (CSV).
+    // Per-document cache invalidation için kullanılır. Belge reprocess/delete olunca
+    // bu sütundaki ID'yi içeren tüm cache entries silinir.
+    // Null = kaynağı bilinmeyen kayıt → güvenlik için ClearAll fallback'ine tabi.
     public string? SourceDocumentIds { get; set; }
 }

@@ -77,12 +77,10 @@ public class QuestionCacheRepository : GenericRepository<QuestionCache>, IQuesti
         return new CacheMatch(best.Cache, best.Sim);
     }
 
-    /// <summary>
-    /// Upsert: aynı normalize edilmiş QuestionText varsa cevap/vector güncellenir,
-    /// yoksa yeni entry eklenir. Vanilla INSERT için IRepository.AddAsync kullanılır.
-    /// HitCount/LastHitAt'e DOKUNULMAZ — hit yalnız cache'ten servis edildiğinde sayılır
-    /// (IncrementHitAsync); cevap yenilemek kullanım değildir, popüler-soru sıralamasını şişirir.
-    /// </summary>
+    // Upsert: aynı normalize edilmiş QuestionText varsa cevap/vector güncellenir,
+    // yoksa yeni entry eklenir. Vanilla INSERT için IRepository.AddAsync kullanılır.
+    // HitCount/LastHitAt'e DOKUNULMAZ — hit yalnız cache'ten servis edildiğinde sayılır
+    // (IncrementHitAsync); cevap yenilemek kullanım değildir, popüler-soru sıralamasını şişirir.
     public async Task UpsertAsync(QuestionCache entry, CancellationToken ct = default)
     {
         var normalized = (entry.QuestionText ?? string.Empty).Trim().ToLower();
@@ -132,12 +130,9 @@ public class QuestionCacheRepository : GenericRepository<QuestionCache>, IQuesti
             .ExecuteDeleteAsync(ct);
     }
 
-    /// <summary>
-    /// Per-document cache invalidation:
-    ///   - SourceDocumentIds CSV'sinde documentId geçen entries silinir (PostgreSQL ILIKE)
-    ///   - includeUntracked=true: SourceDocumentIds=NULL olan (eski) entries de silinir
-    ///     (geriye uyumluluk — eski cache'de source tracking yoktu)
-    /// </summary>
+    // Per-document cache invalidation:
+    // - SourceDocumentIds CSV'sinde documentId geçen entries silinir (PostgreSQL ILIKE)
+    // - includeUntracked=true: SourceDocumentIds=NULL (kaynağı bilinmeyen) kayıtlar da silinir
     public async Task<int> DeleteByDocumentIdAsync(Guid documentId, bool includeUntracked, CancellationToken ct = default)
     {
         var idStr = documentId.ToString();

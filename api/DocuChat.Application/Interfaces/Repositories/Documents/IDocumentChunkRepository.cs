@@ -13,6 +13,6 @@ namespace DocuChat.Application.Interfaces.Repositories.Documents;
 
 public interface IDocumentChunkRepository : IRepository<DocumentChunk>
 {
-    /// Belirli bir belgenin tüm chunk'larını ChunkIndex sırasıyla döner.
+    // Belirli bir belgenin tüm chunk'larını ChunkIndex sırasıyla döner.
     Task<IReadOnlyList<DocumentChunk>> GetByDocumentIdAsync(Guid documentId, CancellationToken ct = default);
 }

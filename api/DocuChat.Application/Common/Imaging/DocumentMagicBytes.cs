@@ -2,16 +2,12 @@ using DocuChat.Domain.Enums;
 
 namespace DocuChat.Application.Common.Imaging;
 
-/// <summary>
-/// Belge dosyalarını uzantı / browser MIME yerine içerikten (magic byte) doğrular.
-/// Kullanıcı .pdf uzantılı bir ZIP yükleyemez → parser fail + disk israfı önlenir.
-/// CSV için içerik signature yok (text format) — declared type'a güvenilir.
-/// </summary>
+// Belge dosyalarını uzantı / browser MIME yerine içerikten (magic byte) doğrular.
+// Kullanıcı .pdf uzantılı bir ZIP yükleyemez → parser fail + disk israfı önlenir.
+// CSV için içerik signature yok (text format) — declared type'a güvenilir.
 public static class DocumentMagicBytes
 {
-    /// <summary>
-    /// Header byte'larından belge formatı tespit eder. Tanınmayan format için Unknown.
-    /// </summary>
+    // Header byte'larından belge formatı tespit eder. Tanınmayan format için Unknown.
     public static DocumentFormat DetectFormat(ReadOnlySpan<byte> b)
     {
         // PDF: %PDF- (25 50 44 46 2D)
@@ -51,11 +47,9 @@ public static class DocumentMagicBytes
             || head.StartsWith("<html", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// Declared FileType ile içerik signature'ı tutarlı mı? CSV'de signature yok → daima true.
-    /// Doc: OLE2'nin yanında RTF ve MHTML/HTML de kabul edilir — Word bu formatları da .doc
-    /// uzantısıyla üretir; parser hepsini işleyebilir (LibreOffice rtf/html → PDF).
-    /// </summary>
+    // Declared FileType ile içerik signature'ı tutarlı mı? CSV'de signature yok → daima true.
+    // Doc: OLE2'nin yanında RTF ve MHTML/HTML de kabul edilir — Word bu formatları da .doc
+    // uzantısıyla üretir; parser hepsini işleyebilir (LibreOffice rtf/html → PDF).
     public static bool MatchesDeclaredType(ReadOnlySpan<byte> b, FileType declared)
     {
         var detected = DetectFormat(b);

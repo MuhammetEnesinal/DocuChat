@@ -1,9 +1,7 @@
 namespace DocuChat.Application.ServiceContracts;
 
-/// <summary>
-/// LLM cevabında korunacak görsel işaretinin (<c>[[IMG-K]]</c>) çözüm bilgisi.
-/// K (global sıra no) → bu kayıt. Path: /uploads altındaki dosya; Caption: Pixtral açıklaması (alt text).
-/// </summary>
+// LLM cevabında korunacak görsel işaretinin ([[IMG-K]]) çözüm bilgisi.
+// K (global sıra no) → bu kayıt. Path: /uploads altındaki dosya; Caption: Pixtral açıklaması (alt text).
 public class AnswerImageRef
 {
     public string Path { get; set; }
@@ -16,15 +14,12 @@ public class AnswerImageRef
     }
 }
 
-/// <summary>
-/// Cevap üretimi için hazırlanmış LLM context'i. ChatUseCase önce bunu kurar (BuildAnswerContext),
-/// sonra StreamAnswerAsync ile stream eder, en sonunda cevaptaki <c>[[IMG-K]]</c> işaretlerini
-/// <see cref="ImageMap"/> üzerinden gerçek görsel markdown'ına çevirir.
-///
-/// Tasarım: LLM görseli SEÇMEZ/YERLEŞTİRMEZ — sadece içerikteki kısa <c>[[IMG-K]]</c> işaretini
-/// olduğu yerde korur. Görseli KOD yerleştirir (deterministik). Bu sayede LLM'in markdown'ı
-/// bozması / atlaması / yanlış görsel koyması sorunu ortadan kalkar.
-/// </summary>
+// Cevap üretimi için hazırlanmış LLM context'i. ChatUseCase önce bunu kurar (BuildAnswerContext),
+// sonra StreamAnswerAsync ile stream eder, en sonunda cevaptaki [[IMG-K]] işaretlerini
+// ImageMap üzerinden gerçek görsel markdown'ına çevirir.
+// Tasarım: LLM görseli SEÇMEZ/YERLEŞTİRMEZ — sadece içerikteki kısa [[IMG-K]] işaretini
+// olduğu yerde korur. Görseli KOD yerleştirir (deterministik). Bu sayede LLM'in markdown'ı
+// bozması / atlaması / yanlış görsel koyması sorunu ortadan kalkar.
 public class AnswerContext
 {
     public string Context { get; set; }

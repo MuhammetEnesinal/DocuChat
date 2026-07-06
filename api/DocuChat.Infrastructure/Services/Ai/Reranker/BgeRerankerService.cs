@@ -58,8 +58,7 @@ public class BgeRerankerService : IRerankerService
         }
 
         // Cross-encoder 512 token limitine sığacak şekilde kısalt
-        // 1500 char ≈ 380 token — limit içinde, chunk'ın ~%75'i reranker'a gider
-        // (eski 800 char ≈ 200 token → sadece chunk başı görünüyordu → recall kaybı)
+        // 1500 char ≈ 380 token — limit içinde, chunk'ın ~%75'i reranker'a gider.
         var trimmedDocs = indexed.Select(x => Truncate(x.doc, 1500)).ToList();
         var payload = new RerankRequest(query, trimmedDocs, topN);
 

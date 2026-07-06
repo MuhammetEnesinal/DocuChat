@@ -6,7 +6,7 @@ public enum DocumentStatus
     Processing = 1,
     Ready = 2,
     Failed = 3,
-    // Reprocess başarısız olduğunda kullanılır: eski chunks aktif, RAG çalışıyor; ama belge
-    // güncel değil. UI: "yeniden işleme başarısız, eski içerik aktif" badge.
+    // Reprocess başarısız olduğunda atanır: belgenin mevcut chunk'ları aktif kalır, RAG
+    // çalışmaya devam eder ama içerik güncel değildir. UI'da uyarı badge'i gösterilir.
     Stale = 4
 }

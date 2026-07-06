@@ -1,9 +1,7 @@
 namespace DocuChat.Application.DTOs.Auth;
 
-/// <summary>
-/// Toplu kullanıcı import — tek bir satırın işlem sonucu.
-/// Status: "success" | "skipped"
-/// </summary>
+// Toplu kullanıcı import — tek bir satırın işlem sonucu.
+// Status: "success" | "skipped"
 public class BulkImportUserResultDto
 {
     public int Row { get; set; }             // Excel satır numarası (1-bazlı, header sayılmaz → ilk veri satırı = 2)
@@ -20,10 +18,8 @@ public class BulkImportUserResultDto
     }
 }
 
-/// <summary>
-/// Toplu import — tüm dosyanın özet sonucu.
-/// Per-row results admin UI'da tabloda gösterilir.
-/// </summary>
+// Toplu import — tüm dosyanın özet sonucu.
+// Per-row results admin UI'da tabloda gösterilir.
 public class BulkImportUsersSummaryDto
 {
     public int TotalRows { get; set; }

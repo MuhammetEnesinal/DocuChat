@@ -152,13 +152,11 @@ public class AuthController : ControllerBase
         return result.ToActionResult();
     }
 
-    /// <summary>
-    /// JWT'yi HttpOnly cookie olarak set eder.
-    /// - HttpOnly: JS okuyamaz (XSS koruması)
-    /// - Secure: prod'da HTTPS şart (dev localhost http için false)
-    /// - SameSite=Lax: cross-site CSRF saldırılarına karşı koruma; same-site img/link OK
-    /// - Path=/: tüm endpoint'ler için geçerli
-    /// </summary>
+    // JWT'yi HttpOnly cookie olarak set eder.
+    // - HttpOnly: JS okuyamaz (XSS koruması)
+    // - Secure: prod'da HTTPS şart (dev localhost http için false)
+    // - SameSite=Lax: cross-site CSRF saldırılarına karşı koruma; same-site img/link OK
+    // - Path=/: tüm endpoint'ler için geçerli
     private void SetAuthCookie(string token, DateTime expiresAt)
     {
         Response.Cookies.Append(AuthCookieName, token, new CookieOptions

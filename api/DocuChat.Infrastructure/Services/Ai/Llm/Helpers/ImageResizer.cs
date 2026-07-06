@@ -1,6 +1,6 @@
 namespace DocuChat.Infrastructure.Services.Ai.Llm.Helpers;
 
-/// <summary>Resize sonucu: bytes + gerçek MIME (resize edildi ise her zaman image/jpeg).</summary>
+// Resize sonucu: bytes + gerçek MIME (resize edildi ise her zaman image/jpeg).
 internal class ResizedImage
 {
     public byte[] Bytes { get; set; }

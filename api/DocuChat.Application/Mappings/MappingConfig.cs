@@ -1,4 +1,3 @@
-// DocuChat.Application/Mappings/MappingConfig.cs
 using Mapster;
 using DocuChat.Domain.Entities;
 using DocuChat.Domain.Entities.Common;

@@ -48,19 +48,17 @@ public sealed class SemanticChunker
             await FlushGroupAsync(group, group[0].Headers.ToPath(), maxTokens, chunks, ct);
 
         // POST-PASS: ardışık aynı-header chunk'ları budget içinde birleştir.
-        // IMG markerları explicit renumber edilir (eski MergeSmallAdjacentChunks bug'ı yok).
+        // IMG markerları explicit renumber edilir.
         // Multi-page fragmanları ("olmak." gibi) da burada birleşir — aynı section'a aitler.
         chunks = MergeSameHeaderChunks(chunks, maxTokens);
 
         return chunks;
     }
 
-    /// <summary>
-    /// Post-pass: ardışık aynı-header chunk'lar budget içinde birleştirilir.
-    /// Header chain aynı → semantik aynı bölüm. Tokens ≤ maxTokens → tek chunk olur.
-    /// IMG markerları doğru renumber edilir (eski bug'ı önler).
-    /// Multi-page (önceki sayfa sonu + sonraki sayfa başı aynı section) da birleşir.
-    /// </summary>
+    // Post-pass: ardışık aynı-header chunk'lar budget içinde birleştirilir.
+    // Header chain aynı → semantik aynı bölüm. Tokens ≤ maxTokens → tek chunk olur.
+    // IMG markerları doğru renumber edilir.
+    // Multi-page (önceki sayfa sonu + sonraki sayfa başı aynı section) da birleşir.
     private List<PipelineChunk> MergeSameHeaderChunks(List<PipelineChunk> chunks, int maxTokens)
     {
         if (chunks.Count <= 1) return chunks;
@@ -95,14 +93,12 @@ public sealed class SemanticChunker
         return result;
     }
 
-    /// <summary>
-    /// İki PipelineChunk'ı birleştirir:
-    ///   1. b'nin başındaki duplicate header prefix'i kaldırır
-    ///   2. b'nin IMG markerlarını a'nın path sayısı kadar offset'le renumber eder
-    ///   3. ImagePaths concat
-    ///   4. CleanContent + MarkdownContent birleştirir
-    /// PageNumber: ilk chunk'ınki (citation için ilk görünüş)
-    /// </summary>
+    // İki PipelineChunk'ı birleştirir:
+    // 1. b'nin başındaki duplicate header prefix'i kaldırır
+    // 2. b'nin IMG markerlarını a'nın path sayısı kadar offset'le renumber eder
+    // 3. ImagePaths concat
+    // 4. CleanContent + MarkdownContent birleştirir
+    // PageNumber: ilk chunk'ınki (citation için ilk görünüş)
     private static PipelineChunk MergeTwoChunks(PipelineChunk a, PipelineChunk b)
     {
         // b'nin MarkdownContent'inin başında **header**\n\n duplicate'ı varsa kaldır
@@ -381,7 +377,7 @@ public sealed class SemanticChunker
         var cleanRaw = ImgPathRegex.Replace(cleanSb.ToString(), " ");
         var clean = NormalizeWhitespace(cleanRaw);
 
-        // ⭐ Header'ı Content'in başına prepend et — Mistral OCR heading olarak algıladığında
+        // Header'ı Content'in başına prepend et — Mistral OCR heading olarak algıladığında
         // başlık metni Content'te DE görünsün (sadece metadata'da değil).
         // Hem markdown (LLM için bold) hem clean (embedding/BM25 için) versiyonu güncellenir.
         if (!string.IsNullOrWhiteSpace(header))

@@ -17,22 +17,18 @@ using Microsoft.SemanticKernel.Text;
 
 namespace DocuChat.Infrastructure.Services.Documents.Parsing.Chunking;
 
-/// <summary>
-/// Sayfa-bazlı chunker — Markdig AST + Microsoft TextChunker.
-///
-/// FELSEFE: Sıfır manuel kural, sıfır regex, sıfır boyut eşiği.
-///   - Yapısal kararlar Markdig AST'ten gelir (heading, table, list, paragraph node tipleri)
-///   - Boyut kararları Microsoft TextChunker'a delege edilir (markdown-aware splitting)
-///   - Hiçbir içerik silinmez veya pattern eşleşmesine göre filtrelenmez
-///   - Tek "marker" işlemi: [IMG_PATH:abc] → [IMG:N] (bizim teknik marker'ımız)
-///
-/// AKIŞ (her sayfa için):
-///   1. PdfPig fallback görselleri sayfa sonuna [IMG_PATH:...] olarak append
-///   2. Markdown TextChunker'a verilir → token-aware chunks (markdown-aware boundaries)
-///   3. Her chunk için Markdig AST ile section heading bulunur (regex değil, AST)
-///   4. [IMG_PATH:...] → [IMG:N] renumber (chunk-yerel)
-///   5. CleanContent (markdown syntax temizlenmiş, embedding + BM25 için)
-/// </summary>
+// Sayfa-bazlı chunker — Markdig AST + Microsoft TextChunker.
+// FELSEFE: Sıfır manuel kural, sıfır regex, sıfır boyut eşiği.
+// - Yapısal kararlar Markdig AST'ten gelir (heading, table, list, paragraph node tipleri)
+// - Boyut kararları Microsoft TextChunker'a delege edilir (markdown-aware splitting)
+// - Hiçbir içerik silinmez veya pattern eşleşmesine göre filtrelenmez
+// - Tek "marker" işlemi: [IMG_PATH:abc] → [IMG:N] (bizim teknik marker'ımız)
+// AKIŞ (her sayfa için):
+// 1. PdfPig fallback görselleri sayfa sonuna [IMG_PATH:...] olarak append
+// 2. Markdown TextChunker'a verilir → token-aware chunks (markdown-aware boundaries)
+// 3. Her chunk için Markdig AST ile section heading bulunur (regex değil, AST)
+// 4. [IMG_PATH:...] → [IMG:N] renumber (chunk-yerel)
+// 5. CleanContent (markdown syntax temizlenmiş, embedding + BM25 için)
 public sealed class PageBasedChunker
 {
     private readonly ITokenCounter _tokens;
@@ -100,10 +96,8 @@ public sealed class PageBasedChunker
         return result;
     }
 
-    /// <summary>
-    /// Markdig AST kullanarak chunk içindeki ilk HeadingBlock'un text'ini çıkar.
-    /// Regex YOK — sadece AST node tipi kontrolü.
-    /// </summary>
+    // Markdig AST kullanarak chunk içindeki ilk HeadingBlock'un text'ini çıkar.
+    // Regex YOK — sadece AST node tipi kontrolü.
     private static string? ExtractFirstHeadingFromAst(string markdown)
     {
         if (string.IsNullOrWhiteSpace(markdown)) return null;
@@ -116,9 +110,7 @@ public sealed class PageBasedChunker
         return null;
     }
 
-    /// <summary>
-    /// Markdig ContainerInline'dan düz text çıkar (AST traversal, regex yok).
-    /// </summary>
+    // Markdig ContainerInline'dan düz text çıkar (AST traversal, regex yok).
     private static string? CollectInlineText(ContainerInline? container)
     {
         if (container == null) return null;
@@ -171,11 +163,9 @@ public sealed class PageBasedChunker
             PageNumber: pageNumber > 0 ? pageNumber : null);
     }
 
-    /// <summary>
-    /// [IMG_PATH:abc] markerlarını [IMG:N] formuna çevirir (chunk-yerel).
-    /// Aynı path → aynı numara (path dedup). Bu BİZİM teknik marker'ımız —
-    /// belge içeriği değil, pipeline aşamaları arası geçici işaret.
-    /// </summary>
+    // [IMG_PATH:abc] markerlarını [IMG:N] formuna çevirir (chunk-yerel).
+    // Aynı path → aynı numara (path dedup). Bu BİZİM teknik marker'ımız —
+    // belge içeriği değil, pipeline aşamaları arası geçici işaret.
     private static (string Text, List<string> Paths) RenumberImageMarkers(string text)
     {
         if (string.IsNullOrEmpty(text)) return (text, new List<string>());
@@ -212,11 +202,9 @@ public sealed class PageBasedChunker
         return (sb.ToString(), paths);
     }
 
-    /// <summary>
-    /// Markdig AST üzerinden düz text çıkarımı — embedding + BM25 için.
-    /// Hiçbir regex yok, hiçbir karakter sınıfı kuralı yok. Markdown sözdizimi
-    /// (|, *, #, vb.) AST tarafından doğal olarak elimine edilir, sadece içerik kalır.
-    /// </summary>
+    // Markdig AST üzerinden düz text çıkarımı — embedding + BM25 için.
+    // Hiçbir regex yok, hiçbir karakter sınıfı kuralı yok. Markdown sözdizimi
+    // (|, *, #, vb.) AST tarafından doğal olarak elimine edilir, sadece içerik kalır.
     private static string MakeCleanTextFromAst(string markdown)
     {
         if (string.IsNullOrWhiteSpace(markdown)) return string.Empty;
@@ -312,9 +300,7 @@ public sealed class PageBasedChunker
     private int CountTokens(string text) => _tokens.Count(text ?? string.Empty);
 }
 
-/// <summary>
-/// PageBasedChunker'ın input sınıfı — Mistral OCR çıktısı + PdfPig fallback görselleri.
-/// </summary>
+// PageBasedChunker'ın input sınıfı — Mistral OCR çıktısı + PdfPig fallback görselleri.
 public class PageInput
 {
     public int PageNumber { get; set; }

@@ -54,10 +54,8 @@ public interface IChatUseCase
 
     Task<Result<IReadOnlyList<string>>> GetPopularQuestionsAsync(int limit, CancellationToken ct = default);
 
-    /// <summary>
-    /// Bir asistan mesajına 👍/👎 + sebep kaydeder. Personal — sadece kullanıcının kendi gelecek
-    /// sorgularını etkiler. UNIQUE(UserId, MessageId) — aynı mesaja 2. feedback olamaz.
-    /// </summary>
+    // Bir asistan mesajına beğeni/beğenmeme + sebep kaydeder. Yalnız kullanıcının kendi gelecek
+    // sorgularını etkiler. UNIQUE(UserId, MessageId) — aynı mesaja ikinci feedback olamaz.
     Task<Result<FeedbackResponseDto>> AddFeedbackAsync(FeedbackRequestDto request, CancellationToken ct = default);
 }
 

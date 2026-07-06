@@ -1,16 +1,12 @@
 namespace DocuChat.Application.Common.Imaging;
 
-/// <summary>
-/// Magic byte tabanlı resim format tespiti. Browser MIME bilgisi veya dosya uzantısı yerine
-/// gerçek içerikten tip belirlenir. JPG/PNG dışı (WebP, GIF, BMP, TIFF) modern formatlar
-/// "image/png" fallback'ine düşürülmez → Pixtral caption hata vermez, frontend doğru render.
-/// </summary>
+// Magic byte tabanlı resim format tespiti. Browser MIME bilgisi veya dosya uzantısı yerine
+// gerçek içerikten tip belirlenir. JPG/PNG dışı (WebP, GIF, BMP, TIFF) modern formatlar
+// "image/png" fallback'ine düşürülmez → Pixtral caption hata vermez, frontend doğru render.
 public static class ImageMagicBytes
 {
-    /// <summary>
-    /// Resim byte'larından dosya uzantısını döner ("jpg", "png", "gif", "webp", "bmp", "tiff").
-    /// Tanımlanamayan format için "png" fallback (en yaygın).
-    /// </summary>
+    // Resim byte'larından dosya uzantısını döner ("jpg", "png", "gif", "webp", "bmp", "tiff").
+    // Tanımlanamayan format için "png" fallback (en yaygın).
     public static string DetectExtension(ReadOnlySpan<byte> bytes) => DetectFormat(bytes) switch
     {
         ImageFormat.Jpeg => "jpg",
@@ -22,10 +18,8 @@ public static class ImageMagicBytes
         _                => "png"
     };
 
-    /// <summary>
-    /// Resim byte'larından MIME tipini döner. Pixtral / Mistral vision API payload'ları için.
-    /// Tanımlanamayan format için "image/png" fallback (en yaygın).
-    /// </summary>
+    // Resim byte'larından MIME tipini döner. Pixtral / Mistral vision API payload'ları için.
+    // Tanımlanamayan format için "image/png" fallback (en yaygın).
     public static string DetectMimeType(ReadOnlySpan<byte> bytes) => DetectFormat(bytes) switch
     {
         ImageFormat.Jpeg => "image/jpeg",

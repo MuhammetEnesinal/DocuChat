@@ -47,11 +47,9 @@ public interface ILlmService
         string? userFeedbackContext = null,
         CancellationToken ct = default);
 
-    /// <summary>
-    /// Toplu ChunkContext üretimi. N chunk için TEK LLM call, JSON array döner.
-    /// DocumentUseCase batch'leri PARALEL çağırır → 50 chunk = 5 batch × paralel = ~1 call süresi.
-    /// Fail-open: hata/eksik sonuçta boş string ile doldurur.
-    /// </summary>
+    // Toplu ChunkContext üretimi. N chunk için TEK LLM call, JSON array döner.
+    // DocumentUseCase batch'leri PARALEL çağırır → 50 chunk = 5 batch × paralel = ~1 call süresi.
+    // Fail-open: hata/eksik sonuçta boş string ile doldurur.
     Task<IReadOnlyList<string>> GenerateChunkContextsBatchAsync(
         string documentSummary,
         IReadOnlyList<(string? Header, string Content)> chunks,
@@ -61,19 +59,15 @@ public interface ILlmService
         string sampleContent,
         CancellationToken ct = default);
 
-    /// <summary>
-    /// Konuşma geçmişini özetler — eski mesajları kompakt bir context'e dönüştürür.
-    /// HistoryBudget'a sığmayan eski mesajlar bu yöntemle korunur (anahtar bağlam kaybı engellenir).
-    /// </summary>
+    // Konuşma geçmişini özetler — eski mesajları kompakt bir context'e dönüştürür.
+    // HistoryBudget'a sığmayan eski mesajlar bu yöntemle korunur (anahtar bağlam kaybı engellenir).
     Task<string?> SummarizeConversationAsync(
         IReadOnlyList<(string Role, string Content)> messages,
         CancellationToken ct = default);
 
-    /// <summary>
-    /// Kullanıcının geçmiş negatif feedback'lerinden LLM system prompt'a eklenecek context section'ı üretir.
-    /// Personal RAG self-correction: aynı chunks'tan tekrar yanlış cevap üretmemek için.
-    /// items boşsa boş string döner.
-    /// </summary>
+    // Kullanıcının geçmiş negatif feedback'lerinden LLM system prompt'a eklenecek context section'ı üretir.
+    // Personal RAG self-correction: aynı chunks'tan tekrar yanlış cevap üretmemek için.
+    // items boşsa boş string döner.
     string BuildFeedbackContextPrompt(
         IReadOnlyList<(string Question, string Answer, string? ReasonText, IReadOnlyList<string> Categories)> items);
 

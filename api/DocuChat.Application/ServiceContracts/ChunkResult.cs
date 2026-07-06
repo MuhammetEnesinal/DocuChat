@@ -7,13 +7,11 @@ public class ChunkResult
     public string? ImagePath { get; set; }
     public string? Header { get; set; }
     public int? PageNumber { get; set; }
-    // QuestionCache.SourceDocumentIds için: cache'e yazılan cevabın hangi belgelerden üretildiği.
-    // Per-document cache invalidation (DeleteByDocumentIdAsync) selective çalışsın diye.
-    // Cache hit yolundaki ChunkResult'larda null olabilir (yeniden lookup yapılmıyor).
+    // Chunk'ın ait olduğu belge Id'si. Cache'e yazılan cevabın hangi belgelerden üretildiğini
+    // izleyip belge-bazlı cache temizliğini (DeleteByDocumentIdAsync) beslemek için tutulur.
+    // Cache hit yolundaki ChunkResult'larda null olabilir.
     public Guid? DocumentId { get; set; }
 
-    // Parametre isimleri property'lerle aynı (PascalCase) — named argument çağrıları (Content: ...)
-    // eskisiyle aynı çalışsın diye.
     public ChunkResult(
         string FileName,
         string Content,

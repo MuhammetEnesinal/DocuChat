@@ -3,10 +3,8 @@ using DocuChat.Application.DTOs.Auth;
 
 namespace DocuChat.Application.Interfaces.Services.Auth;
 
-/// <summary>
-/// Kimlik doğrulama akışları: login, password reset, kendi profilini yönetme.
-/// Admin tarafından yapılan user CRUD operasyonları için IUserManagementService kullanılır.
-/// </summary>
+// Kimlik doğrulama akışları: login, password reset, kendi profilini yönetme.
+// Admin tarafından yapılan user CRUD operasyonları için IUserManagementService kullanılır.
 public interface IAuthService
 {
     Task<Result<AuthResponseDto>> LoginAsync(LoginRequestDto request, CancellationToken ct = default);

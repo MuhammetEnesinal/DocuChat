@@ -238,9 +238,8 @@ public class LlmService : ILlmService
             }
         }
 
-        // Helper modele alındı — binary classifier, main rate-limit'i tüketmemeli.
-        // JSON çıktı: {"standalone": true/false} → dil-bağımsız, "evet/hayir/yes/no" gibi
-        // kelime tahminine gerek yok.
+        // Binary classifier helper modelde çalışır, main rate-limit'i tüketmez.
+        // JSON çıktı: {"standalone": true/false} → dil-bağımsız, kelime tahminine gerek yok.
         var payload = HelperPayload(
             LlmPrompts.IsCacheable.System,
             LlmPrompts.IsCacheable.User(question, historySection),
@@ -317,7 +316,7 @@ public class LlmService : ILlmService
         IEnumerable<ChunkResult> chunks,
         CancellationToken ct = default)
     {
-        // Top 3 chunk × 600 char — daha fazla bağlam → LLM daha çeşitli/derin takip soruları üretir.
+        // İlk 3 chunk, her biri 600 char'a kırpılarak takip sorusu üretimine bağlam olarak verilir.
         var context = string.Join("\n\n", chunks
             .Take(3)
             .Select((c, i) => $"[{i + 1}] {c.Content[..Math.Min(600, c.Content.Length)].Trim()}"));
@@ -654,7 +653,7 @@ public class LlmService : ILlmService
     {
         if (string.IsNullOrWhiteSpace(answer)) return AnswerQualityResult.Failed("empty_answer");
 
-        // Top 5 chunk × 1000 char yeterli; 8 × 1500 helper'a aşırı yük (12K char → ~3K token).
+        // İlk 5 chunk, her biri 1000 char'a kırpılarak kalite doğrulama helper'ına verilir (~3K token).
         var chunkList = chunks.Take(5).ToList();
         var chunksText = string.Join("\n\n", chunkList.Select((c, i) =>
             $"[CHUNK {i + 1} - {c.FileName}]\n{(c.Content.Length > 1000 ? c.Content[..1000] + "..." : c.Content)}"));

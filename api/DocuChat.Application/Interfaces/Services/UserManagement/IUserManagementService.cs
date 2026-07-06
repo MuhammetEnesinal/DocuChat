@@ -3,11 +3,9 @@ using DocuChat.Application.DTOs.Auth;
 
 namespace DocuChat.Application.Interfaces.Services.UserManagement;
 
-/// <summary>
-/// Admin tarafından yapılan user CRUD operasyonları.
-/// IAuthService SADECE kimlik doğrulama akışları (login, password reset, self-service) için kullanılır;
-/// kullanıcı yönetimi (admin tarafından yaratma/güncelleme/silme) bu interface üzerinden yapılır.
-/// </summary>
+// Admin tarafından yapılan user CRUD operasyonları.
+// IAuthService SADECE kimlik doğrulama akışları (login, password reset, self-service) için kullanılır;
+// kullanıcı yönetimi (admin tarafından yaratma/güncelleme/silme) bu interface üzerinden yapılır.
 public interface IUserManagementService
 {
     Task<Result<UserSummaryResponseDto>> CreateUserAsync(RegisterRequestDto request, CancellationToken ct = default);

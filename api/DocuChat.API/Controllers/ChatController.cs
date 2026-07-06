@@ -246,9 +246,7 @@ public class ChatController : ControllerBase
         return result.ToActionResult();
     }
 
-    /// <summary>
-    /// Bir asistan mesajına 👍 / 👎 + sebep gönderir. Kullanıcı başına bir mesaja yalnız 1 feedback.
-    /// </summary>
+    // Bir asistan mesajına beğeni/beğenmeme + sebep gönderir. Kullanıcı başına bir mesaja tek feedback.
     [HttpPost("feedback")]
     [EnableRateLimiting("feedback")]
     [ProducesResponseType(typeof(ApiResponse<FeedbackResponseDto>), StatusCodes.Status200OK)]

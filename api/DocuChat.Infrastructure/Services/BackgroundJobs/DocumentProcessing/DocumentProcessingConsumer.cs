@@ -6,17 +6,12 @@ using DocuChat.Application.Interfaces.UseCases;
 
 namespace DocuChat.Infrastructure.Services.BackgroundJobs.DocumentProcessing;
 
-/// <summary>
-/// DocumentProcessingQueue'dan belge ID'lerini okuyup background processing yapan
-/// IHostedService. SemaphoreSlim ile MAKSIMUM N belge eşzamanlı işlenir → resource
-/// exhaustion'a karşı koruma (Mistral OCR, BGE-M3, Pixtral hepsi paralel resource'lar).
-///
-/// Önceden Task.Run ile fire-and-forget vardı — istek ne kadar gelirse hepsi paralel
-/// başlardı. Şimdi bounded concurrency: N=2-3 (config'den) → predictable yük.
-///
-/// Persistence: DocumentRecoveryService startup'ta Pending/Processing belgeleri
-/// kuyruğa atar → app restart sonrası işler kaybolmaz.
-/// </summary>
+// DocumentProcessingQueue'dan belge ID'lerini okuyup background processing yapan
+// IHostedService. SemaphoreSlim ile MAKSIMUM N belge eşzamanlı işlenir → resource
+// exhaustion'a karşı koruma (Mistral OCR, BGE-M3, Pixtral hepsi paralel resource'lar).
+// Bounded concurrency: N=2-3 (config'den) → öngörülebilir yük.
+// Persistence: DocumentRecoveryService startup'ta Pending/Processing belgeleri
+// kuyruğa atar → app restart sonrası işler kaybolmaz.
 public sealed class DocumentProcessingConsumer : BackgroundService
 {
     private readonly DocumentProcessingQueue _queue;
@@ -107,11 +102,9 @@ public sealed class DocumentProcessingConsumer : BackgroundService
         }
     }
 
-    /// <summary>
-    /// Graceful shutdown — kuyruktan okuma durur, in-flight process'lerin bitmesi (veya 30s timeout)
-    /// beklenir. Aksi halde Task.Run'lar abrupt kesilir, belge "Processing" statusta kalır,
-    /// next restart'ta recovery service tarafından tekrar baştan parse edilir (Mistral tekrar fatura).
-    /// </summary>
+    // Graceful shutdown — kuyruktan okuma durur, in-flight process'lerin bitmesi (veya 30s timeout)
+    // beklenir. Aksi halde Task.Run'lar abrupt kesilir, belge "Processing" statusta kalır,
+    // next restart'ta recovery service tarafından tekrar baştan parse edilir (Mistral tekrar fatura).
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("[DocConsumer] StopAsync — graceful shutdown başlatılıyor (in-flight: {N})", _inflight.Count);

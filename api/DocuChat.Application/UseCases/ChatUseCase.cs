@@ -297,8 +297,7 @@ public class ChatUseCase : IChatUseCase
         // Cache yok: önbelleğe alınabilirlik kontrolü + gerekirse netleştirme sorusu
         var docNamesWithSummary = await _uow.Documents.GetDocumentNamesAndSummariesAsync(ct);
         // Netleştirme kalitesi: belge sayısı makulse "isim — kısa özet" ver → LLM, kriptik dosya
-        // adları yerine İÇERİKTEN seçenek üretir. Belge çoksa token korumak için yalnız isim
-        // (eski davranış) — büyük kurulumda hiçbir şey kötüleşmez.
+        // adları yerine İÇERİKTEN seçenek üretir. Belge çoksa token korumak için yalnız isim verilir.
         var docNameStrings = docNamesWithSummary.Count <= 20
             ? docNamesWithSummary.Select(d => string.IsNullOrWhiteSpace(d.Summary)
                 ? d.FileName

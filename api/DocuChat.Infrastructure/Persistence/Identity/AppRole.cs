@@ -2,8 +2,7 @@
 
 namespace DocuChat.Infrastructure.Persistence.Identity;
 
-// Identity standart IdentityRole — özel field yok (eski Description kullanılmadığı için kaldırıldı).
-// İleride rol-bazlı metadata gerekirse buraya tekrar property eklenebilir.
+// Standart IdentityRole — özel alan taşımaz.
 public class AppRole : IdentityRole
 {
 }

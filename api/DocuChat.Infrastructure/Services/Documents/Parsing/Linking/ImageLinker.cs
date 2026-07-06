@@ -4,14 +4,12 @@ namespace DocuChat.Infrastructure.Services.Documents.Parsing.Linking;
 
 public sealed class ImageLinker
 {
-    /// <summary>
-    /// Resimleri (PdfPig fallback) en yakın SemanticBlock'a iliştirir.
-    /// İki kademeli algoritma:
-    ///   1. CONTAINMENT MATCH — image.NormY ∈ [block.BboxTopNormY, block.BboxBottomNormY]
-    ///      direkt match (en doğru), score = 0
-    ///   2. NEAREST FALLBACK — bbox dışındaki resim için en yakın kenara mesafe
-    ///      (bbox varsa kenar mesafesi, yoksa uniform spacing yaklaşımı)
-    /// </summary>
+    // Resimleri (PdfPig fallback) en yakın SemanticBlock'a iliştirir.
+    // İki kademeli algoritma:
+    // 1. CONTAINMENT MATCH — image.NormY ∈ [block.BboxTopNormY, block.BboxBottomNormY]
+    // direkt match (en doğru), score = 0
+    // 2. NEAREST FALLBACK — bbox dışındaki resim için en yakın kenara mesafe
+    // (bbox varsa kenar mesafesi, yoksa uniform spacing yaklaşımı)
     public void Link(IReadOnlyList<SemanticBlock> blocks, IReadOnlyList<ImageWithBbox> images)
     {
         if (blocks.Count == 0 || images.Count == 0) return;
@@ -39,12 +37,10 @@ public sealed class ImageLinker
         }
     }
 
-    /// <summary>
-    /// İki aşamalı eşleştirme:
-    ///   Pass 1 — bbox containment: image.NormY block aralığında ise direkt seç (score 0).
-    ///            Birden fazla containment durumunda ilki kullanılır.
-    ///   Pass 2 — fallback: bbox kenar mesafesi (bbox varsa) veya uniform spacing mesafesi.
-    /// </summary>
+    // İki aşamalı eşleştirme:
+    // Pass 1 — bbox containment: image.NormY block aralığında ise direkt seç (score 0).
+    // Birden fazla containment durumunda ilki kullanılır.
+    // Pass 2 — fallback: bbox kenar mesafesi (bbox varsa) veya uniform spacing mesafesi.
     private static SemanticBlock? ResolveBestBlock(IReadOnlyList<SemanticBlock> pageBlocks, double imageNormY)
     {
         if (pageBlocks.Count == 0) return null;
@@ -73,7 +69,7 @@ public sealed class ImageLinker
             }
             else
             {
-                // Eski uniform spacing fallback (split'le üretilmiş bbox'sız piece'ler için)
+                // Uniform spacing fallback (split'le üretilmiş bbox'sız piece'ler için)
                 var blockNormY = (i + 0.5) / pageBlocks.Count;
                 dist = Math.Abs(blockNormY - imageNormY);
             }

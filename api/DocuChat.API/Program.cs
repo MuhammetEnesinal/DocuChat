@@ -179,7 +179,7 @@ try
                 PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
-        // NOT: Read endpoint'lerinde rate limit yok (GET ops). Sadece write/expensive ops koruma.
+        // Read endpoint'lerinde rate limit yok (GET ops) — yalnız write/pahalı operasyonlar korunur.
     });
 
     // AddInfrastructure calls AddIdentity<> which sets cookie as default scheme.
@@ -221,7 +221,7 @@ try
         };
     });
 
-    // Suppress cookie auth redirects for API endpoints (belt-and-suspenders)
+    // API endpoint'lerinde cookie auth yönlendirmelerini (302 login) bastırır.
     builder.Services.ConfigureApplicationCookie(options =>
     {
         options.Events.OnRedirectToLogin = ctx =>
@@ -246,7 +246,7 @@ try
         await SeedData.SeedRolesAndAdminAsync(scope.ServiceProvider);
     }
 
-    // NOT: Pending/Processing'de kalan belgelerin recovery'si DocumentRecoveryService (IHostedService)
+    // Pending/Processing'de kalan belgelerin recovery'si DocumentRecoveryService (IHostedService)
     // tarafından yapılır — orada queue'ya enqueue edilir, DocumentProcessingConsumer bounded
     // concurrency ile işler. Burada manuel Failed işaretleme YAPMA — recovery'i nullify eder.
 

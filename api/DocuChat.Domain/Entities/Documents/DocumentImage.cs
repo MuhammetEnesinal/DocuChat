@@ -5,21 +5,19 @@ using DocuChat.Domain.Entities.Documents;
 using DocuChat.Domain.Entities.Caching;
 namespace DocuChat.Domain.Entities.Documents;
 
-/// <summary>
-/// Belgeden çıkarılan görsel (Mistral OCR figüre, PdfPig embedded, XLSX picture).
-/// Birden fazla chunk aynı görseli referans edebilir → DocumentChunks ile ChunkImage join.
-/// </summary>
+// Belgeden çıkarılan görsel (Mistral OCR figüre, PdfPig embedded, XLSX picture).
+// Birden fazla chunk aynı görseli referans edebilir → DocumentChunks ile ChunkImage join.
 public class DocumentImage : BaseEntity
 {
     public Guid DocumentId { get; set; }
 
-    /// <summary>Diskteki dosya yolu (LocalFileStorage)</summary>
+    // Diskteki dosya yolu (LocalFileStorage)
     public string Path { get; set; } = string.Empty;
 
-    /// <summary>Belge içindeki sayfa numarası (1-bazlı, varsa).</summary>
+    // Belge içindeki sayfa numarası (1-bazlı, varsa).
     public int? PageNumber { get; set; }
 
-    /// <summary>SHA256 görsel byte'larından — duplicate tespit için.</summary>
+    // SHA256 görsel byte'larından — duplicate tespit için.
     public string? ContentHash { get; set; }
 
     public Document? Document { get; set; }
