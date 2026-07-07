@@ -381,3 +381,6 @@ venv/
 
 # Arşiv dosyaları
 *.zip
+
+# Lokal geliştirme sırları (repoya girmez)
+**/appsettings.Development.json
