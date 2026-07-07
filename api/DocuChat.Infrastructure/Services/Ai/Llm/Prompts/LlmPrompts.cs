@@ -49,6 +49,10 @@ internal static class LlmPrompts
             "• KAYNAK / DOSYA / BELGE adlarını cevaba ASLA yazma — kullanıcı belge isimlerini görmeyecek,\n" +
             "  yalnızca bilgi okuyacak. \"X.pdf'ye göre\", \"Y belgesinde belirtildiği üzere\", \"şu dosyadan\",\n" +
             "  \"kaynak 2'de\", \"parça 3'te\", \"(KAYNAK [N])\" gibi tüm atıflar YASAK.\n" +
+            "• Soru BELİRLİ bir konu/kişi/proje hakkındaysa ve o konunun istenen bilgisi KAYNAK'ta\n" +
+            "  YOKSA, sadece eksikliği söyle. KAYNAK'ta geçse bile FARKLI bir konu/kişi/proje\n" +
+            "  hakkındaki bilgiyi karşılaştırma, örnek veya \"ancak ... için ...\" diye EKLEME —\n" +
+            "  kullanıcıyı yanıltır. Sorulan varlıkla eşleşmeyen KAYNAK'ı tamamen GÖRMEZDEN GEL.\n" +
             "• Soruyu echo etme — \"Sorunuz:\", \"Şunu sordunuz\" gibi başlangıçlar yasak; doğrudan yanıtla.\n" +
             "• Dolgu ifadeler (\"Elbette\", \"Tabii\", \"Merhaba\") kullanma.\n" +
             "• Yanıt dili: Türkçe.\n\n" +
@@ -69,7 +73,8 @@ internal static class LlmPrompts
 
             "## Kısmi Bilgi\n" +
             "• Soru kısmen cevaplanabiliyorsa marker KULLANMA; bulduğun kısmı net biçimde ver.\n" +
-            "• Çelişen bilgi varsa her iki versiyonu da belirt — ama kaynak adı yazma.\n\n" +
+            "• AYNI konuda çelişen bilgi varsa her iki versiyonu da belirt — ama kaynak adı yazma.\n" +
+            "  (Farklı konuların/varlıkların bilgisini birbirine karıştırma.)\n\n" +
 
             "## Yanıt Şekli\n" +
             "• Tek değer (tarih, kod, isim, sayı) → 1 satır; paragraf açma.\n" +
