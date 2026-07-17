@@ -39,9 +39,14 @@ export default function ManagementPanel() {
     const toast = useToast();
 
     const {
-        departments: allDepartments,
+        // sayfalı yönetim listesi (DepartmentManager)
+        departments: pagedDepartments,
         loading: departmentsLoading,
+        page: deptPage, totalCount: deptTotal, pageSize: deptPageSize, goToPage: goToDeptPage,
+        search: deptSearch, setSearch: setDeptSearch,
         fetchDepartments,
+        // tam liste (seçiciler + rozet)
+        allDepartments, fetchAllDepartments,
         addDepartment,
         renameDepartment,
         removeDepartment,
@@ -102,7 +107,7 @@ export default function ManagementPanel() {
     // Yönetici yalnız belge yönetir → kullanıcı/departman verisi (admin-only endpoint'ler) çekilmez.
     useEffect(() => {
         fetchDocs();
-        if (isAdmin) { fetchUsers(); fetchDepartments(); }
+        if (isAdmin) { fetchUsers(); fetchDepartments(); fetchAllDepartments(); }
     }, [isAdmin]);
 
     // Yöneticinin departmanları /auth/me'den TAZE çekilir. localStorage'daki user nesnesi login
@@ -336,8 +341,14 @@ export default function ManagementPanel() {
 
                 {tab === 'departments' && isAdmin && (
                     <DepartmentManager
-                        departments={allDepartments}
+                        departments={pagedDepartments}
                         loading={departmentsLoading}
+                        search={deptSearch}
+                        onSearchChange={setDeptSearch}
+                        total={deptTotal}
+                        page={deptPage}
+                        pageSize={deptPageSize}
+                        onPageChange={goToDeptPage}
                         onAddClick={() => setDeptModal({})}
                         onEditClick={(d) => setDeptModal({ id: d.id, name: d.name, code: d.code })}
                         onDelete={(id, name) => setConfirmDept({ id, name })}

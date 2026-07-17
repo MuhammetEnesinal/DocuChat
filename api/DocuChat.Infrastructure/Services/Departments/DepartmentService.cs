@@ -38,6 +38,39 @@ public sealed class DepartmentService : IDepartmentService
         return Result<IReadOnlyList<DepartmentResponseDto>>.Success(list);
     }
 
+    public async Task<Result<PaginatedResult<DepartmentResponseDto>>> GetPagedAsync(
+        int page, int pageSize, string? search = null, CancellationToken ct = default)
+    {
+        var query = _db.Departments.AsQueryable();
+
+        // Arama: ad VEYA kod üzerinde case-insensitive (kullanıcı/belge aramasıyla aynı desen).
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var pattern = $"%{search}%";
+            query = query.Where(d =>
+                EF.Functions.ILike(d.Name, pattern) || EF.Functions.ILike(d.Code, pattern));
+        }
+
+        var total = await query.CountAsync(ct);
+        var items = await query
+            .OrderBy(d => d.Name)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(d => new DepartmentResponseDto
+            {
+                Id = d.Id,
+                Name = d.Name,
+                Code = d.Code,
+                CreatedAt = d.CreatedAt,
+                UserCount = d.UserDepartments.Count,
+                DocumentCount = d.Documents.Count,
+            })
+            .ToListAsync(ct);
+
+        return Result<PaginatedResult<DepartmentResponseDto>>.Success(
+            new PaginatedResult<DepartmentResponseDto>(items, total, page, pageSize));
+    }
+
     // Mükerrer kontrolü BİREBİR (büyük/küçük harf duyarlı) — Türkçe'de İ/I ve ı/i ayrı harflerdir,
     // "IT" ile "ıt" farklı kodlardır. DB'deki unique index de aynı semantiği uygular (PostgreSQL
     // varsayılan collation), yani uygulama ile şema tutarlı. excludeId: güncellemede kendini sayma.

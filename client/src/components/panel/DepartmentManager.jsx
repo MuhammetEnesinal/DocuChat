@@ -1,12 +1,18 @@
 import { useState, useCallback } from 'react';
 import IconButton from '../shared/IconButton';
 import Spinner from '../shared/Spinner';
+import SearchInput from '../shared/SearchInput';
+import Pagination from '../shared/Pagination';
 
-// Admin departman yönetimi: ekle / düzenle / sil / çoklu sil.
+// Admin departman yönetimi: ekle / düzenle / sil / çoklu sil. Sayfalı (kullanıcı/belge deseni).
 // DİKKAT: Modal burada RENDER EDİLMEZ — bu kartta backdrop-filter var, o da position:fixed için
 // containing block yaratıyor ve kartın overflow:hidden'ı modal'ı kırpıyordu. Modal ve silme
 // onayları ManagementPanel.jsx'te sayfa seviyesinde açılır (UserModal ile aynı desen).
-export default function DepartmentManager({ departments, loading, onAddClick, onEditClick, onDelete, onBatchDelete }) {
+export default function DepartmentManager({
+    departments, loading, search, onSearchChange,
+    total, page, pageSize, onPageChange,
+    onAddClick, onEditClick, onDelete, onBatchDelete,
+}) {
     const [selectMode, setSelectMode] = useState(false);
     const [selectedIds, setSelectedIds] = useState(new Set());
 
@@ -79,6 +85,9 @@ export default function DepartmentManager({ departments, loading, onAddClick, on
                                 </svg>
                                 Çoklu Seç
                             </button>
+                            <div className="panel-search" style={{ flex: '1 1 180px', maxWidth: '260px', minWidth: 0 }}>
+                                <SearchInput value={search} onChange={onSearchChange} placeholder="Departman ara..." />
+                            </div>
                             <button onClick={onAddClick} className="btn btn-primary btn-sm panel-users-cta" style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
                                     <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
@@ -94,7 +103,9 @@ export default function DepartmentManager({ departments, loading, onAddClick, on
                 <div style={{ textAlign: 'center', padding: '40px' }}><Spinner size={22} /></div>
             ) : departments.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '40px 16px' }}>
-                    <p style={{ fontSize: '14px', color: 'var(--gray-light)' }}>Henüz departman yok. "Departman Ekle" ile başlayın.</p>
+                    <p style={{ fontSize: '14px', color: 'var(--gray-light)' }}>
+                        {search ? `"${search}" ile eşleşen departman bulunamadı.` : 'Henüz departman yok. "Departman Ekle" ile başlayın.'}
+                    </p>
                 </div>
             ) : departments.map((d) => {
                 const locked = isLocked(d);
@@ -139,6 +150,8 @@ export default function DepartmentManager({ departments, loading, onAddClick, on
                     </div>
                 );
             })}
+
+            <Pagination page={page} pageSize={pageSize} totalCount={total ?? departments.length} onPageChange={onPageChange} />
         </div>
     );
 }

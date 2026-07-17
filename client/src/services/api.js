@@ -230,8 +230,9 @@ export const adminDeleteUser = (id) =>
     api.delete(`/admin/users/${id}`);
 
 // Departments (admin-only CRUD)
-export const getDepartments = () =>
-    api.get('/departments');
+// params yoksa TAM liste (seçiciler için); {page,pageSize,search} verilirse sayfalı (yönetim listesi).
+export const getDepartments = (params = {}) =>
+    api.get('/departments', { params });
 
 export const createDepartment = (name, code) =>
     api.post('/departments', { name, code });

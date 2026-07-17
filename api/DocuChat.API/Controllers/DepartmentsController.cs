@@ -32,12 +32,22 @@ public class DepartmentsController : ControllerBase
         _batchDeleteValidator = batchDeleteValidator;
     }
 
+    // page verilirse SQL-level pagination + arama (yönetim listesi); verilmezse tam liste (seçiciler).
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<DepartmentResponseDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public async Task<IActionResult> GetAll(CancellationToken ct)
+    public async Task<IActionResult> GetAll(
+        [FromQuery] int? page, [FromQuery] int pageSize = 20,
+        [FromQuery] string? search = null, CancellationToken ct = default)
     {
+        if (page.HasValue)
+        {
+            var p = Math.Max(1, page.Value);
+            var ps = Math.Clamp(pageSize, 1, 100);
+            var paged = await _departments.GetPagedAsync(p, ps, search, ct);
+            return paged.ToActionResult();
+        }
         var result = await _departments.GetAllAsync(ct);
         return result.ToActionResult();
     }
