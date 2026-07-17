@@ -39,14 +39,14 @@ export default function DepartmentManager({ departments, loading, onAddClick, on
 
     return (
         <div style={{ borderRadius: '16px', overflow: 'hidden', background: 'rgba(32, 26, 58, 0.55)', border: '1px solid rgba(var(--accent-light-rgb),0.14)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', boxShadow: '0 8px 28px -10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)' }}>
-            <div className="admin-list-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
+            <div className="panel-list-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
                 {!selectMode ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
                         <h2 style={{ fontSize: '16.5px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Departmanlar</h2>
                         <span style={{ fontSize: '12px', fontWeight: 600, padding: '3px 10px', borderRadius: '999px', background: 'rgba(var(--accent-rgb),0.16)', border: '1px solid rgba(var(--accent-light-rgb),0.25)', color: '#d8ccff', whiteSpace: 'nowrap' }}>{departments.length} departman</span>
                     </div>
                 ) : (
-                    <div className="admin-select-info" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                    <div className="panel-select-info" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
                         <button onClick={toggleSelectAll} className="btn btn-ghost btn-sm" disabled={selectable.length === 0}>
                             {allSelected ? 'Seçimi Kaldır' : 'Tümünü Seç'}
                         </button>
@@ -55,7 +55,7 @@ export default function DepartmentManager({ departments, loading, onAddClick, on
                 )}
 
                 {/* Sınıflar index.css'teki dar-ekran kurallarını devralır (UserList ile aynı) */}
-                <div className={selectMode ? 'admin-select-actions' : 'admin-users-actions'}
+                <div className={selectMode ? 'panel-select-actions' : 'panel-users-actions'}
                     style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', flex: '1 1 auto', justifyContent: 'flex-end', minWidth: 0 }}>
                     {selectMode ? (
                         <>
@@ -79,7 +79,7 @@ export default function DepartmentManager({ departments, loading, onAddClick, on
                                 </svg>
                                 Çoklu Seç
                             </button>
-                            <button onClick={onAddClick} className="btn btn-primary btn-sm admin-users-cta" style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            <button onClick={onAddClick} className="btn btn-primary btn-sm panel-users-cta" style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
                                     <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
                                 </svg>

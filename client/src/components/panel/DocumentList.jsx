@@ -107,7 +107,7 @@ export default function DocumentList({
     return (
         <>
             <div style={{ borderRadius: '16px', overflow: 'hidden', background: 'rgba(32, 26, 58, 0.55)', border: '1px solid rgba(var(--accent-light-rgb),0.14)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', boxShadow: '0 8px 28px -10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)' }}>
-                <div className="admin-list-header" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap' }}>
+                <div className="panel-list-header" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap' }}>
                     {/* Seçim modunda başlık gizlenir; yerine sol tarafta seçim kontrolleri gelir */}
                     {!selectMode ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
@@ -115,14 +115,14 @@ export default function DocumentList({
                             <span style={{ fontSize: '12px', fontWeight: 600, padding: '3px 10px', borderRadius: '999px', background: 'rgba(var(--accent-rgb),0.16)', border: '1px solid rgba(var(--accent-light-rgb),0.25)', color: '#d8ccff', whiteSpace: 'nowrap' }}>{total ?? documents.length} belge</span>
                         </div>
                     ) : (
-                        <div className="admin-select-info" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                        <div className="panel-select-info" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
                             <button onClick={toggleSelectAll} className="btn btn-ghost btn-sm" disabled={selectableDocs.length === 0}>
                                 {allSelected ? 'Seçimi Kaldır' : 'Tümünü Seç'}
                             </button>
                             <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>{selectedIds.size} seçili</span>
                         </div>
                     )}
-                    <div className={selectMode ? 'admin-select-actions' : 'admin-list-actions'} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flex: '1 1 auto', justifyContent: 'flex-end', minWidth: 0 }}>
+                    <div className={selectMode ? 'panel-select-actions' : 'panel-list-actions'} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flex: '1 1 auto', justifyContent: 'flex-end', minWidth: 0 }}>
                         {selectMode ? (
                             <>
                                 {/* İndir */}
@@ -163,7 +163,7 @@ export default function DocumentList({
                                     </svg>
                                     Çoklu Seç
                                 </button>
-                                <div className="admin-search" style={{ flex: '1 1 180px', maxWidth: '260px', minWidth: 0 }}>
+                                <div className="panel-search" style={{ flex: '1 1 180px', maxWidth: '260px', minWidth: 0 }}>
                                     <SearchInput value={search} onChange={onSearchChange} placeholder="Belge ara..." />
                                 </div>
                             </>
@@ -218,7 +218,7 @@ export default function DocumentList({
                                     {doc.processingNotes && <p style={{ fontSize: '12px', color: '#fb923c', marginTop: '2px' }}>⚠ {doc.processingNotes}</p>}
                                 </div>
                             </div>
-                            <div className="admin-row-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: 'auto' }}>
+                            <div className="panel-row-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: 'auto' }}>
                                 <span className="doc-status-badge" style={{
                                     fontSize: '12px', padding: '3px 10px', borderRadius: '8px', fontWeight: 500,
                                     background: st.bg, color: st.color,

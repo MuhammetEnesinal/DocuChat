@@ -244,10 +244,10 @@ export default function ManagementPanel() {
                 </div>
             </div>
 
-            <div className="admin-content" style={{ position: 'relative', zIndex: 1, maxWidth: '1100px', margin: '0 auto', padding: 'clamp(20px, 4vw, 40px) clamp(12px, 3vw, 28px)' }}>
+            <div className="panel-content" style={{ position: 'relative', zIndex: 1, maxWidth: '1100px', margin: '0 auto', padding: 'clamp(20px, 4vw, 40px) clamp(12px, 3vw, 28px)' }}>
                 {/* Sekmeler: içeriğin üstünde ortalı */}
                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 'clamp(16px, 3vw, 28px)' }}>
-                    <div className="admin-tabs" style={{ display: 'flex', gap: '4px', padding: '5px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', backdropFilter: 'blur(20px) saturate(180%)' }}>
+                    <div className="panel-tabs" style={{ display: 'flex', gap: '4px', padding: '5px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', backdropFilter: 'blur(20px) saturate(180%)' }}>
                         {[
                             { key: 'documents', label: 'Belgeler', count: docGrandTotal, icon: <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /> },
                             // Kullanıcı ve departman yönetimi yalnız admin'e görünür.
@@ -256,9 +256,9 @@ export default function ManagementPanel() {
                                 { key: 'departments', label: 'Departmanlar', count: allDepartments.length, icon: <><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></> },
                             ] : []),
                         ].map(t => (
-                            <button key={t.key} onClick={() => setTab(t.key)} className={`btn admin-tab-btn ${tab === t.key ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '9px 16px', fontWeight: 600 }}>
+                            <button key={t.key} onClick={() => setTab(t.key)} className={`btn panel-tab-btn ${tab === t.key ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '9px 16px', fontWeight: 600 }}>
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.icon}</svg>
-                                <span className="admin-tab-label">{t.label}</span>
+                                <span className="panel-tab-label">{t.label}</span>
                                 <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '8px', fontWeight: 700, background: tab === t.key ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.1)', color: tab === t.key ? 'white' : 'var(--text-secondary)', minWidth: '22px', textAlign: 'center' }}>{t.count}</span>
                             </button>
                         ))}

@@ -16,7 +16,7 @@ const ResetPassword = lazy(() => import('./pages/ResetPassword'));
 function PrivateRoute({ children, requiredRole }) {
     const { isAuthenticated, isAdmin, isManager } = useAuth();
     if (!isAuthenticated) return <Navigate to="/login" replace />;
-    // /admin: admin VEYA yönetici erişebilir (yönetici içeride yalnız Belgeler sekmesini görür).
+    // /panel: admin VEYA yönetici erişebilir (yönetici içeride yalnız Belgeler sekmesini görür).
     if (requiredRole === 'AdminOrManager' && !isAdmin && !isManager)
         return <Navigate to="/chat" replace />;
     if (requiredRole === 'Admin' && !isAdmin) return <Navigate to="/chat" replace />;

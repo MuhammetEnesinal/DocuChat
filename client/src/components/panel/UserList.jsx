@@ -64,7 +64,7 @@ export default function UserList({
     return (
       <>
         <div style={{ borderRadius: '16px', overflow: 'hidden', background: 'rgba(32, 26, 58, 0.55)', border: '1px solid rgba(var(--accent-light-rgb),0.14)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', boxShadow: '0 8px 28px -10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)' }}>
-            <div className="admin-list-header" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+            <div className="panel-list-header" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
                 {/* Seçim modunda başlık gizlenir; yerine sol tarafta seçim kontrolleri gelir */}
                 {!selectMode ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
@@ -72,14 +72,14 @@ export default function UserList({
                         <span style={{ fontSize: '12px', fontWeight: 600, padding: '3px 10px', borderRadius: '999px', background: 'rgba(var(--accent-rgb),0.16)', border: '1px solid rgba(var(--accent-light-rgb),0.25)', color: '#d8ccff', whiteSpace: 'nowrap' }}>{total ?? users.length} kullanıcı</span>
                     </div>
                 ) : (
-                    <div className="admin-select-info" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                    <div className="panel-select-info" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
                         <button onClick={toggleSelectAll} className="btn btn-ghost btn-sm" disabled={selectableUsers.length === 0}>
                             {allSelected ? 'Seçimi Kaldır' : 'Tümünü Seç'}
                         </button>
                         <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>{selectedIds.size} seçili</span>
                     </div>
                 )}
-                <div className={selectMode ? 'admin-select-actions' : 'admin-users-actions'} style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', flex: '1 1 auto', justifyContent: 'flex-end', minWidth: 0 }}>
+                <div className={selectMode ? 'panel-select-actions' : 'panel-users-actions'} style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', flex: '1 1 auto', justifyContent: 'flex-end', minWidth: 0 }}>
                     {selectMode ? (
                         <>
                             <button onClick={handleBatchDelete} disabled={selectedIds.size === 0}
@@ -103,7 +103,7 @@ export default function UserList({
                             </button>
                             {/* Yetki filtresi — server-side (sayfalama ile tutarlı olsun diye) */}
                             <select
-                                className="admin-role-filter"
+                                className="panel-role-filter"
                                 value={roleFilter ?? ''}
                                 onChange={(e) => onRoleFilterChange?.(e.target.value)}
                                 title="Yetkiye göre filtrele"
@@ -112,11 +112,11 @@ export default function UserList({
                                     <option key={r.value} value={r.value} style={{ background: '#1c2034', color: '#e8e8f0' }}>{r.label}</option>
                                 ))}
                             </select>
-                            <div className="admin-search" style={{ flex: '1 1 180px', maxWidth: '260px', minWidth: 0 }}>
+                            <div className="panel-search" style={{ flex: '1 1 180px', maxWidth: '260px', minWidth: 0 }}>
                                 <SearchInput value={search} onChange={onSearchChange} placeholder="Kullanıcı ara..." />
                             </div>
                             {onBulkImport && (
-                                <button onClick={onBulkImport} className="admin-users-cta"
+                                <button onClick={onBulkImport} className="panel-users-cta"
                                     title="Excel ile toplu kullanıcı yükle"
                                     style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '10px', fontSize: '14px', fontWeight: 500, color: '#86efac', background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.35)', cursor: 'pointer', whiteSpace: 'nowrap' }}
                                     onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(34,197,94,0.22)'; e.currentTarget.style.color = '#fff'; }}
@@ -129,7 +129,7 @@ export default function UserList({
                                     Excel Yükle
                                 </button>
                             )}
-                            <button onClick={onAdd} className="admin-users-cta"
+                            <button onClick={onAdd} className="panel-users-cta"
                                 style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '10px', fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)', background: 'var(--accent)', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}
                                 onMouseEnter={(e) => e.currentTarget.style.opacity = '0.85'}
                                 onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}>
@@ -188,7 +188,7 @@ export default function UserList({
                             </div>
                         </div>
                         {!isAdmin && !selectMode && (
-                            <div className="admin-row-actions" style={{ display: 'flex', gap: '4px', flexShrink: 0, marginLeft: 'auto' }}>
+                            <div className="panel-row-actions" style={{ display: 'flex', gap: '4px', flexShrink: 0, marginLeft: 'auto' }}>
                                 <IconButton onClick={() => onEdit(u)} title="Düzenle" hoverColor="var(--accent-light)" hoverBg="rgba(var(--accent-light-rgb),0.1)">
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />

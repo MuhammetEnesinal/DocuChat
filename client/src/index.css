@@ -416,29 +416,29 @@ input::-webkit-textfield-decoration-container {
     display: none !important;
 }
 
-/* ── Admin responsive ── */
+/* ── Panel responsive ── */
 @media (max-width: 640px) {
-    .admin-tabs {
+    .panel-tabs {
         width: 100%;
     }
 
-    .admin-tab-btn {
+    .panel-tab-btn {
         flex: 1;
         justify-content: center;
     }
 
-    .admin-content {
+    .panel-content {
         padding: 16px;
     }
 
     /* Liste başlığı dar ekranda: bloklar alt alta, TAM genişlik, hepsi sola yaslı */
-    .admin-list-header {
+    .panel-list-header {
         flex-direction: column;
         align-items: stretch;
         gap: 10px;
     }
 
-    .admin-search {
+    .panel-search {
         width: 100%;
         max-width: none !important;  /* inline maxWidth: 260px'i ez — arama tam genişlik */
         flex: 1 1 auto !important;
@@ -446,13 +446,13 @@ input::-webkit-textfield-decoration-container {
 
     /* Yetki filtresi: dar ekranda kendi satırında tam genişlik — aksi halde "Çoklu Seç" ile
        aynı satırda sıkışıp okunmaz hale geliyordu. */
-    .admin-role-filter {
+    .panel-role-filter {
         width: 100%;
         flex: 1 1 100% !important;
     }
 
-    .admin-list-actions,
-    .admin-users-actions {
+    .panel-list-actions,
+    .panel-users-actions {
         width: 100%;
         display: flex;
         gap: 8px;
@@ -466,36 +466,36 @@ input::-webkit-textfield-decoration-container {
     }
 
     /* Excel Yükle + Ekle: dar ekranda eşit genişlik (50/50), ortalı */
-    .admin-users-cta {
+    .panel-users-cta {
         flex: 1 1 0;
         justify-content: center;
     }
 
     /* Seçim modu: üst satır (Tümünü Seç | X seçili) iki uca yaslı, tam genişlik */
-    .admin-select-info {
+    .panel-select-info {
         width: 100%;
         justify-content: space-between;
     }
 
     /* Seçim modu aksiyonları: 2 sütunlu EŞİT grid — düzensiz sarma olmaz */
-    .admin-select-actions {
+    .panel-select-actions {
         width: 100%;
         display: grid !important;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 8px;
     }
-    .admin-select-actions > button {
+    .panel-select-actions > button {
         width: 100%;
         justify-content: center;
     }
 
-    .admin-tab-label {
+    .panel-tab-label {
         display: none;
     }
 
     /* Satır aksiyonları alta sardığında: sağda asılı durmak yerine tam genişlik,
        eşit aralıklı, üstünde ince ayırıcı olan düzenli bir aksiyon şeridi */
-    .admin-row-actions {
+    .panel-row-actions {
         width: 100%;
         margin-left: 0 !important;
         justify-content: space-evenly;
