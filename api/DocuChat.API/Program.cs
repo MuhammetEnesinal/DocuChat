@@ -7,6 +7,8 @@ using DocuChat.Infrastructure.Persistence;
 using DocuChat.Infrastructure.Persistence.Context;
 using DocuChat.Infrastructure.Persistence.Exceptions;
 using DocuChat.Infrastructure.Persistence.Seed;
+using DocuChat.Infrastructure.Services.Auth;
+using DocuChat.Domain.Enums;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -273,15 +275,45 @@ try
     app.UseAuthentication();
     app.UseAuthorization();
 
-    // /uploads/* sadece authenticated kullanıcılar için.
+    // /uploads/* — authentication + DEPARTMAN yetkisi. Görsel içeriği = belge içeriği; departman
+    // izolasyonu burada da uygulanmalı. Aksi halde authenticated herhangi bir kullanıcı, başka
+    // departmanın görselini path'i bilerek çekebilir (CanAccessDocument'i atlayan tek delik).
+    // Path yapısı: /uploads/{documentId}/img_xxx.jpg → ilk segment'ten departman çözülür.
     // JWT bearer header VEYA auth_token cookie üzerinden (OnMessageReceived event).
     app.Use(async (ctx, next) =>
     {
-        if (ctx.Request.Path.StartsWithSegments("/uploads")
-            && !(ctx.User.Identity?.IsAuthenticated ?? false))
+        if (ctx.Request.Path.StartsWithSegments("/uploads", out var uploadRest))
         {
-            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            return;
+            if (!(ctx.User.Identity?.IsAuthenticated ?? false))
+            {
+                ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return;
+            }
+
+            // Admin tüm departmanlara erişir → departman kontrolü atlanır.
+            if (!ctx.User.IsInRole(Roles.Admin))
+            {
+                // İlk path segmenti = belge ID'si (GUID). GUID değilse doğrulanamaz → reddet.
+                var firstSeg = uploadRest.Value?.Trim('/').Split('/', 2)[0];
+                if (!Guid.TryParse(firstSeg, out var uploadDocId))
+                {
+                    ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    return;
+                }
+
+                var db = ctx.RequestServices.GetRequiredService<AppDbContext>();
+                var docDeptId = await db.Documents
+                    .Where(d => d.Id == uploadDocId)
+                    .Select(d => (Guid?)d.DepartmentId)
+                    .FirstOrDefaultAsync();
+
+                var userDepts = ctx.User.FindAll(AppClaimTypes.Department).Select(c => c.Value);
+                if (docDeptId is null || !userDepts.Contains(docDeptId.Value.ToString()))
+                {
+                    ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    return;
+                }
+            }
         }
         await next();
     });
