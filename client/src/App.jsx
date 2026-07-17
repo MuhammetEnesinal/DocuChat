@@ -7,7 +7,7 @@ import Spinner from './components/shared/Spinner';
 
 const Login = lazy(() => import('./pages/Login'));
 const Chat = lazy(() => import('./pages/Chat'));
-const Admin = lazy(() => import('./pages/Admin'));
+const ManagementPanel = lazy(() => import('./pages/ManagementPanel'));
 const Profile = lazy(() => import('./pages/Profile'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
@@ -65,7 +65,7 @@ export default function App() {
                         <Route path="/reset-password" element={<GuestRoute><ResetPassword /></GuestRoute>} />
                         <Route path="/chat" element={<PrivateRoute><Chat /></PrivateRoute>} />
                         <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
-                        <Route path="/admin" element={<PrivateRoute requiredRole="AdminOrManager"><Admin /></PrivateRoute>} />
+                        <Route path="/panel" element={<PrivateRoute requiredRole="AdminOrManager"><ManagementPanel /></PrivateRoute>} />
                         <Route path="/404" element={<NotFound />} />
                         <Route path="*" element={<Navigate to="/404" replace />} />
                     </Routes>

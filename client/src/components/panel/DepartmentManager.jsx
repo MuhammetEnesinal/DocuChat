@@ -5,7 +5,7 @@ import Spinner from '../shared/Spinner';
 // Admin departman yönetimi: ekle / düzenle / sil / çoklu sil.
 // DİKKAT: Modal burada RENDER EDİLMEZ — bu kartta backdrop-filter var, o da position:fixed için
 // containing block yaratıyor ve kartın overflow:hidden'ı modal'ı kırpıyordu. Modal ve silme
-// onayları Admin.jsx'te sayfa seviyesinde açılır (UserModal ile aynı desen).
+// onayları ManagementPanel.jsx'te sayfa seviyesinde açılır (UserModal ile aynı desen).
 export default function DepartmentManager({ departments, loading, onAddClick, onEditClick, onDelete, onBatchDelete }) {
     const [selectMode, setSelectMode] = useState(false);
     const [selectedIds, setSelectedIds] = useState(new Set());
