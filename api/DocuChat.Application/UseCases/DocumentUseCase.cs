@@ -882,16 +882,33 @@ public class DocumentUseCase : IDocumentUseCase
         return string.Join("\n", lines);
     }
 
+    // Belge erişim/izolasyon yardımcıları.
+    // Kapsam: admin → null (tüm departmanlar); yönetici → yalnız atandığı departmanlar.
+    private IReadOnlyList<Guid>? DocumentDepartmentScope() =>
+        _currentUser.IsInRole(Roles.Admin) ? null : _currentUser.DepartmentIds;
+
+    // Bir belgeye erişim: admin her belgeye; yönetici yalnız kendi departmanındaki belgeye.
+    private bool CanAccessDocument(Document doc) =>
+        _currentUser.IsInRole(Roles.Admin) || _currentUser.DepartmentIds.Contains(doc.DepartmentId);
+
     public async Task<Result<DocumentResponseDto>> UploadAsync(
         UploadDocumentRequestDto req, CancellationToken ct)
     {
-        // Duplicate check — aynı kullanıcı + aynı isim varsa disk'e bile yazma
-        var alreadyExists = await _uow.Documents.ExistsByUserAndNameAsync(
-            _currentUser.UserId, req.FileName, ct);
+        // Departman yetkisi: yönetici yalnız atandığı departmana yükleyebilir (admin her departmana).
+        // Frontend'e güvenilmez — sunucu tarafı zorunlu kontrol.
+        if (!_currentUser.IsInRole(Roles.Admin) && !_currentUser.DepartmentIds.Contains(req.DepartmentId))
+            return Result<DocumentResponseDto>.Failure(
+                Error.Forbidden("Bu departmana belge yükleme yetkiniz yok."));
+
+        // Duplicate check — AYNI DEPARTMANDA aynı isim varsa disk'e bile yazma.
+        // Kapsam departman: aynı dosya farklı departmanlara yüklenebilir (her departmanın kendi
+        // kopyası olur), aynı departmana kim yüklerse yüklesin ikinci kez giremez.
+        var alreadyExists = await _uow.Documents.ExistsByDepartmentAndNameAsync(
+            req.DepartmentId, req.FileName, ct);
         if (alreadyExists)
         {
             return Result<DocumentResponseDto>.Failure(
-                Error.Conflict($"'{req.FileName}' isimli bir belge zaten yüklü. Önce silin veya farklı isimde yükleyin."));
+                Error.Conflict($"'{req.FileName}' isimli bir belge bu departmanda zaten yüklü. Önce silin veya farklı isimde yükleyin."));
         }
 
         var declaredType = DetectFileType(req.ContentType);
@@ -918,21 +935,22 @@ public class DocumentUseCase : IDocumentUseCase
                 $"'{req.FileName}' içerik formatı bildirilen tip ({req.ContentType}) ile eşleşmiyor."));
         }
 
-        // ContentHash dedup — aynı kullanıcı aynı içeriği farklı isimle yüklerse rejected.
+        // ContentHash dedup — AYNI DEPARTMANA aynı içerik farklı isimle yüklenirse rejected.
         var contentHash = Convert.ToHexString(
             SHA256.HashData(new ReadOnlySpan<byte>(contentBytes, 0, contentLength)));
-        var existingByHash = await _uow.Documents.FindByUserAndContentHashAsync(
-            _currentUser.UserId, contentHash, ct);
+        var existingByHash = await _uow.Documents.FindByDepartmentAndContentHashAsync(
+            req.DepartmentId, contentHash, ct);
         if (existingByHash is not null)
         {
             return Result<DocumentResponseDto>.Failure(Error.Conflict(
-                $"Bu belgenin içeriği daha önce '{existingByHash.FileName}' adıyla yüklenmiş. Aynı içerik tekrar yüklenemez."));
+                $"Bu belgenin içeriği bu departmanda daha önce '{existingByHash.FileName}' adıyla yüklenmiş. Aynı içerik aynı departmana tekrar yüklenemez."));
         }
 
         // Belge kaydını önce oluştur ki dosya ve görselleri {belgeId}/ alt klasöründe toplansın.
         var doc = new Document
         {
             UserId = _currentUser.UserId,
+            DepartmentId = req.DepartmentId,
             FileName = req.FileName,
             ContentType = req.ContentType,
             FileSizeBytes = req.FileSizeBytes,
@@ -951,11 +969,11 @@ public class DocumentUseCase : IDocumentUseCase
         }
         catch (Exception ex) when (_dbExceptionInspector.IsUniqueConstraintViolation(ex))
         {
-            // DB unique index (UserId, FileName) — race koşulunda yakalanır (yukarıdaki check
-            // ile aynı anda gelen ikinci istek). Disk'e yazılan dosyayı temizle.
+            // DB unique index (DepartmentId, FileName) — race koşulunda yakalanır (yukarıdaki
+            // check ile aynı anda gelen ikinci istek). Disk'e yazılan dosyayı temizle.
             try { await _fileStorage.DeleteAsync(doc.StoragePath!, CancellationToken.None); } catch { }
             return Result<DocumentResponseDto>.Failure(
-                Error.Conflict($"'{req.FileName}' isimli bir belge zaten yüklü. Önce silin veya farklı isimde yükleyin."));
+                Error.Conflict($"'{req.FileName}' isimli bir belge bu departmanda zaten yüklü. Önce silin veya farklı isimde yükleyin."));
         }
 
         // Heavy lifting (parse + chunk + embed) HTTP path'inde değil — browser timeout'una düşer.
@@ -1146,7 +1164,7 @@ public class DocumentUseCase : IDocumentUseCase
     public async Task<Result<IReadOnlyList<DocumentResponseDto>>> GetAllDocumentsAsync(
         string? search = null, CancellationToken ct = default)
     {
-        var docs = await _uow.Documents.SearchAsync(search, ct);
+        var docs = await _uow.Documents.SearchAsync(search, DocumentDepartmentScope(), ct);
         var dtos = docs.Select(d => d.Adapt<DocumentResponseDto>()).ToList();
         return Result<IReadOnlyList<DocumentResponseDto>>.Success(dtos);
     }
@@ -1154,7 +1172,7 @@ public class DocumentUseCase : IDocumentUseCase
     public async Task<Result<PaginatedResult<DocumentResponseDto>>> GetAllDocumentsPagedAsync(
         int page, int pageSize, string? search, CancellationToken ct)
     {
-        var paged = await _uow.Documents.GetPagedAsync(page, pageSize, search, ct);
+        var paged = await _uow.Documents.GetPagedAsync(page, pageSize, search, DocumentDepartmentScope(), ct);
         var dtos = paged.Items.Select(d => d.Adapt<DocumentResponseDto>()).ToList();
         return Result<PaginatedResult<DocumentResponseDto>>.Success(
             new PaginatedResult<DocumentResponseDto>(dtos, paged.TotalCount, paged.Page, paged.PageSize));
@@ -1171,6 +1189,12 @@ public class DocumentUseCase : IDocumentUseCase
         {
             var doc = await _uow.Documents.GetByIdAsync(id, ct);
             if (doc is null) continue;
+            if (!CanAccessDocument(doc))
+            {
+                skipped.Add(id);
+                _logger.LogWarning("[Delete] Atlandı — departman yetkisi yok. DocId: {DocId}", id);
+                continue;
+            }
             if (doc.Status == DocumentStatus.Processing)
             {
                 skipped.Add(id);
@@ -1209,6 +1233,9 @@ public class DocumentUseCase : IDocumentUseCase
         if (doc is null)
             return Result<bool>.Failure(Error.NotFound("Belge bulunamadı."));
 
+        if (!CanAccessDocument(doc))
+            return Result<bool>.Failure(Error.Forbidden("Bu belgeye erişim yetkiniz yok."));
+
         if (doc.Status == DocumentStatus.Processing)
             return Result<bool>.Failure(Error.Validation("Belge işleniyor, lütfen tamamlanmasını bekleyin."));
 
@@ -1238,6 +1265,9 @@ public class DocumentUseCase : IDocumentUseCase
         if (doc is null)
             return Result<IReadOnlyList<DocumentChunkResponseDto>>.Failure(Error.NotFound("Belge bulunamadı."));
 
+        if (!CanAccessDocument(doc))
+            return Result<IReadOnlyList<DocumentChunkResponseDto>>.Failure(Error.Forbidden("Bu belgeye erişim yetkiniz yok."));
+
         var chunks = await _uow.Chunks.GetByDocumentIdAsync(id, ct);
         var dtos = chunks
             .Select(c => c.Adapt<DocumentChunkResponseDto>())  // GetByDocumentIdAsync zaten ChunkIndex'e göre sıralı döner
@@ -1251,6 +1281,9 @@ public class DocumentUseCase : IDocumentUseCase
         var doc = await _uow.Documents.GetByIdAsync(id, ct);
         if (doc is null)
             return Result<DocumentResponseDto>.Failure(Error.NotFound("Belge bulunamadı."));
+
+        if (!CanAccessDocument(doc))
+            return Result<DocumentResponseDto>.Failure(Error.Forbidden("Bu belgeye erişim yetkiniz yok."));
 
         if (doc.StoragePath is null)
             return Result<DocumentResponseDto>.Failure(Error.Validation("Orijinal dosya bulunamadı."));
@@ -1291,6 +1324,7 @@ public class DocumentUseCase : IDocumentUseCase
         {
             var doc = await _uow.Documents.GetByIdAsync(id, ct);
             if (doc is null) { notFound++; continue; }
+            if (!CanAccessDocument(doc)) { skipped++; continue; }
             if (doc.StoragePath is null) { skipped++; continue; }
             if (doc.Status == DocumentStatus.Pending || doc.Status == DocumentStatus.Processing)
             {
@@ -1310,7 +1344,7 @@ public class DocumentUseCase : IDocumentUseCase
         foreach (var id in idList)
         {
             var doc = await _uow.Documents.GetByIdAsync(id, ct);
-            if (doc is null || doc.Status != DocumentStatus.Pending) continue;
+            if (doc is null || doc.Status != DocumentStatus.Pending || !CanAccessDocument(doc)) continue;
             await ScheduleBackgroundProcessingAsync(id, ct);
         }
 
@@ -1331,7 +1365,7 @@ public class DocumentUseCase : IDocumentUseCase
         if (doc is null || doc.StoragePath is null)
             return Result<(Stream, string, string)>.Failure(Error.NotFound("Belge bulunamadı."));
 
-        if (doc.UserId != _currentUser.UserId && !_currentUser.IsInRole(Roles.Admin))
+        if (!CanAccessDocument(doc))
             return Result<(Stream, string, string)>.Failure(Error.Forbidden("Bu belgeye erişim yetkiniz yok."));
 
         try

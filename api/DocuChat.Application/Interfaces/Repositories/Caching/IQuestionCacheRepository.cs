@@ -27,9 +27,12 @@ public interface IQuestionCacheRepository : IRepository<QuestionCache>
 {
     // Cosine similarity ile en yakın cache eşleşmesini döner (threshold altıysa null).
     // Similarity skoru da döner — caller yüksek-sim hit'lerde ekstra validation atlayabilir.
+    // departmentIds: departman izolasyonu. null = filtre yok (admin, tüm kayıtlar); doluysa
+    //   yalnız DepartmentId'si bu kümede olan kayıtlar (global/null kapsamlılar hariç).
     Task<CacheMatch?> FindSimilarAsync(
         float[] queryVector,
         double threshold,
+        IReadOnlyList<Guid>? departmentIds = null,
         CancellationToken ct = default);
 
     // Upsert: aynı normalize edilmiş QuestionText varsa cevap/vector güncellenir ve HitCount++,
@@ -39,7 +42,9 @@ public interface IQuestionCacheRepository : IRepository<QuestionCache>
 
     Task IncrementHitAsync(Guid id, CancellationToken ct = default);
 
-    Task<IReadOnlyList<string>> GetTopByHitCountAsync(int limit, CancellationToken ct = default);
+    // Popüler sorular. departmentIds: departman izolasyonu — null = filtre yok (admin); doluysa
+    // yalnız o departmanlara etiketli kayıtlar. Soru METİNLERİ de bilgi sızdırır, filtre şart.
+    Task<IReadOnlyList<string>> GetTopByHitCountAsync(int limit, IReadOnlyList<Guid>? departmentIds = null, CancellationToken ct = default);
 
     // maxAge süresi geçmiş, hiç kullanılmayan cache kayıtlarını siler.
     Task<int> DeleteExpiredAsync(TimeSpan maxAge, CancellationToken ct = default);

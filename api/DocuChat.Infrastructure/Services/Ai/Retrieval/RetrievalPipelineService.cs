@@ -35,6 +35,7 @@ public sealed class RetrievalPipelineService : IRetrievalPipeline
         bool isStandalone = false,
         bool useBoost = true,
         float[]? precomputedQueryVector = null,
+        IReadOnlyList<Guid>? departmentIds = null,
         CancellationToken ct = default)
     {
         // History bazlı enriched query (BM25 için kısa, embedding için zenginleştirilmiş)
@@ -75,7 +76,7 @@ public sealed class RetrievalPipelineService : IRetrievalPipeline
         // tarafından kullanılır; embedText doluysa metin farklı olduğu için yeniden embed edilir.
         var chunks = await _vectorSearch.SearchAsync(
             question, hydeText: embedText, bm25Query: bm25Query,
-            precomputedQueryVector: precomputedQueryVector, ct: ct);
+            precomputedQueryVector: precomputedQueryVector, departmentIds: departmentIds, ct: ct);
 
         return chunks.ToList();
     }

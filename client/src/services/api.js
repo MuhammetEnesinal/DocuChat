@@ -175,9 +175,10 @@ export const getDocuments = (params = {}) =>
 export const getDocumentChunks = (id) =>
     api.get(`/documents/${id}/chunks`);
 
-export const uploadDocument = (file, onProgress) => {
+export const uploadDocument = (file, departmentId, onProgress) => {
     const form = new FormData();
     form.append('File', file);
+    form.append('DepartmentId', departmentId);
     return api.post('/documents/upload', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
         onUploadProgress: (e) => {
@@ -219,14 +220,31 @@ export const submitFeedback = ({ messageId, rating, categories = null, reasonTex
 export const adminGetUsers = (params = {}) =>
     api.get('/admin/users', { params });
 
-export const adminCreateUser = (fullName, email, personnelCode) =>
-    api.post('/admin/users', { fullName, email, personnelCode });
+export const adminCreateUser = (fullName, email, personnelCode, role, departmentIds) =>
+    api.post('/admin/users', { fullName, email, personnelCode, role, departmentIds });
 
-export const adminUpdateUser = (id, fullName, email, personnelCode) =>
-    api.put(`/admin/users/${id}`, { fullName, email, personnelCode });
+export const adminUpdateUser = (id, fullName, email, personnelCode, role, departmentIds) =>
+    api.put(`/admin/users/${id}`, { fullName, email, personnelCode, role, departmentIds });
 
 export const adminDeleteUser = (id) =>
     api.delete(`/admin/users/${id}`);
+
+// Departments (admin-only CRUD)
+export const getDepartments = () =>
+    api.get('/departments');
+
+export const createDepartment = (name, code) =>
+    api.post('/departments', { name, code });
+
+export const updateDepartment = (id, name, code) =>
+    api.put(`/departments/${id}`, { name, code });
+
+export const deleteDepartment = (id) =>
+    api.delete(`/departments/${id}`);
+
+// Çoklu departman silme — tek istek. Bağlı kullanıcı/belgesi olanlar serverda atlanır.
+export const deleteDepartmentsBatch = (ids) =>
+    api.post('/departments/batch-delete', { ids });
 
 // Çoklu kullanıcı silme — tek istek (admin self-delete + son admin koruması serverda).
 export const adminDeleteUsersBatch = (ids) =>

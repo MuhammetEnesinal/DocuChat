@@ -19,9 +19,12 @@ export function useUsers() {
     const pageRef = useRef(1);
     const searchRef = useRef('');
     const searchTimerRef = useRef(null);
+    // Yetki filtresi ('' = tümü). Ref: fetchUsers callback'i güncel değeri okusun.
+    const [roleFilter, setRoleFilterState] = useState('');
+    const roleRef = useRef('');
     const [showUserModal, setShowUserModal] = useState(false);
     const [editingUser, setEditingUser] = useState(null);
-    const [userForm, setUserFormState] = useState({ fullName: '', email: '', personnelCode: '' });
+    const [userForm, setUserFormState] = useState({ fullName: '', email: '', personnelCode: '', role: 'User', departmentIds: [] });
     const [userFormError, setUserFormError] = useState('');
     const [userFormLoading, setUserFormLoading] = useState(false);
     const toast = useToast();
@@ -36,6 +39,7 @@ export function useUsers() {
         try {
             const params = { page: pageRef.current, pageSize: PAGE_SIZE };
             if (searchRef.current) params.search = searchRef.current;
+            if (roleRef.current) params.role = roleRef.current;
             const res = await adminGetUsers(params);
             const data = res.data.data || {};
             const items = data.items || [];
@@ -51,7 +55,9 @@ export function useUsers() {
 
             setUsers(items);
             setTotalCount(total);
-            if (!searchRef.current) setGrandTotal(total);  // arama yokken gelen total = genel toplam
+            // Genel toplam = HİÇBİR filtre yokken gelen total. Rol filtresi de hesaba katılmalı,
+            // yoksa filtreli sayı sekme rozetine yazılır ve yanlış görünür.
+            if (!searchRef.current && !roleRef.current) setGrandTotal(total);
         } catch (err) { if (!silent) showApiError(toast, err, 'Kullanıcılar yüklenemedi.'); }
         finally { if (!silent) setUsersLoading(false); }
     }, [toast]);
@@ -73,20 +79,36 @@ export function useUsers() {
         }, 300);
     }, [fetchUsers]);
 
+    // Yetki filtresi değişince ilk sayfaya dön (arama davranışıyla aynı) — aksi halde
+    // 3. sayfadayken filtreleyince boş liste görünürdü.
+    const handleRoleFilter = useCallback((value) => {
+        setRoleFilterState(value);
+        roleRef.current = value;
+        pageRef.current = 1;
+        setPage(1);
+        fetchUsers(false);
+    }, [fetchUsers]);
+
     const setUserForm = useCallback((key, val) => {
         setUserFormState(prev => ({ ...prev, [key]: val }));
     }, []);
 
     const openAddModal = useCallback(() => {
         setEditingUser(null);
-        setUserFormState({ fullName: '', email: '', personnelCode: '' });
+        setUserFormState({ fullName: '', email: '', personnelCode: '', role: 'User', departmentIds: [] });
         setUserFormError('');
         setShowUserModal(true);
     }, []);
 
     const openEditModal = useCallback((u) => {
         setEditingUser(u);
-        setUserFormState({ fullName: u.fullName, email: u.email, personnelCode: u.personnelCode || '' });
+        setUserFormState({
+            fullName: u.fullName,
+            email: u.email,
+            personnelCode: u.personnelCode || '',
+            role: u.roles?.includes('Manager') ? 'Manager' : 'User',
+            departmentIds: (u.departments || []).map(d => d.id),
+        });
         setUserFormError('');
         setShowUserModal(true);
     }, []);
@@ -99,13 +121,20 @@ export function useUsers() {
     const handleSubmitUser = useCallback(async (e) => {
         e.preventDefault();
         setUserFormError('');
+
+        // Departman zorunlu — client tarafında da doğrula (backend de reddeder).
+        if (!userForm.departmentIds || userForm.departmentIds.length === 0) {
+            setUserFormError('En az bir departman seçmelisiniz.');
+            return;
+        }
+
         setUserFormLoading(true);
         try {
             if (editingUser) {
-                await adminUpdateUser(editingUser.id, userForm.fullName, userForm.email, userForm.personnelCode);
+                await adminUpdateUser(editingUser.id, userForm.fullName, userForm.email, userForm.personnelCode, userForm.role, userForm.departmentIds);
                 toast.success(`"${userForm.fullName}" güncellendi.`);
             } else {
-                await adminCreateUser(userForm.fullName, userForm.email, userForm.personnelCode);
+                await adminCreateUser(userForm.fullName, userForm.email, userForm.personnelCode, userForm.role, userForm.departmentIds);
                 toast.success(`"${userForm.fullName}" oluşturuldu.`);
             }
             closeUserModal();
@@ -250,6 +279,7 @@ export function useUsers() {
         users,
         usersLoading,
         userSearch, setUserSearch: handleUserSearch,
+        roleFilter, setRoleFilter: handleRoleFilter,
         // pagination
         page, totalCount, grandTotal, pageSize: PAGE_SIZE, goToUsersPage,
         showUserModal,

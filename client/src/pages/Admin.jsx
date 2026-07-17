@@ -1,21 +1,31 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { API_BASE } from '../services/api';
+import { API_BASE, getMe } from '../services/api';
 import Modal from '../components/shared/Modal';
 import DocumentUpload from '../components/admin/DocumentUpload';
 import DocumentList from '../components/admin/DocumentList';
 import UserList from '../components/admin/UserList';
 import UserModal from '../components/admin/UserModal';
+import DepartmentManager from '../components/admin/DepartmentManager';
+import DepartmentModal from '../components/admin/DepartmentModal';
 import BulkImportUsersModal from '../components/admin/BulkImportUsersModal';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import { useToast } from '../components/shared/Toast';
 import { showApiError } from '../lib/format';
+import { useAuth } from '../hooks/useAuth';
 import { useDocuments } from '../hooks/useDocuments';
 import { useUsers } from '../hooks/useUsers';
+import { useDepartments } from '../hooks/useDepartments';
 
 export default function Admin() {
+    const { isAdmin, departments: myDepartments } = useAuth();
     const [tab, setTab] = useState('documents');
+    const [confirmDept, setConfirmDept] = useState(null);
+    const [confirmBatchDepts, setConfirmBatchDepts] = useState(null);
+    // Departman modal'ı: null=kapalı, {}=ekle, {id,name,code}=düzenle.
+    // Sayfa seviyesinde tutulur — DepartmentManager kartındaki backdrop-filter modal'ı kırpıyordu.
+    const [deptModal, setDeptModal] = useState(null);
     const [confirmDoc, setConfirmDoc] = useState(null);
     const [confirmUser, setConfirmUser] = useState(null);
     const [confirmBatchDocs, setConfirmBatchDocs] = useState(null);
@@ -29,11 +39,22 @@ export default function Admin() {
     const toast = useToast();
 
     const {
+        departments: allDepartments,
+        loading: departmentsLoading,
+        fetchDepartments,
+        addDepartment,
+        renameDepartment,
+        removeDepartment,
+        batchRemoveDepartments,
+    } = useDepartments();
+
+    const {
         documents, setDocuments,
         docsLoading,
         uploads,
         docSearch, setDocSearch,
         dragOver, setDragOver,
+        uploadDepartmentId, setUploadDepartmentId,
         selectedDoc,
         chunks,
         chunksLoading,
@@ -52,6 +73,7 @@ export default function Admin() {
         users,
         usersLoading,
         userSearch, setUserSearch,
+        roleFilter, setRoleFilter,
         page: userPage, totalCount: userTotal, grandTotal: userGrandTotal, pageSize: userPageSize, goToUsersPage,
         showUserModal,
         editingUser,
@@ -77,7 +99,40 @@ export default function Admin() {
         handleBulkImport,
     } = useUsers();
 
-    useEffect(() => { fetchDocs(); fetchUsers(); }, []);
+    // Yönetici yalnız belge yönetir → kullanıcı/departman verisi (admin-only endpoint'ler) çekilmez.
+    useEffect(() => {
+        fetchDocs();
+        if (isAdmin) { fetchUsers(); fetchDepartments(); }
+    }, [isAdmin]);
+
+    // Yöneticinin departmanları /auth/me'den TAZE çekilir. localStorage'daki user nesnesi login
+    // anının anlık görüntüsü — admin departman ataması değiştirdiğinde bayatlar (kullanıcı yeniden
+    // giriş yapana dek yanlış görür). Taze çekim bunu kökten çözer; login verisi ilk değer olarak durur.
+    const [freshMyDepartments, setFreshMyDepartments] = useState(myDepartments);
+    useEffect(() => {
+        if (isAdmin) return;
+        let cancelled = false;
+        getMe()
+            .then(res => { if (!cancelled) setFreshMyDepartments(res.data?.data?.departments ?? []); })
+            .catch(() => { /* sessiz: login'den gelen değerle devam */ });
+        return () => { cancelled = true; };
+    }, [isAdmin]);
+
+    // Belge yükleme seçicisinde gösterilecek departmanlar: admin → tümü; yönetici → atandıkları.
+    const uploadDepartments = isAdmin ? allDepartments : freshMyDepartments;
+
+    const confirmDeleteDepartment = async () => {
+        const { id, name } = confirmDept;
+        setConfirmDept(null);
+        try { await removeDepartment(id, name); } catch { /* toast hook'ta */ }
+    };
+
+    const confirmBatchDeptsDelete = async () => {
+        const { ids, exitSelectMode } = confirmBatchDepts;
+        setConfirmBatchDepts(null);
+        await batchRemoveDepartments(ids);
+        exitSelectMode?.();
+    };
 
     const handleDeleteDoc = (id, name) => {
         setConfirmDoc({ id, name });
@@ -195,7 +250,11 @@ export default function Admin() {
                     <div className="admin-tabs" style={{ display: 'flex', gap: '4px', padding: '5px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', backdropFilter: 'blur(20px) saturate(180%)' }}>
                         {[
                             { key: 'documents', label: 'Belgeler', count: docGrandTotal, icon: <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /> },
-                            { key: 'users', label: 'Kullanıcılar', count: userGrandTotal, icon: <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></> },
+                            // Kullanıcı ve departman yönetimi yalnız admin'e görünür.
+                            ...(isAdmin ? [
+                                { key: 'users', label: 'Kullanıcılar', count: userGrandTotal, icon: <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></> },
+                                { key: 'departments', label: 'Departmanlar', count: allDepartments.length, icon: <><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></> },
+                            ] : []),
                         ].map(t => (
                             <button key={t.key} onClick={() => setTab(t.key)} className={`btn admin-tab-btn ${tab === t.key ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '9px 16px', fontWeight: 600 }}>
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.icon}</svg>
@@ -224,6 +283,10 @@ export default function Admin() {
                             onClick={() => fileInputRef.current.click()}
                             fileInputRef={fileInputRef}
                             onFileChange={(e) => { processFiles(e.target.files); fileInputRef.current.value = ''; }}
+                            departments={uploadDepartments}
+                            departmentId={uploadDepartmentId}
+                            onDepartmentChange={setUploadDepartmentId}
+                            isAdmin={isAdmin}
                         />
                         <DocumentList
                             documents={documents}
@@ -250,12 +313,14 @@ export default function Admin() {
                     </>
                 )}
 
-                {tab === 'users' && (
+                {tab === 'users' && isAdmin && (
                     <UserList
                         users={users}
                         loading={usersLoading}
                         search={userSearch}
                         onSearchChange={setUserSearch}
+                        roleFilter={roleFilter}
+                        onRoleFilterChange={setRoleFilter}
                         onAdd={openAddModal}
                         onBulkImport={openBulkImportModal}
                         onEdit={openEditModal}
@@ -266,6 +331,17 @@ export default function Admin() {
                         page={userPage}
                         pageSize={userPageSize}
                         onPageChange={goToUsersPage}
+                    />
+                )}
+
+                {tab === 'departments' && isAdmin && (
+                    <DepartmentManager
+                        departments={allDepartments}
+                        loading={departmentsLoading}
+                        onAddClick={() => setDeptModal({})}
+                        onEditClick={(d) => setDeptModal({ id: d.id, name: d.name, code: d.code })}
+                        onDelete={(id, name) => setConfirmDept({ id, name })}
+                        onBatchDelete={(ids, exitSelectMode) => setConfirmBatchDepts({ ids, exitSelectMode })}
                     />
                 )}
                 </motion.div>
@@ -332,6 +408,19 @@ export default function Admin() {
                     error={userFormError}
                     loading={userFormLoading}
                     isEdit={!!editingUser}
+                    departments={allDepartments}
+                />
+            )}
+
+            {deptModal && (
+                <DepartmentModal
+                    isEdit={!!deptModal.id}
+                    initialName={deptModal.name ?? ''}
+                    initialCode={deptModal.code ?? ''}
+                    onClose={() => setDeptModal(null)}
+                    onSubmit={(name, code) => deptModal.id
+                        ? renameDepartment(deptModal.id, name, code)
+                        : addDepartment(name, code)}
                 />
             )}
 
@@ -392,6 +481,26 @@ export default function Admin() {
                     confirmLabel="Sil"
                     onConfirm={confirmBatchUsersDelete}
                     onCancel={() => setConfirmBatchUsers(null)}
+                />
+            )}
+
+            {confirmBatchDepts && (
+                <ConfirmDialog
+                    title="Departmanları Sil"
+                    message={`${confirmBatchDepts.ids.length} departman silinecek. Emin misiniz?`}
+                    confirmLabel="Sil"
+                    onConfirm={confirmBatchDeptsDelete}
+                    onCancel={() => setConfirmBatchDepts(null)}
+                />
+            )}
+
+            {confirmDept && (
+                <ConfirmDialog
+                    title="Departmanı Sil"
+                    message={`"${confirmDept.name}" departmanı silinecek. (Bağlı belge veya kullanıcı varsa işlem reddedilir.) Emin misiniz?`}
+                    confirmLabel="Sil"
+                    onConfirm={confirmDeleteDepartment}
+                    onCancel={() => setConfirmDept(null)}
                 />
             )}
         </div>

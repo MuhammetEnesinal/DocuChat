@@ -83,3 +83,12 @@ export function showApiError(toast, err, fallback = 'Bir hata oluştu.') {
     if (isRateLimit) toast.warning(message);
     else toast.error(message);
 }
+// Rol anahtarı → kullanıcıya gösterilen Türkçe etiket. Roller kodda/DB'de İngilizce
+// (Admin/Manager/User) kalır; yalnız ekranda görünen metin Türkçeleşir.
+const ROLE_LABELS = { Admin: 'Admin', Manager: 'Yönetici', User: 'Personel' };
+
+export const roleLabel = (role) => ROLE_LABELS[role] ?? role;
+
+// Departman gösterim etiketi: "Ad - KOD" (tek yerden yönetilir; modal, upload, profil, belge listesi).
+export const departmentLabel = (d) =>
+    !d ? '' : (d.code ? `${d.name} - ${d.code}` : d.name);

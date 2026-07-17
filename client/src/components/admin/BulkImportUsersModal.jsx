@@ -52,7 +52,11 @@ export default function BulkImportUsersModal({
                                 Excel Şablonu
                             </p>
                             <p className="text-xs mt-1" style={{ color: 'var(--gray-light)' }}>
-                                Sütunlar: <strong>Ad Soyad, E-posta, Personel Kodu</strong> — Personel kodu ilk şifre olarak kullanılır.
+                                Sütunlar: <strong>Ad Soyad, E-posta, Personel Kodu, Departman Kod(lar)ı, Yetki</strong> — Personel kodu ilk şifre olarak kullanılır.
+                                Departman sütununa <strong>adı değil KODU</strong> yazılır (örn. <code>YAZILIM</code>); çoklu için virgülle ayırın.
+                                Kod <strong>birebir</strong> yazılmalı — büyük/küçük harf duyarlıdır (<code>IT</code> ile <code>ıt</code> farklı kodlardır).
+                                Departman <strong>zorunludur</strong> — tanımsız kod içeren satır atlanır.
+                                Yetki: <strong>Personel</strong> veya <strong>Yönetici</strong> (boş bırakılırsa Personel).
                             </p>
                         </div>
                         <button

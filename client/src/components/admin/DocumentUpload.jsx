@@ -1,4 +1,6 @@
-export default function DocumentUpload({ uploads, dragOver, onDragOver, onDragLeave, onDrop, onClick, fileInputRef, onFileChange }) {
+import { departmentLabel } from '../../lib/format';
+
+export default function DocumentUpload({ uploads, dragOver, onDragOver, onDragLeave, onDrop, onClick, fileInputRef, onFileChange, departments = [], departmentId, onDepartmentChange, isAdmin = false }) {
     return (
         <div style={{ marginBottom: '24px', borderRadius: '16px', padding: '20px', background: 'rgba(32, 26, 58, 0.55)', border: '1px solid rgba(var(--accent-light-rgb),0.14)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', boxShadow: '0 8px 28px -10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)' }}>
             {/* Başlık — sola yaslı, ikon kutusu + büyük başlık */}
@@ -10,9 +12,37 @@ export default function DocumentUpload({ uploads, dragOver, onDragOver, onDragLe
                 </div>
                 <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.01em' }}>Belge Yükle</h2>
             </div>
-            <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', margin: '0 0 18px' }}>
+            <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', margin: '0 0 14px' }}>
                 Birden fazla dosya seçebilir veya sürükleyip bırakabilirsiniz.
             </p>
+
+            {/* Departman seçici — belge bu departmana bağlanır (zorunlu) */}
+            <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                    Departman <span style={{ color: '#fca5a5' }}>*</span>
+                </label>
+                <select
+                    value={departmentId || ''}
+                    onChange={(e) => onDepartmentChange?.(e.target.value)}
+                    disabled={departments.length === 0}
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', fontSize: '14px', background: 'var(--surface2)', color: 'var(--text-primary)', border: '1px solid var(--border)', cursor: departments.length === 0 ? 'not-allowed' : 'pointer' }}
+                >
+                    {/* option'lara açık renk: koyu temada tarayıcı varsayılanı okunmuyordu */}
+                    <option value="" style={{ background: '#1c2034', color: '#e8e8f0' }}>— Departman seçin —</option>
+                    {departments.map((d) => (
+                        <option key={d.id} value={d.id} style={{ background: '#1c2034', color: '#e8e8f0' }}>{departmentLabel(d)}</option>
+                    ))}
+                </select>
+                {departments.length === 0 && (
+                    // Admin departmanı KENDİSİ oluşturur → ona "yöneticinle iletişime geç" demek yanlış.
+                    <p style={{ fontSize: '12px', color: '#fca5a5', margin: '6px 0 0' }}>
+                        {isAdmin
+                            ? 'Henüz departman yok. Önce "Departmanlar" sekmesinden bir departman ekleyin.'
+                            : 'Atanmış departmanınız yok. Belge yüklemek için yöneticinizle iletişime geçin.'}
+                    </p>
+                )}
+            </div>
+
             <div onClick={onClick} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
                 style={{
                     borderRadius: '12px', padding: '32px 16px', textAlign: 'center', cursor: 'pointer',

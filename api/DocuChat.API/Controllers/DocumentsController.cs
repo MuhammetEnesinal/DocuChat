@@ -13,7 +13,7 @@ namespace DocuChat.API.Controllers;
 
 [ApiController]
 [Route("api/documents")]
-[Authorize(Roles = Roles.Admin)]
+[Authorize(Roles = $"{Roles.Admin},{Roles.Manager}")]
 public class DocumentsController : ControllerBase
 {
     private readonly IDocumentUseCase _document;
@@ -74,7 +74,7 @@ public class DocumentsController : ControllerBase
     {
         var file = request.File;
         var req = new UploadDocumentRequestDto(
-            file.FileName, file.ContentType, file.Length, file.OpenReadStream());
+            file.FileName, file.ContentType, file.Length, file.OpenReadStream(), request.DepartmentId);
 
         var validation = await _uploadValidator.ValidateAsync(req, ct);
         if (!validation.IsValid)

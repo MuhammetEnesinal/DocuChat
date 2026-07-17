@@ -444,6 +444,13 @@ input::-webkit-textfield-decoration-container {
         flex: 1 1 auto !important;
     }
 
+    /* Yetki filtresi: dar ekranda kendi satırında tam genişlik — aksi halde "Çoklu Seç" ile
+       aynı satırda sıkışıp okunmaz hale geliyordu. */
+    .admin-role-filter {
+        width: 100%;
+        flex: 1 1 100% !important;
+    }
+
     .admin-list-actions,
     .admin-users-actions {
         width: 100%;
@@ -502,6 +509,24 @@ input::-webkit-textfield-decoration-container {
 }
 
 /* ── Profil responsive ── */
+
+/* Bilgi kartları (Yetki / Departman / Üyelik / Personel Kodu).
+   Kap 720px'e sabitli → geniş ekranda bile grid ~624px, yani 4 sütun ≈ 148px/kart.
+   minmax(0,1fr): uzun içerik sütunu şişirip yatay taşma yapmasın. */
+.profile-info-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+}
+/* Tablet: 4'ü sıkıştırmak yerine 2'şerli iki sıra */
+@media (max-width: 700px) {
+    .profile-info-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+}
+/* Telefon: alt alta, tam genişlik */
+@media (max-width: 480px) {
+    .profile-info-grid { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 480px) {
     /* Dar ekranda dekoratif ikon kutuları gizlenir → başlık/yazı tam genişlik alır, sıkışmaz */
     .profile-section-icon { display: none !important; }

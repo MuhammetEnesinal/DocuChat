@@ -25,4 +25,11 @@ public class CurrentUserService : ICurrentUser
     public string Email => User.FindFirstValue(ClaimTypes.Email)!;
     public bool IsAuthenticated => User.Identity?.IsAuthenticated ?? false;
     public bool IsInRole(string role) => User.IsInRole(role);
+
+    public IReadOnlyList<Guid> DepartmentIds =>
+        User.FindAll(AppClaimTypes.Department)
+            .Select(c => Guid.TryParse(c.Value, out var id) ? id : (Guid?)null)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .ToList();
 }

@@ -3,6 +3,7 @@ using DocuChat.Domain.Entities.Common;
 using DocuChat.Domain.Entities.Chat;
 using DocuChat.Domain.Entities.Documents;
 using DocuChat.Domain.Entities.Caching;
+using DocuChat.Domain.Entities.Departments;
 using DocuChat.Domain.Enums;
 
 namespace DocuChat.Domain.Entities.Documents;
@@ -10,6 +11,12 @@ namespace DocuChat.Domain.Entities.Documents;
 public class Document : BaseEntity
 {
     public string UserId { get; set; } = string.Empty;
+
+    // Belgenin ait olduğu departman (zorunlu). Arama izolasyonunun anahtarı: kullanıcı yalnız
+    // üye olduğu departmanların belgelerinde arama yapar.
+    public Guid DepartmentId { get; set; }
+    public Department? Department { get; set; }
+
     public string FileName { get; set; } = string.Empty;
     public string ContentType { get; set; } = string.Empty;
     public long FileSizeBytes { get; set; }

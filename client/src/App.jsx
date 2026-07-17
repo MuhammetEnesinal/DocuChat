@@ -14,8 +14,11 @@ const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
 const ResetPassword = lazy(() => import('./pages/ResetPassword'));
 
 function PrivateRoute({ children, requiredRole }) {
-    const { isAuthenticated, isAdmin } = useAuth();
+    const { isAuthenticated, isAdmin, isManager } = useAuth();
     if (!isAuthenticated) return <Navigate to="/login" replace />;
+    // /admin: admin VEYA yönetici erişebilir (yönetici içeride yalnız Belgeler sekmesini görür).
+    if (requiredRole === 'AdminOrManager' && !isAdmin && !isManager)
+        return <Navigate to="/chat" replace />;
     if (requiredRole === 'Admin' && !isAdmin) return <Navigate to="/chat" replace />;
     return children;
 }
@@ -62,7 +65,7 @@ export default function App() {
                         <Route path="/reset-password" element={<GuestRoute><ResetPassword /></GuestRoute>} />
                         <Route path="/chat" element={<PrivateRoute><Chat /></PrivateRoute>} />
                         <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
-                        <Route path="/admin" element={<PrivateRoute requiredRole="Admin"><Admin /></PrivateRoute>} />
+                        <Route path="/admin" element={<PrivateRoute requiredRole="AdminOrManager"><Admin /></PrivateRoute>} />
                         <Route path="/404" element={<NotFound />} />
                         <Route path="*" element={<Navigate to="/404" replace />} />
                     </Routes>

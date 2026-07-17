@@ -20,4 +20,9 @@ public class QuestionCache : BaseEntity
     // bu sütundaki ID'yi içeren tüm cache entries silinir.
     // Null = kaynağı bilinmeyen kayıt → güvenlik için ClearAll fallback'ine tabi.
     public string? SourceDocumentIds { get; set; }
+
+    // Departman izolasyonu: bu cache kaydının ait olduğu departman. Kullanıcı yalnız kendi
+    // departmanlarına ait cache kayıtlarını okuyabilir → A departmanının cevabı B'ye sızmaz.
+    // Null = global kapsam (admin tarafından üretilmiş kayıt); normal kullanıcıya servis edilmez.
+    public Guid? DepartmentId { get; set; }
 }

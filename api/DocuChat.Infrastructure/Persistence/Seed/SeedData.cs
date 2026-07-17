@@ -12,7 +12,7 @@ public static class SeedData
         var roleManager = services.GetRequiredService<RoleManager<AppRole>>();
         var userManager = services.GetRequiredService<UserManager<AppUser>>();
 
-        foreach (var role in new[] { Roles.Admin, Roles.User })
+        foreach (var role in new[] { Roles.Admin, Roles.Manager, Roles.User })
             if (!await roleManager.RoleExistsAsync(role))
                 await roleManager.CreateAsync(new AppRole { Name = role });
 

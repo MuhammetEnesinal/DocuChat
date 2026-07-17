@@ -11,6 +11,8 @@ export function useDocuments() {
     const [uploads, setUploads] = useState([]);
     const [docSearch, setDocSearch] = useState('');
     const [dragOver, setDragOver] = useState(false);
+    // Belgelerin yükleneceği departman — DocumentUpload seçicisinden gelir. Zorunlu.
+    const [uploadDepartmentId, setUploadDepartmentId] = useState('');
     const [selectedDoc, setSelectedDoc] = useState(null);
     const [chunks, setChunks] = useState([]);
     const [chunksLoading, setChunksLoading] = useState(false);
@@ -171,7 +173,7 @@ export function useDocuments() {
         const uid = Date.now() + Math.random();
         setUploads(prev => [...prev, { id: uid, name: file.name, progress: 0, status: 'uploading' }]);
         try {
-            await uploadDocument(file, (p) => setUploads(prev => prev.map(u => u.id === uid ? { ...u, progress: p } : u)));
+            await uploadDocument(file, uploadDepartmentId, (p) => setUploads(prev => prev.map(u => u.id === uid ? { ...u, progress: p } : u)));
             setUploads(prev => prev.map(u => u.id === uid ? { ...u, progress: 100, status: 'done' } : u));
             toast.success(`"${file.name}" yüklendi.`);
             fetchDocs(true);
@@ -182,9 +184,15 @@ export function useDocuments() {
             showApiError(toast, err, `"${file.name}" yüklenemedi.`);
             setTimeout(() => setUploads(prev => prev.filter(u => u.id !== uid)), 5000);
         }
-    }, [toast, fetchDocs]);
+    }, [toast, fetchDocs, uploadDepartmentId]);
 
     const processFiles = useCallback((files) => {
+        // Departman zorunlu — seçilmeden yükleme yapılmaz (backend de reddeder).
+        if (!uploadDepartmentId) {
+            toast.error('Önce belgelerin yükleneceği departmanı seçin.');
+            return;
+        }
+
         const allowed = ['application/pdf', 'application/msword',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -221,7 +229,7 @@ export function useDocuments() {
                 await Promise.all(batch.map(uploadFile));
             }
         })();
-    }, [toast, uploadFile]);
+    }, [toast, uploadFile, uploadDepartmentId]);
 
     return {
         documents, setDocuments,
@@ -229,6 +237,7 @@ export function useDocuments() {
         uploads,
         docSearch, setDocSearch: handleDocSearch,
         dragOver, setDragOver,
+        uploadDepartmentId, setUploadDepartmentId,
         selectedDoc,
         chunks,
         chunksLoading,

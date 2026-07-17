@@ -44,5 +44,8 @@ public class QuestionCacheConfiguration : IEntityTypeConfiguration<QuestionCache
         // Per-document invalidation için CSV alanı (text, nullable)
         // Format: "guid1,guid2,guid3". ILIKE ile substring match yapılır.
         builder.Property(x => x.SourceDocumentIds).HasColumnType("text");
+
+        // Departman bazlı cache okuması için filtre kolonu. Nullable = global (admin) kayıt.
+        builder.HasIndex(x => x.DepartmentId);
     }
 }

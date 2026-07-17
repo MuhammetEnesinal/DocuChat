@@ -32,8 +32,13 @@ public class ChatMessageRepository : GenericRepository<ChatMessage>, IChatMessag
         => await _set.CountAsync(m => m.SessionId == sessionId, ct);
 
     public async Task<IReadOnlyList<ChatMessage>> GetByRoleAsync(
-        MessageRole role, CancellationToken ct = default)
-        => await _set.Where(m => m.Role == role).ToListAsync(ct);
+        MessageRole role, string? userId = null, CancellationToken ct = default)
+    {
+        var query = _set.Where(m => m.Role == role);
+        if (userId is not null)
+            query = query.Where(m => m.Session!.UserId == userId);
+        return await query.ToListAsync(ct);
+    }
 
     public async Task<int> RemoveDeletedImagePathsAsync(
         IReadOnlyCollection<string> deletedImagePaths, CancellationToken ct = default)

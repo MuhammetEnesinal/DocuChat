@@ -39,6 +39,9 @@ namespace DocuChat.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("DepartmentId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("HitCount")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
@@ -67,6 +70,8 @@ namespace DocuChat.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedAt");
+
+                    b.HasIndex("DepartmentId");
 
                     b.HasIndex("LastHitAt");
 
@@ -223,6 +228,54 @@ namespace DocuChat.Infrastructure.Migrations
                     b.ToTable("ChatSessions");
                 });
 
+            modelBuilder.Entity("DocuChat.Domain.Entities.Departments.Department", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("Departments");
+                });
+
+            modelBuilder.Entity("DocuChat.Domain.Entities.Departments.UserDepartment", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("DepartmentId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("UserId", "DepartmentId");
+
+                    b.HasIndex("DepartmentId");
+
+                    b.ToTable("UserDepartments");
+                });
+
             modelBuilder.Entity("DocuChat.Domain.Entities.Documents.ChunkImage", b =>
                 {
                     b.Property<Guid>("Id")
@@ -277,6 +330,9 @@ namespace DocuChat.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid>("DepartmentId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text");
 
@@ -314,13 +370,15 @@ namespace DocuChat.Infrastructure.Migrations
 
                     b.HasIndex("CreatedAt");
 
+                    b.HasIndex("DepartmentId");
+
                     b.HasIndex("Status");
 
                     b.HasIndex("UserId");
 
-                    b.HasIndex("UserId", "ContentHash");
+                    b.HasIndex("DepartmentId", "ContentHash");
 
-                    b.HasIndex("UserId", "FileName")
+                    b.HasIndex("DepartmentId", "FileName")
                         .IsUnique();
 
                     b.ToTable("Documents");
@@ -668,6 +726,23 @@ namespace DocuChat.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("DocuChat.Domain.Entities.Departments.UserDepartment", b =>
+                {
+                    b.HasOne("DocuChat.Domain.Entities.Departments.Department", "Department")
+                        .WithMany("UserDepartments")
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppUser", null)
+                        .WithMany("UserDepartments")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Department");
+                });
+
             modelBuilder.Entity("DocuChat.Domain.Entities.Documents.ChunkImage", b =>
                 {
                     b.HasOne("DocuChat.Domain.Entities.Documents.DocumentChunk", "Chunk")
@@ -689,11 +764,19 @@ namespace DocuChat.Infrastructure.Migrations
 
             modelBuilder.Entity("DocuChat.Domain.Entities.Documents.Document", b =>
                 {
+                    b.HasOne("DocuChat.Domain.Entities.Departments.Department", "Department")
+                        .WithMany("Documents")
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("DocuChat.Infrastructure.Persistence.Identity.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Department");
                 });
 
             modelBuilder.Entity("DocuChat.Domain.Entities.Documents.DocumentChunk", b =>
@@ -774,6 +857,13 @@ namespace DocuChat.Infrastructure.Migrations
                     b.Navigation("Messages");
                 });
 
+            modelBuilder.Entity("DocuChat.Domain.Entities.Departments.Department", b =>
+                {
+                    b.Navigation("Documents");
+
+                    b.Navigation("UserDepartments");
+                });
+
             modelBuilder.Entity("DocuChat.Domain.Entities.Documents.Document", b =>
                 {
                     b.Navigation("Chunks");
@@ -789,6 +879,11 @@ namespace DocuChat.Infrastructure.Migrations
             modelBuilder.Entity("DocuChat.Domain.Entities.Documents.DocumentImage", b =>
                 {
                     b.Navigation("ChunkLinks");
+                });
+
+            modelBuilder.Entity("DocuChat.Infrastructure.Persistence.Identity.AppUser", b =>
+                {
+                    b.Navigation("UserDepartments");
                 });
 #pragma warning restore 612, 618
         }

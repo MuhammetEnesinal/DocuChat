@@ -31,13 +31,19 @@ public class QuestionCacheRepository : GenericRepository<QuestionCache>, IQuesti
     public async Task<CacheMatch?> FindSimilarAsync(
         float[] queryVector,
         double threshold,
+        IReadOnlyList<Guid>? departmentIds = null,
         CancellationToken ct = default)
     {
         var vector = new Vector(queryVector);
 
-        // Arama global → cache global. Belge filtresi yok; içerik değişiminde tüm cache temizlenir.
         var query = _set
             .Where(q => 1 - q.QuestionVector.CosineDistance(vector) >= threshold);
+
+        // Departman izolasyonu: null = admin (filtre yok, global/null kapsamlılar dahil her şey).
+        // Doluysa yalnız kullanıcının departmanlarına etiketli kayıtlar; global (null) kayıtlar
+        // normal kullanıcıya servis edilmez → A departmanının cevabı B'ye sızmaz.
+        if (departmentIds is not null)
+            query = query.Where(q => q.DepartmentId != null && departmentIds.Contains(q.DepartmentId.Value));
 
         // En yakın 3 adayı çek (debug için), en yüksek skoru döndür.
         var candidates = await query
@@ -84,8 +90,10 @@ public class QuestionCacheRepository : GenericRepository<QuestionCache>, IQuesti
     public async Task UpsertAsync(QuestionCache entry, CancellationToken ct = default)
     {
         var normalized = (entry.QuestionText ?? string.Empty).Trim().ToLower();
+        // Upsert anahtarı departman bazlı: aynı soru farklı departmanlarda farklı cevaplar
+        // tutar → biri diğerini ezmez (izolasyon). DepartmentId eşitliği null-güvenli kıyaslanır.
         var existing = await _set
-            .Where(q => q.QuestionText.ToLower() == normalized)
+            .Where(q => q.QuestionText.ToLower() == normalized && q.DepartmentId == entry.DepartmentId)
             .FirstOrDefaultAsync(ct);
 
         if (existing is not null)
@@ -113,12 +121,22 @@ public class QuestionCacheRepository : GenericRepository<QuestionCache>, IQuesti
                 ct);
     }
 
-    public async Task<IReadOnlyList<string>> GetTopByHitCountAsync(int limit, CancellationToken ct = default)
-        => await _set
+    public async Task<IReadOnlyList<string>> GetTopByHitCountAsync(
+        int limit, IReadOnlyList<Guid>? departmentIds = null, CancellationToken ct = default)
+    {
+        var query = _set.AsQueryable();
+
+        // Departman izolasyonu: null = admin (hepsi). Doluysa yalnız kullanıcının departmanlarına
+        // etiketli kayıtlar; global (null) kayıtlar normal kullanıcıya gösterilmez.
+        if (departmentIds is not null)
+            query = query.Where(q => q.DepartmentId != null && departmentIds.Contains(q.DepartmentId.Value));
+
+        return await query
             .OrderByDescending(q => q.HitCount)
             .Take(limit)
             .Select(q => q.QuestionText)
             .ToListAsync(ct);
+    }
 
     public async Task<int> DeleteExpiredAsync(TimeSpan maxAge, CancellationToken ct = default)
     {

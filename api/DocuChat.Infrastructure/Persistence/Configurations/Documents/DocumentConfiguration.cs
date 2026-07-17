@@ -30,17 +30,29 @@ public class DocumentConfiguration : IEntityTypeConfiguration<Document>
                .HasForeignKey(d => d.UserId)
                .OnDelete(DeleteBehavior.Cascade);
 
+        // Belge → Departman (zorunlu). Restrict: içinde belge olan departman silinemez
+        // (referential integrity — departman silme admin tarafında ayrıca bloklanır).
+        builder.Property(d => d.DepartmentId).IsRequired();
+        builder.HasOne(d => d.Department)
+               .WithMany(dep => dep.Documents)
+               .HasForeignKey(d => d.DepartmentId)
+               .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasIndex(d => d.UserId);
+        builder.HasIndex(d => d.DepartmentId);
         builder.HasIndex(d => d.Status);
         builder.HasIndex(d => d.CreatedAt);
 
-        // Aynı kullanıcı + aynı dosya adı eşzamanlı upload race koruması.
-        // App-level ExistsByUserAndNameAsync check ile birlikte ikinci savunma katmanı.
-        builder.HasIndex(d => new { d.UserId, d.FileName }).IsUnique();
+        // Dedup kapsamı DEPARTMAN (kullanıcı değil): aynı departmana aynı dosya iki kez giremez,
+        // ama FARKLI departmanlara aynı dosya yüklenebilir (her departmanın kendi kopyası olur).
+        // Kullanıcı bazlı olsaydı: aynı kişi aynı dosyayı 2 departmana koyamaz, farklı kişiler ise
+        // aynı departmana aynı dosyayı 2 kez koyabilirdi — ikisi de yanlış.
+        // App-level check ile birlikte eşzamanlı upload race'ine karşı ikinci savunma katmanı.
+        builder.HasIndex(d => new { d.DepartmentId, d.FileName }).IsUnique();
 
-        // Content hash dedup — aynı içerik farklı isimlerle yeniden yüklendiğinde tespit.
-        // SHA256 hex = sabit 64 char. UNIQUE değil (farklı kullanıcılar aynı belgeyi yüklüyor olabilir).
+        // Content hash dedup — aynı içerik farklı isimle yeniden yüklenirse tespit. Departman
+        // bazlı, UNIQUE değil (uygulama katmanı kontrol eder; index yalnız arama hızı için).
         builder.Property(d => d.ContentHash).HasMaxLength(64);
-        builder.HasIndex(d => new { d.UserId, d.ContentHash });
+        builder.HasIndex(d => new { d.DepartmentId, d.ContentHash });
     }
 }

@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { getMe, changePassword } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/shared/Toast';
-import { formatDate, showApiError, getApiErrorMessage } from '../lib/format';
+import { formatDate, showApiError, getApiErrorMessage, roleLabel, departmentLabel } from '../lib/format';
 import FormInput from '../components/auth/FormInput';
 import PasswordToggle from '../components/auth/PasswordToggle';
 import ErrorAlert from '../components/auth/ErrorAlert';
@@ -54,12 +54,16 @@ export default function Profile() {
                 const res = await getMe();
                 const fresh = res.data?.data;
                 if (!cancelled && fresh) {
+                    // DİKKAT: user nesnesi burada tamamen yeniden yazılır. Eklenmeyen her alan
+                    // localStorage'dan DÜŞER — departments düşerse yönetici belge yükleyemez hale
+                    // gelir. Yeni alan eklerken buraya da eklemeyi unutma.
                     setAuth(token, {
                         userId: fresh.id,
                         email: fresh.email,
                         fullName: fresh.fullName,
                         personnelCode: fresh.personnelCode,
                         roles: fresh.roles,
+                        departments: fresh.departments ?? [],
                         createdAt: fresh.createdAt,
                     });
                 }
@@ -182,9 +186,10 @@ export default function Profile() {
                     {/* İnce ayraç */}
                     <div style={{ height: '1px', background: 'linear-gradient(90deg, transparent, rgba(var(--accent-light-rgb),0.22), transparent)', margin: '0 0 22px' }} />
 
-                    {/* Bilgi mini-kartları (ikonlu) */}
-                    {/* min(190px,100%): kap 190px'ten darsa kolon kapa sığar — asla yatay taşma olmaz */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(190px, 100%), 1fr))', gap: '12px' }}>
+                    {/* Bilgi mini-kartları (ikonlu). Grid index.css'te (.profile-info-grid):
+                        4 sütun → 700px altı 2 → 480px altı alt alta tam genişlik.
+                        Media query gerektiği için inline stil değil, sınıf kullanıldı. */}
+                    <div className="profile-info-grid">
                         <InfoField label="Yetki" icon={
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
                         }>
@@ -196,10 +201,20 @@ export default function Profile() {
                                         background: 'var(--gradient-accent)',
                                         color: '#fff',
                                         boxShadow: '0 4px 12px -4px rgba(var(--accent-rgb),0.6), inset 0 1px 0 rgba(255,255,255,0.2)',
-                                    }}>{r}</span>
+                                    }}>{roleLabel(r)}</span>
                                 ))}
                             </div>
                         </InfoField>
+                        {/* Departmanlar — izolasyonun temeli, kullanıcı hangi kapsamda olduğunu görsün.
+                            children yerine value: Üyelik Tarihi ile birebir aynı tipografi.
+                            Çoklu departman virgülle ayrılır, sığmazsa alt satıra sarar. */}
+                        <InfoField
+                            label="Departman"
+                            value={(user?.departments ?? []).map(departmentLabel).join(', ') || '—'}
+                            icon={
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18" /><path d="M5 21V7l8-4v18" /><path d="M19 21V11l-6-4" /><line x1="9" y1="9" x2="9" y2="9.01" /><line x1="9" y1="12" x2="9" y2="12.01" /><line x1="9" y1="15" x2="9" y2="15.01" /></svg>
+                            }
+                        />
                         <InfoField label="Üyelik Tarihi" value={user?.createdAt ? formatDate(user.createdAt) : '—'} icon={
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
                         } />
@@ -282,7 +297,9 @@ function InfoField({ label, value, mono = false, icon, children }) {
                     {icon}
                 </div>
             )}
-            <div style={{ minWidth: 0, flex: '1 1 110px' }}>
+            {/* basis 92px: 4 sütun düzeninde kart ~148px → 34(ikon)+12(gap)+92 = 138, yazı ikonun
+                yanında kalır. Daha dar kalırsa yine alta tam genişlik sarar (harf harf kırılmaz). */}
+            <div style={{ minWidth: 0, flex: '1 1 92px' }}>
                 <p style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-secondary)', margin: '0 0 4px' }}>
                     {label}
                 </p>

@@ -48,13 +48,14 @@ public class AdminController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetAllUsers(
         [FromQuery] int? page, [FromQuery] int pageSize = 20,
-        [FromQuery] string? search = null, CancellationToken ct = default)
+        [FromQuery] string? search = null, [FromQuery] string? role = null,
+        CancellationToken ct = default)
     {
         if (page.HasValue)
         {
             var p = Math.Max(1, page.Value);
             var ps = Math.Clamp(pageSize, 1, 100);
-            var paged = await _userManagement.GetUsersPagedAsync(p, ps, search, ct);
+            var paged = await _userManagement.GetUsersPagedAsync(p, ps, search, role, ct);
             return paged.ToActionResult();
         }
         var result = await _userManagement.GetAllUsersAsync(ct);

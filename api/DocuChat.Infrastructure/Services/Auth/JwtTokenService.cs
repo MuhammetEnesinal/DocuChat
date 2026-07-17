@@ -13,7 +13,7 @@ public class JwtTokenService
 
     public JwtTokenService(IConfiguration cfg) => _cfg = cfg;
 
-    public string Generate(AppUser user, IList<string> roles)
+    public string Generate(AppUser user, IList<string> roles, IEnumerable<Guid>? departmentIds = null)
     {
         var claims = new List<Claim>
         {
@@ -23,6 +23,11 @@ public class JwtTokenService
         };
 
         claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
+
+        // Departman üyelikleri — arama/erişim izolasyonu bu claim'lere göre yapılır.
+        if (departmentIds is not null)
+            claims.AddRange(departmentIds.Select(d =>
+                new Claim(AppClaimTypes.Department, d.ToString())));
 
         var secret = _cfg["Jwt:Secret"] ?? throw new InvalidOperationException("Jwt:Secret eksik.");
         var issuer = _cfg["Jwt:Issuer"] ?? throw new InvalidOperationException("Jwt:Issuer eksik.");

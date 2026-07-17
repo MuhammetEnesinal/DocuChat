@@ -72,8 +72,17 @@ public class VectorSearchService : IVectorSearch
         string? hydeText = null,
         string? bm25Query = null,
         float[]? precomputedQueryVector = null,
+        IReadOnlyList<Guid>? departmentIds = null,
         CancellationToken ct = default)
     {
+        // Departman izolasyonu (kesin): departmentIds null ise filtre yok (admin/global).
+        // Doluysa yalnız o departmanlar; BOŞ ise kullanıcının hiç departmanı yok → hiç sonuç.
+        if (departmentIds is not null && departmentIds.Count == 0)
+        {
+            _logger.LogInformation("[VectorSearch] Kullanıcının departmanı yok → sonuç yok (izolasyon)");
+            return Array.Empty<ChunkResult>();
+        }
+
         var bm25Text = !string.IsNullOrWhiteSpace(bm25Query) ? bm25Query : question;
         var textToEmbed = !string.IsNullOrWhiteSpace(hydeText) ? hydeText : question;
         // hydeText yoksa embed edilecek metin = ham soru. Çağıran (ChatUseCase) ham sorunun
@@ -86,10 +95,10 @@ public class VectorSearchService : IVectorSearch
 
         // Tüm chunks içinde global dense + BM25 → RRF → global reranker → top K.
 
-        var denseRanked = await QueryDenseGlobalAsync(vector, _rerankCandidates, ct);
+        var denseRanked = await QueryDenseGlobalAsync(vector, _rerankCandidates, departmentIds, ct);
 
         var bm25Ranked = _bm25Enabled
-            ? await QueryBm25GlobalAsync(bm25Text, _rerankCandidates, ct)
+            ? await QueryBm25GlobalAsync(bm25Text, _rerankCandidates, departmentIds, ct)
             : new List<(Guid, int)>();
 
         if (denseRanked.Count == 0 && bm25Ranked.Count == 0)
@@ -361,9 +370,14 @@ public class VectorSearchService : IVectorSearch
     private static int GetDynamicTopK<T>(IReadOnlyList<T> candidates) => GetDynamicTopK(candidates.Count);
 
     private async Task<List<(Guid Id, int Rank)>> QueryDenseGlobalAsync(
-        Pgvector.Vector vector, int topN, CancellationToken ct)
+        Pgvector.Vector vector, int topN, IReadOnlyList<Guid>? departmentIds, CancellationToken ct)
     {
-        var ids = await _db.DocumentChunks
+        // Departman filtresi Take'ten ÖNCE uygulanır → HNSW indeksi korunur, doğru top-N döner.
+        var q = _db.DocumentChunks.AsQueryable();
+        if (departmentIds is not null)
+            q = q.Where(c => departmentIds.Contains(c.Document!.DepartmentId));
+
+        var ids = await q
             .OrderBy(c => c.Embedding!.CosineDistance(vector))
             .Take(topN)
             .Select(c => c.Id)
@@ -374,15 +388,19 @@ public class VectorSearchService : IVectorSearch
 
     // BM25 (PostgreSQL FTS) hata olursa fail-open: dense ile devam.
     private async Task<List<(Guid Id, int Rank)>> QueryBm25GlobalAsync(
-        string question, int topN, CancellationToken ct)
+        string question, int topN, IReadOnlyList<Guid>? departmentIds, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(question)) return new();
 
         try
         {
-            var ids = await _db.DocumentChunks
+            var q = _db.DocumentChunks
                 .Where(c => EF.Property<NpgsqlTsVector>(c, "TsVector")
-                              .Matches(EF.Functions.WebSearchToTsQuery(_bm25TsConfig, question)))
+                              .Matches(EF.Functions.WebSearchToTsQuery(_bm25TsConfig, question)));
+            if (departmentIds is not null)
+                q = q.Where(c => departmentIds.Contains(c.Document!.DepartmentId));
+
+            var ids = await q
                 .OrderByDescending(c => EF.Property<NpgsqlTsVector>(c, "TsVector")
                               .RankCoverDensity(EF.Functions.WebSearchToTsQuery(_bm25TsConfig, question)))
                 .Take(topN)

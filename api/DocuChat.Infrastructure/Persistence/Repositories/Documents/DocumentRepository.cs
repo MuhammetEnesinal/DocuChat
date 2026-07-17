@@ -22,19 +22,26 @@ public class DocumentRepository : GenericRepository<Document>, IDocumentReposito
     public DocumentRepository(AppDbContext db) : base(db) { }
 
     public async Task<IReadOnlyList<(Guid Id, string FileName, string? Summary)>> GetDocumentNamesAndSummariesAsync(
-        CancellationToken ct = default)
+        IReadOnlyList<Guid>? departmentIds = null, CancellationToken ct = default)
     {
-        var rows = await _set
+        var query = _set.AsQueryable();
+        if (departmentIds is not null)
+            query = query.Where(d => departmentIds.Contains(d.DepartmentId));
+
+        var rows = await query
             .Select(d => new { d.Id, d.FileName, d.Summary })
             .ToListAsync(ct);
         return rows.Select(x => (x.Id, x.FileName, x.Summary)).ToList();
     }
 
     public async Task<PaginatedResult<Document>> GetPagedAsync(
-        int page, int pageSize, string? search, CancellationToken ct = default)
+        int page, int pageSize, string? search, IReadOnlyList<Guid>? departmentIds = null, CancellationToken ct = default)
     {
-        // Base query — SQL seviyesinde filtreleme + sıralama + pagination
-        var query = _set.AsQueryable();
+        // Base query — SQL seviyesinde filtreleme + sıralama + pagination.
+        // Include(Department): DocumentResponseDto.DepartmentName flatten map'i için.
+        var query = _set.Include(d => d.Department).AsQueryable();
+        if (departmentIds is not null)
+            query = query.Where(d => departmentIds.Contains(d.DepartmentId));
         if (!string.IsNullOrWhiteSpace(search))
             query = query.Where(d => EF.Functions.ILike(d.FileName, $"%{search}%"));
 
@@ -49,29 +56,31 @@ public class DocumentRepository : GenericRepository<Document>, IDocumentReposito
     }
 
     public async Task<IReadOnlyList<Document>> SearchAsync(
-        string? search, CancellationToken ct = default)
+        string? search, IReadOnlyList<Guid>? departmentIds = null, CancellationToken ct = default)
     {
-        var query = _set.AsQueryable();
+        var query = _set.Include(d => d.Department).AsQueryable();
+        if (departmentIds is not null)
+            query = query.Where(d => departmentIds.Contains(d.DepartmentId));
         if (!string.IsNullOrWhiteSpace(search))
             query = query.Where(d => EF.Functions.ILike(d.FileName, $"%{search}%"));
 
         return await query.OrderByDescending(d => d.CreatedAt).ToListAsync(ct);
     }
 
-    public async Task<bool> ExistsByUserAndNameAsync(
-        string userId, string fileName, CancellationToken ct = default)
+    public async Task<bool> ExistsByDepartmentAndNameAsync(
+        Guid departmentId, string fileName, CancellationToken ct = default)
     {
         // PostgreSQL ILIKE — case-insensitive eşleşme (örn. "Test.pdf" == "test.pdf")
         return await _set.AnyAsync(
-            d => d.UserId == userId && EF.Functions.ILike(d.FileName, fileName),
+            d => d.DepartmentId == departmentId && EF.Functions.ILike(d.FileName, fileName),
             ct);
     }
 
-    public async Task<Document?> FindByUserAndContentHashAsync(
-        string userId, string contentHash, CancellationToken ct = default)
+    public async Task<Document?> FindByDepartmentAndContentHashAsync(
+        Guid departmentId, string contentHash, CancellationToken ct = default)
     {
         return await _set.FirstOrDefaultAsync(
-            d => d.UserId == userId && d.ContentHash == contentHash,
+            d => d.DepartmentId == departmentId && d.ContentHash == contentHash,
             ct);
     }
 

@@ -403,7 +403,9 @@ export default function ChatSidebar({
                     <SidebarButton onClick={() => navigate('/profile')} label="Profil"
                         icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>}
                     />
-                    {user?.roles?.includes('Admin') && (
+                    {/* Yönetici de belge yönetimi için /admin'e gider (içeride yalnız Belgeler sekmesini görür).
+                        Sadece Admin'e gösterilirse yönetici chat'e düştüğünde geri dönemez. */}
+                    {(user?.roles?.includes('Admin') || user?.roles?.includes('Manager')) && (
                         <SidebarButton onClick={() => navigate('/admin')} label="Yönetim"
                             icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>}
                         />

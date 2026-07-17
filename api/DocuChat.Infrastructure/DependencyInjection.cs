@@ -86,6 +86,8 @@ public static class DependencyInjection
         // Infrastructure Services
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserManagementService, UserManagementService>();
+        services.AddScoped<DocuChat.Application.Interfaces.Services.Departments.IDepartmentService,
+                           Services.Departments.DepartmentService>();
         services.AddScoped<IEmailService, SmtpEmailService>();
         services.AddScoped<IDocumentParser, DocumentParserService>();
         services.AddScoped<IVectorSearch, VectorSearchService>();

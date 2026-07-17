@@ -1,5 +1,6 @@
 ﻿using Mapster;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using DocuChat.Application.Interfaces.Services.Ai.Embedding;
@@ -14,6 +15,8 @@ using DocuChat.Application.Interfaces.Services.Storage;
 using DocuChat.Application.Interfaces.Services.Persistence;
 using DocuChat.Application.Common.Results;
 using DocuChat.Application.DTOs.Auth;
+using DocuChat.Application.DTOs.Departments;
+using DocuChat.Infrastructure.Persistence.Context;
 using DocuChat.Infrastructure.Persistence.Identity;
 
 namespace DocuChat.Infrastructure.Services.Auth;
@@ -25,6 +28,7 @@ public sealed class AuthService : IAuthService
     private readonly UserManager<AppUser> _userManager;
     private readonly JwtTokenService _jwtService;
     private readonly IEmailService _emailService;
+    private readonly AppDbContext _db;
     private readonly IConfiguration _cfg;
     private readonly ILogger<AuthService> _logger;
 
@@ -32,12 +36,14 @@ public sealed class AuthService : IAuthService
         UserManager<AppUser> userManager,
         JwtTokenService jwtService,
         IEmailService emailService,
+        AppDbContext db,
         IConfiguration cfg,
         ILogger<AuthService> logger)
     {
         _userManager = userManager;
         _jwtService = jwtService;
         _emailService = emailService;
+        _db = db;
         _cfg = cfg;
         _logger = logger;
     }
@@ -50,12 +56,17 @@ public sealed class AuthService : IAuthService
                 Error.Unauthorized("E-posta veya şifre hatalı."));
 
         var roles = await _userManager.GetRolesAsync(user);
-        var token = _jwtService.Generate(user, roles);
+        var departments = await _db.UserDepartments
+            .Where(ud => ud.UserId == user.Id)
+            .Select(ud => new DepartmentBriefDto { Id = ud.DepartmentId, Name = ud.Department!.Name, Code = ud.Department.Code })
+            .ToListAsync(ct);
+        var token = _jwtService.Generate(user, roles, departments.Select(d => d.Id));
 
         var dto = user.Adapt<AuthResponseDto>();
         dto.Token = token;
         dto.ExpiresAt = DateTime.UtcNow.AddHours(24);
         dto.Roles = roles;
+        dto.Departments = departments;
         return Result<AuthResponseDto>.Success(dto);
     }
 
@@ -133,8 +144,13 @@ public sealed class AuthService : IAuthService
             return Result<UserSummaryResponseDto>.Failure(Error.NotFound("Kullanıcı bulunamadı."));
 
         var roles = await _userManager.GetRolesAsync(user);
+        var departments = await _db.UserDepartments
+            .Where(ud => ud.UserId == user.Id)
+            .Select(ud => new DepartmentBriefDto { Id = ud.DepartmentId, Name = ud.Department!.Name, Code = ud.Department.Code })
+            .ToListAsync(ct);
         var dto = user.Adapt<UserSummaryResponseDto>();
         dto.Roles = roles;
+        dto.Departments = departments;
         return Result<UserSummaryResponseDto>.Success(dto);
     }
 

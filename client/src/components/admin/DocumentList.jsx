@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { reprocessDocument } from '../../services/api';
-import { formatDate, formatSize } from '../../lib/format';
+import { formatDate, formatSize, departmentLabel } from '../../lib/format';
 import SearchInput from '../shared/SearchInput';
 import { DocumentSkeleton } from '../shared/Skeleton';
 import { useToast } from '../shared/Toast';
@@ -212,7 +212,7 @@ export default function DocumentList({
                                         {doc.fileName}
                                     </p>
                                     <p style={{ fontSize: '12px', color: 'var(--gray-light)', marginTop: '2px' }}>
-                                        {formatSize(doc.fileSizeBytes)} · {doc.chunkCount} chunk · {formatDate(doc.createdAt)}
+                                        {doc.departmentName ? `${departmentLabel({ name: doc.departmentName, code: doc.departmentCode })} · ` : ''}{formatSize(doc.fileSizeBytes)} · {doc.chunkCount} chunk · {formatDate(doc.createdAt)}
                                     </p>
                                     {doc.errorMessage && <p style={{ fontSize: '12px', color: '#f87171', marginTop: '2px' }}>{doc.errorMessage}</p>}
                                     {doc.processingNotes && <p style={{ fontSize: '12px', color: '#fb923c', marginTop: '2px' }}>⚠ {doc.processingNotes}</p>}

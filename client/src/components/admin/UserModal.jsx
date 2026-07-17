@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import Modal from '../shared/Modal';
+import MultiSelect from '../shared/MultiSelect';
+import { departmentLabel } from '../../lib/format';
 
 const TR_UPPER = 'A-ZÇĞİÖŞÜ';
 const TR_LOWER = 'a-zçğıöşü';
@@ -17,8 +19,10 @@ function validatePersonnelCode(code) {
 
 const MAX_LENGTHS = { fullName: 100, email: 256, personnelCode: 50 };
 
-export default function UserModal({ onClose, onSubmit, user, onChange, error, loading, isEdit }) {
+export default function UserModal({ onClose, onSubmit, user, onChange, error, loading, isEdit, departments = [] }) {
     const [touched, setTouched] = useState({});
+
+    const selectedDepts = user.departmentIds || [];
 
     const personnelCodeError = validatePersonnelCode(user.personnelCode);
     const showPersonnelCodeError = touched.personnelCode && personnelCodeError;
@@ -64,6 +68,46 @@ export default function UserModal({ onClose, onSubmit, user, onChange, error, lo
                         )}
                     </div>
                 ))}
+
+                {/* Yetki seçimi — Personel veya Yönetici (Admin bu ekrandan atanamaz).
+                    option'lara açık renk verildi: koyu temada tarayıcı varsayılanı okunmuyordu. */}
+                <div>
+                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, marginBottom: '8px', color: 'var(--text-muted)' }}>Yetki</label>
+                    <select
+                        value={user.role || 'User'}
+                        onChange={(e) => onChange('role', e.target.value)}
+                        style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', fontSize: '14px', color: 'var(--text-primary)', background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', boxSizing: 'border-box' }}
+                    >
+                        <option value="User" style={{ background: '#1c2034', color: '#e8e8f0' }}>Personel</option>
+                        <option value="Manager" style={{ background: '#1c2034', color: '#e8e8f0' }}>Yönetici</option>
+                    </select>
+                    <p style={{ fontSize: '12px', color: 'var(--gray-light)', marginTop: '6px' }}>
+                        {user.role === 'Manager'
+                            ? 'Yönetici, atandığı departman(lar)a belge yükleyip yönetebilir.'
+                            : 'Personel, yalnız atandığı departman(lar)ın belgelerine soru sorabilir.'}
+                    </p>
+                </div>
+
+                {/* Çoklu departman seçimi (zorunlu) — checkbox'lı dropdown */}
+                <div>
+                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, marginBottom: '8px', color: 'var(--text-muted)' }}>
+                        Departman(lar) <span style={{ color: '#fca5a5' }}>*</span>
+                    </label>
+                    <MultiSelect
+                        options={departments.map(d => ({ id: d.id, name: departmentLabel(d) }))}
+                        selected={selectedDepts}
+                        onChange={(next) => onChange('departmentIds', next)}
+                        placeholder="Departman seçin..."
+                        emptyText="Departman yok."
+                        summaryNoun="departman"
+                    />
+                    {departments.length === 0 && (
+                        <p style={{ fontSize: '12px', color: '#fca5a5', marginTop: '6px' }}>
+                            Önce "Departmanlar" sekmesinden departman ekleyin.
+                        </p>
+                    )}
+                </div>
+
                 {/* flexWrap + basis 140px: dar ekranda butonlar alt alta tam genişlik geçer */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 12px', marginTop: '8px' }}>
                     <button type="button" onClick={onClose}

@@ -13,6 +13,11 @@ public class DocumentResponseDto
     public string? ProcessingNotes { get; set; }
     public DateTime CreatedAt { get; set; }
 
+    // Belgenin bağlı olduğu departman. Name/Code, Mapster flatten ile Document.Department.*'dan gelir.
+    public Guid DepartmentId { get; set; }
+    public string? DepartmentName { get; set; }
+    public string? DepartmentCode { get; set; }
+
     public DocumentResponseDto(
         Guid Id, string FileName, string ContentType, long FileSizeBytes, string Status,
         string FileType, int ChunkCount, string? ErrorMessage, string? ProcessingNotes, DateTime CreatedAt)

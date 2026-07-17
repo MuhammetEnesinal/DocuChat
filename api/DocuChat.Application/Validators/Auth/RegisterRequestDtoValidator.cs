@@ -1,5 +1,6 @@
 using FluentValidation;
 using DocuChat.Application.DTOs.Auth;
+using DocuChat.Domain.Enums;
 
 namespace DocuChat.Application.Validators.Auth;
 
@@ -26,5 +27,14 @@ public class RegisterRequestDtoValidator : AbstractValidator<RegisterRequestDto>
             .Matches(@"^\S+$").WithMessage("Personel kodu boşluk içeremez.")
             .Matches("[A-Za-zÇĞİÖŞÜçğıöşü]").WithMessage("Personel kodu en az bir harf içermelidir.")
             .Matches("[0-9]").WithMessage("Personel kodu en az bir rakam içermelidir.");
+
+        // Rol yalnız User veya Manager olabilir — Admin bu yoldan atanamaz.
+        RuleFor(x => x.Role)
+            .Must(r => r == Roles.User || r == Roles.Manager)
+            .WithMessage("Rol yalnız 'User' veya 'Manager' olabilir.");
+
+        // Departman zorunlu — departmansız kullanıcı yok.
+        RuleFor(x => x.DepartmentIds)
+            .NotEmpty().WithMessage("En az bir departman seçilmelidir.");
     }
 }

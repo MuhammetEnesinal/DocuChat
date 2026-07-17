@@ -27,5 +27,8 @@ public class UploadDocumentRequestDtoValidator : AbstractValidator<UploadDocumen
         RuleFor(x => x.FileSizeBytes)
             .InclusiveBetween(1, 50 * 1024 * 1024)
             .WithMessage("Dosya boyutu 1 bayt ile 50 MB arasında olmalıdır.");
+
+        RuleFor(x => x.DepartmentId)
+            .NotEmpty().WithMessage("Belge için bir departman seçilmelidir.");
     }
 }

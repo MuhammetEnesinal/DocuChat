@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using DocuChat.Application.Common.Results;
 using DocuChat.Application.DTOs.Auth;
+using DocuChat.Application.DTOs.Departments;
 using DocuChat.Application.Interfaces.Services.Ai.Embedding;
 using DocuChat.Application.Interfaces.Services.Ai.Llm;
 using DocuChat.Application.Interfaces.Services.Ai.Reranker;
@@ -18,6 +19,8 @@ using DocuChat.Application.Interfaces.Services.Email;
 using DocuChat.Application.Interfaces.Services.Storage;
 using DocuChat.Application.Interfaces.Services.Persistence;
 using DocuChat.Domain.Enums;
+using DocuChat.Domain.Entities.Departments;
+using DocuChat.Infrastructure.Persistence.Context;
 using DocuChat.Infrastructure.Persistence.Identity;
 
 namespace DocuChat.Infrastructure.Services.UserManagement;
@@ -30,6 +33,7 @@ public sealed class UserManagementService : IUserManagementService
     private readonly IEmailService _emailService;
     private readonly IValidator<RegisterRequestDto> _registerValidator;
     private readonly IDbExceptionInspector _dbExceptionInspector;
+    private readonly AppDbContext _db;
     private readonly ILogger<UserManagementService> _logger;
 
     public UserManagementService(
@@ -37,13 +41,66 @@ public sealed class UserManagementService : IUserManagementService
         IEmailService emailService,
         IValidator<RegisterRequestDto> registerValidator,
         IDbExceptionInspector dbExceptionInspector,
+        AppDbContext db,
         ILogger<UserManagementService> logger)
     {
         _userManager = userManager;
         _emailService = emailService;
         _registerValidator = registerValidator;
         _dbExceptionInspector = dbExceptionInspector;
+        _db = db;
         _logger = logger;
+    }
+
+    // ── Departman yardımcıları ──
+
+    // Verilen ID'lerin tümü DB'de var mı? Varsa (Id+Ad) listesini döner, eksik varsa null.
+    private async Task<List<DepartmentBriefDto>?> ResolveDepartmentsByIdsAsync(
+        IReadOnlyCollection<Guid> ids, CancellationToken ct)
+    {
+        var distinct = ids.Distinct().ToList();
+        var found = await _db.Departments
+            .Where(d => distinct.Contains(d.Id))
+            .Select(d => new DepartmentBriefDto { Id = d.Id, Name = d.Name, Code = d.Code })
+            .ToListAsync(ct);
+        return found.Count == distinct.Count ? found : null;
+    }
+
+    // Kullanıcının departman atamalarını verilen ID kümesiyle DEĞİŞTİRİR (mevcutları siler,
+    // yenileri ekler). SaveChanges çağıran metodun sorumluluğunda.
+    private async Task ReplaceUserDepartmentsAsync(string userId, IEnumerable<Guid> deptIds, CancellationToken ct)
+    {
+        var existing = await _db.UserDepartments.Where(ud => ud.UserId == userId).ToListAsync(ct);
+        _db.UserDepartments.RemoveRange(existing);
+        foreach (var id in deptIds.Distinct())
+            _db.UserDepartments.Add(new UserDepartment { UserId = userId, DepartmentId = id });
+    }
+
+    // Kullanıcı(lar)ın departmanlarını tek sorguda yükler → dto doldurmak için.
+    private async Task<Dictionary<string, List<DepartmentBriefDto>>> LoadUserDepartmentsAsync(
+        IReadOnlyCollection<string> userIds, CancellationToken ct)
+    {
+        var rows = await _db.UserDepartments
+            .Where(ud => userIds.Contains(ud.UserId))
+            .Select(ud => new { ud.UserId, ud.DepartmentId, Name = ud.Department!.Name, ud.Department.Code })
+            .ToListAsync(ct);
+
+        return rows
+            .GroupBy(r => r.UserId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(r => new DepartmentBriefDto { Id = r.DepartmentId, Name = r.Name, Code = r.Code })
+                      .OrderBy(d => d.Name).ToList());
+    }
+
+    // Rol/role-only atama: kullanıcının mevcut User/Manager rolünü kaldırıp yenisini atar
+    // (Admin'e dokunmaz — çağıran zaten admin'i bu yola sokmuyor).
+    private async Task SetUserRoleAsync(AppUser user, string role)
+    {
+        var current = await _userManager.GetRolesAsync(user);
+        var toRemove = current.Where(r => r == Roles.User || r == Roles.Manager).ToList();
+        if (toRemove.Count > 0) await _userManager.RemoveFromRolesAsync(user, toRemove);
+        await _userManager.AddToRoleAsync(user, role);
     }
 
     public async Task<Result<UserSummaryResponseDto>> CreateUserAsync(
@@ -56,6 +113,12 @@ public sealed class UserManagementService : IUserManagementService
         if (await _userManager.Users.AnyAsync(u => u.PersonnelCode == req.PersonnelCode, ct))
             return Result<UserSummaryResponseDto>.Failure(
                 Error.Conflict("Bu personel kodu zaten kullanılıyor."));
+
+        // Departmanlar geçerli mi? (Kullanıcı oluşturmadan ÖNCE doğrula — yarım kayıt kalmasın.)
+        var departments = await ResolveDepartmentsByIdsAsync(req.DepartmentIds, ct);
+        if (departments is null)
+            return Result<UserSummaryResponseDto>.Failure(
+                Error.Validation("Bir veya daha fazla seçilen departman bulunamadı."));
 
         var user = new AppUser
         {
@@ -84,17 +147,22 @@ public sealed class UserManagementService : IUserManagementService
             return Result<UserSummaryResponseDto>.Failure(Error.Validation(msg));
         }
 
-        await _userManager.AddToRoleAsync(user, Roles.User);
+        await _userManager.AddToRoleAsync(user, req.Role);
         var roles = await _userManager.GetRolesAsync(user);
+
+        // Departman atamalarını yaz.
+        await ReplaceUserDepartmentsAsync(user.Id, req.DepartmentIds, ct);
+        await _db.SaveChangesAsync(ct);
 
         // Welcome mail fire-and-forget — SMTP hatası user oluşturmayı engellemesin
         _ = SendWelcomeEmailAsync(user, req.PersonnelCode, ct);
 
-        _logger.LogInformation("[UserManagement] Yeni kullanıcı oluşturuldu. UserId: {UserId}, Email: {Email}",
-            user.Id, user.Email);
+        _logger.LogInformation("[UserManagement] Yeni kullanıcı oluşturuldu. UserId: {UserId}, Email: {Email}, Rol: {Role}",
+            user.Id, user.Email, req.Role);
 
         var summaryDto = user.Adapt<UserSummaryResponseDto>();
         summaryDto.Roles = roles;
+        summaryDto.Departments = departments;
         return Result<UserSummaryResponseDto>.Success(summaryDto);
     }
 
@@ -105,12 +173,15 @@ public sealed class UserManagementService : IUserManagementService
             .OrderBy(u => u.CreatedAt)
             .ToListAsync(ct);
 
+        var deptMap = await LoadUserDepartmentsAsync(users.Select(u => u.Id).ToList(), ct);
+
         var dtos = new List<UserSummaryResponseDto>(users.Count);
         foreach (var user in users)
         {
             var roles = await _userManager.GetRolesAsync(user);
             var dto = user.Adapt<UserSummaryResponseDto>();
             dto.Roles = roles;
+            dto.Departments = deptMap.TryGetValue(user.Id, out var d) ? d : new List<DepartmentBriefDto>();
             dtos.Add(dto);
         }
 
@@ -118,9 +189,22 @@ public sealed class UserManagementService : IUserManagementService
     }
 
     public async Task<Result<PaginatedResult<UserSummaryResponseDto>>> GetUsersPagedAsync(
-        int page, int pageSize, string? search, CancellationToken ct = default)
+        int page, int pageSize, string? search, string? role = null, CancellationToken ct = default)
     {
         var query = _userManager.Users.AsQueryable();
+
+        // Rol filtresi — Identity rol tablolarıyla SQL seviyesinde join. GetUsersInRoleAsync
+        // kullanılmadı: o tüm kullanıcıları belleğe çeker ve sayfalamayı bozardı.
+        if (!string.IsNullOrWhiteSpace(role))
+        {
+            var roleId = await _db.Roles.Where(r => r.Name == role).Select(r => r.Id).FirstOrDefaultAsync(ct);
+            if (roleId is null)   // bilinmeyen rol → boş sonuç (hata değil)
+                return Result<PaginatedResult<UserSummaryResponseDto>>.Success(
+                    new PaginatedResult<UserSummaryResponseDto>(new List<UserSummaryResponseDto>(), 0, page, pageSize));
+
+            query = query.Where(u => _db.UserRoles.Any(ur => ur.UserId == u.Id && ur.RoleId == roleId));
+        }
+
         if (!string.IsNullOrWhiteSpace(search))
         {
             var pattern = $"%{search}%";
@@ -136,12 +220,15 @@ public sealed class UserManagementService : IUserManagementService
             .Take(pageSize)
             .ToListAsync(ct);
 
+        var deptMap = await LoadUserDepartmentsAsync(users.Select(u => u.Id).ToList(), ct);
+
         var dtos = new List<UserSummaryResponseDto>(users.Count);
         foreach (var user in users)
         {
             var roles = await _userManager.GetRolesAsync(user);
             var dto = user.Adapt<UserSummaryResponseDto>();
             dto.Roles = roles;
+            dto.Departments = deptMap.TryGetValue(user.Id, out var d) ? d : new List<DepartmentBriefDto>();
             dtos.Add(dto);
         }
 
@@ -159,6 +246,12 @@ public sealed class UserManagementService : IUserManagementService
         var roles = await _userManager.GetRolesAsync(user);
         if (roles.Contains(Roles.Admin))
             return Result<UserSummaryResponseDto>.Failure(Error.Forbidden("Admin kullanıcı güncellenemez."));
+
+        // Departmanlar geçerli mi? (Mutasyondan ÖNCE doğrula.)
+        var departments = await ResolveDepartmentsByIdsAsync(req.DepartmentIds, ct);
+        if (departments is null)
+            return Result<UserSummaryResponseDto>.Failure(
+                Error.Validation("Bir veya daha fazla seçilen departman bulunamadı."));
 
         var oldEmail = user.Email ?? string.Empty;
         var emailChanged = !string.Equals(oldEmail, req.Email, StringComparison.OrdinalIgnoreCase);
@@ -200,7 +293,12 @@ public sealed class UserManagementService : IUserManagementService
             return Result<UserSummaryResponseDto>.Failure(Error.Validation(msg));
         }
 
-        _logger.LogInformation("[UserManagement] Kullanıcı güncellendi. UserId: {UserId}", userId);
+        // Rol (User/Manager) ve departman atamalarını güncelle.
+        await SetUserRoleAsync(user, req.Role);
+        await ReplaceUserDepartmentsAsync(userId, req.DepartmentIds, ct);
+        await _db.SaveChangesAsync(ct);
+
+        _logger.LogInformation("[UserManagement] Kullanıcı güncellendi. UserId: {UserId}, Rol: {Role}", userId, req.Role);
 
         if (emailChanged)
         {
@@ -211,6 +309,7 @@ public sealed class UserManagementService : IUserManagementService
         var updatedRoles = await _userManager.GetRolesAsync(user);
         var updatedDto = user.Adapt<UserSummaryResponseDto>();
         updatedDto.Roles = updatedRoles;
+        updatedDto.Departments = departments;
         return Result<UserSummaryResponseDto>.Success(updatedDto);
     }
 
@@ -323,6 +422,13 @@ public sealed class UserManagementService : IUserManagementService
 
             yield return new { type = "start", total = totalEstimate };
 
+            // Departman KODU → Id haritası. Excel'de yalnız KOD kabul edilir (ad değil).
+            // Eşleşme BİREBİR (Ordinal, büyük/küçük harf duyarlı): Türkçe'de İ/I ve ı/i AYRI
+            // harflerdir; bunları katlamak "IT" ile "ıt"i aynı sayardı — oysa ikisi farklı kod olabilir.
+            var deptByCode = new Dictionary<string, Guid>(StringComparer.Ordinal);
+            foreach (var d in await _db.Departments.Select(d => new { d.Id, d.Code }).ToListAsync(ct))
+                deptByCode[d.Code] = d.Id;
+
             var results = new List<BulkImportUserResultDto>();
             var successCount = 0;
             var skippedCount = 0;
@@ -337,7 +443,20 @@ public sealed class UserManagementService : IUserManagementService
 
                 totalRows++;
                 processed++;
-                var result = await ProcessImportRowAsync(rowNum, row.Value.FullName, row.Value.Email, row.Value.PersonnelCode, ct);
+
+                // Departman adlarını (virgülle çoklu) ID'ye çöz. Boş veya bilinmeyen ad → satır atlanır.
+                var (deptIds, deptError) = ResolveDepartmentCodes(row.Value.DepartmentsRaw, deptByCode);
+                BulkImportUserResultDto result;
+                if (deptError is not null)
+                {
+                    result = new BulkImportUserResultDto(rowNum, NullIfEmpty(row.Value.Email), "skipped", deptError);
+                }
+                else
+                {
+                    var role = NormalizeRole(row.Value.RoleRaw);
+                    result = await ProcessImportRowAsync(
+                        rowNum, row.Value.FullName, row.Value.Email, row.Value.PersonnelCode, role, deptIds, ct);
+                }
                 results.Add(result);
                 if (result.Status == "success") successCount++; else skippedCount++;
 
@@ -366,29 +485,68 @@ public sealed class UserManagementService : IUserManagementService
     }
 
     // Tek satır okur, tamamen boşsa null döner.
-    private static (string FullName, string Email, string PersonnelCode)? ReadRow(
+    // Kolonlar: 1=Ad Soyad, 2=E-posta, 3=Personel Kodu, 4=Departman(lar) (virgülle çoklu), 5=Rol
+    private static (string FullName, string Email, string PersonnelCode, string DepartmentsRaw, string RoleRaw)? ReadRow(
         IXLWorksheet worksheet, int rowNum)
     {
         var row = worksheet.Row(rowNum);
         var fullName = row.Cell(1).GetString().Trim();
         var email = row.Cell(2).GetString().Trim();
         var personnelCode = row.Cell(3).GetString().Trim();
+        var departmentsRaw = row.Cell(4).GetString().Trim();
+        var roleRaw = row.Cell(5).GetString().Trim();
 
         if (string.IsNullOrWhiteSpace(fullName)
             && string.IsNullOrWhiteSpace(email)
-            && string.IsNullOrWhiteSpace(personnelCode))
+            && string.IsNullOrWhiteSpace(personnelCode)
+            && string.IsNullOrWhiteSpace(departmentsRaw)
+            && string.IsNullOrWhiteSpace(roleRaw))
         {
             return null;
         }
-        return (fullName, email, personnelCode);
+        return (fullName, email, personnelCode, departmentsRaw, roleRaw);
     }
 
-    // Tek satır işler — validate, email check, create user, mail. Sonuç DTO döner.
-    // Hem sync hem streaming variant bu metodu kullanır (DRY).
-    private async Task<BulkImportUserResultDto> ProcessImportRowAsync(
-        int rowNum, string fullName, string email, string personnelCode, CancellationToken ct)
+    // Excel'deki rol metnini normalize eder. "Yönetici"/"Manager" → Manager, aksi halde User.
+    private static string NormalizeRole(string? raw)
     {
-        var dto = new RegisterRequestDto(fullName, email, personnelCode);
+        var r = (raw ?? string.Empty).Trim().ToLowerInvariant();
+        return r is "yönetici" or "yonetici" or "manager" ? Roles.Manager : Roles.User;
+    }
+
+    // Virgülle ayrılmış departman KOD'larını ID listesine çözer (Excel'de ad değil, kod yazılır).
+    // Boşsa/bilinmiyorsa (ids, hataMesajı) döner; hata döndüyse satır atlanır. Departman zorunlu.
+    private static (List<Guid> Ids, string? Error) ResolveDepartmentCodes(
+        string raw, IReadOnlyDictionary<string, Guid> deptByCode)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return (new List<Guid>(), "Departman kodu boş olamaz (en az bir kod gerekli).");
+
+        var tokens = raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var ids = new List<Guid>();
+        foreach (var token in tokens)
+        {
+            // Birebir eşleşme — kod tam yazılmalı (büyük/küçük harf duyarlı).
+            if (deptByCode.TryGetValue(token, out var id))
+            {
+                if (!ids.Contains(id)) ids.Add(id);
+            }
+            else
+            {
+                return (ids, $"Departman kodu bulunamadı: '{token}' (kod birebir yazılmalı)");
+            }
+        }
+        if (ids.Count == 0)
+            return (ids, "Departman kodu boş olamaz (en az bir kod gerekli).");
+        return (ids, null);
+    }
+
+    // Tek satır işler — validate, email check, create user, rol+departman ata, mail. Sonuç DTO döner.
+    private async Task<BulkImportUserResultDto> ProcessImportRowAsync(
+        int rowNum, string fullName, string email, string personnelCode,
+        string role, List<Guid> departmentIds, CancellationToken ct)
+    {
+        var dto = new RegisterRequestDto(fullName, email, personnelCode, role, departmentIds);
 
         var validation = await _registerValidator.ValidateAsync(dto, ct);
         if (!validation.IsValid)
@@ -427,7 +585,9 @@ public sealed class UserManagementService : IUserManagementService
             return new BulkImportUserResultDto(rowNum, email, "skipped", reason);
         }
 
-        await _userManager.AddToRoleAsync(user, Roles.User);
+        await _userManager.AddToRoleAsync(user, role);
+        await ReplaceUserDepartmentsAsync(user.Id, departmentIds, ct);
+        await _db.SaveChangesAsync(ct);
 
         // Welcome mail fire-and-forget (SMTP hatası bulk'u durdurmaz)
         _ = SendWelcomeEmailAsync(user, personnelCode, CancellationToken.None);
@@ -444,8 +604,10 @@ public sealed class UserManagementService : IUserManagementService
         ws.Cell(1, 1).Value = "Ad Soyad";
         ws.Cell(1, 2).Value = "E-posta";
         ws.Cell(1, 3).Value = "Personel Kodu";
+        ws.Cell(1, 4).Value = "Departman Kod(lar)ı";
+        ws.Cell(1, 5).Value = "Yetki";
 
-        var headerRange = ws.Range(1, 1, 1, 3);
+        var headerRange = ws.Range(1, 1, 1, 5);
         headerRange.Style.Font.Bold = true;
         headerRange.Style.Fill.BackgroundColor = XLColor.LightGray;
         headerRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
@@ -454,20 +616,24 @@ public sealed class UserManagementService : IUserManagementService
         ws.Cell(2, 1).Value = "Ahmet Yılmaz";
         ws.Cell(2, 2).Value = "ahmet@firma.com";
         ws.Cell(2, 3).Value = "EMP1001";
+        ws.Cell(2, 4).Value = "YAZILIM, IK";
+        ws.Cell(2, 5).Value = "Personel";
 
-        // Yardımcı satır (3) — kurallar
-        ws.Cell(4, 1).Value = "ŞIFRE KURALLARI:";
+        // Yardımcı satırlar — kurallar
+        ws.Cell(4, 1).Value = "KURALLAR:";
         ws.Cell(4, 1).Style.Font.Bold = true;
-        ws.Cell(5, 1).Value = "• En az 8 karakter";
-        ws.Cell(6, 1).Value = "• En az 1 büyük harf";
-        ws.Cell(7, 1).Value = "• En az 1 küçük harf";
-        ws.Cell(8, 1).Value = "• En az 1 rakam";
-        ws.Cell(9, 1).Value = "• En az 1 özel karakter (!, @, #, vb.)";
+        ws.Cell(5, 1).Value = "• Personel Kodu ilk şifredir: en az 6 karakter, harf + rakam, boşluksuz";
+        ws.Cell(6, 1).Value = "• Departman Kod(lar)ı: departman ADI DEĞİL, KODU yazılır (örn. YAZILIM); çoklu için virgülle ayırın";
+        ws.Cell(7, 1).Value = "• Kod BİREBİR yazılmalı (büyük/küçük harf duyarlı: 'IT' ile 'ıt' farklı kodlardır)";
+        ws.Cell(9, 1).Value = "• Departman zorunludur — boş veya tanımsız kod içeren satır atlanır";
+        ws.Cell(8, 1).Value = "• Yetki: 'Personel' veya 'Yönetici' (boş bırakılırsa Personel)";
 
         // Sütun genişliklerini ayarla
         ws.Column(1).Width = 30;
         ws.Column(2).Width = 35;
         ws.Column(3).Width = 20;
+        ws.Column(4).Width = 32;
+        ws.Column(5).Width = 14;
 
         using var ms = new MemoryStream();
         workbook.SaveAs(ms);

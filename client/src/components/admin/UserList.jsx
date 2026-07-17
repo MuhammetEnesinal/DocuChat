@@ -1,13 +1,29 @@
 import { useState, useCallback } from 'react';
 import SearchInput from '../shared/SearchInput';
 import { UserSkeleton } from '../shared/Skeleton';
-import { formatDate } from '../../lib/format';
+import { formatDate, roleLabel, departmentLabel } from '../../lib/format';
+
+// Rol rozeti renkleri — Admin mor, Yönetici yeşil, Personel nötr gri.
+const ROLE_BADGE = {
+    Admin:   { bg: 'rgba(var(--accent-rgb),0.15)', color: '#c4b5fd', border: 'rgba(var(--accent-light-rgb),0.25)' },
+    Manager: { bg: 'rgba(34,197,94,0.15)',         color: '#86efac', border: 'rgba(34,197,94,0.25)' },
+    User:    { bg: 'rgba(148,163,184,0.16)',       color: '#cbd5e1', border: 'rgba(148,163,184,0.3)' },
+};
+
+// Rol filtresi seçenekleri — değer backend'e gider (rol anahtarı İngilizce kalır).
+const ROLE_FILTERS = [
+    { value: '',        label: 'Tüm Yetkiler' },
+    { value: 'Admin',   label: 'Admin' },
+    { value: 'Manager', label: 'Yönetici' },
+    { value: 'User',    label: 'Personel' },
+];
 import IconButton from '../shared/IconButton';
 import Spinner from '../shared/Spinner';
 import Pagination from '../shared/Pagination';
 
 export default function UserList({
     users, loading, search, onSearchChange,
+    roleFilter, onRoleFilterChange,
     onAdd, onBulkImport, onEdit, onDelete, onBatchDelete,
     deletingUserId,
     total, page, pageSize, onPageChange,
@@ -85,6 +101,17 @@ export default function UserList({
                                 </svg>
                                 Çoklu Seç
                             </button>
+                            {/* Yetki filtresi — server-side (sayfalama ile tutarlı olsun diye) */}
+                            <select
+                                className="admin-role-filter"
+                                value={roleFilter ?? ''}
+                                onChange={(e) => onRoleFilterChange?.(e.target.value)}
+                                title="Yetkiye göre filtrele"
+                                style={{ padding: '8px 10px', borderRadius: '10px', fontSize: '13px', background: 'var(--surface2)', color: 'var(--text-primary)', border: '1px solid var(--border)', cursor: 'pointer', flexShrink: 0 }}>
+                                {ROLE_FILTERS.map(r => (
+                                    <option key={r.value} value={r.value} style={{ background: '#1c2034', color: '#e8e8f0' }}>{r.label}</option>
+                                ))}
+                            </select>
                             <div className="admin-search" style={{ flex: '1 1 180px', maxWidth: '260px', minWidth: 0 }}>
                                 <SearchInput value={search} onChange={onSearchChange} placeholder="Kullanıcı ara..." />
                             </div>
@@ -122,7 +149,12 @@ export default function UserList({
                 </div>
             ) : users.map((u) => {
                 const isAdmin = u.roles?.includes('Admin');
+                const isManager = u.roles?.includes('Manager');
+                // Her kullanıcının rozeti olur — Personel'in boş kalması tutarsızdı.
+                const primaryRole = isAdmin ? 'Admin' : isManager ? 'Manager' : 'User';
+                const badge = ROLE_BADGE[primaryRole];
                 const isSelected = selectMode && selectedIds.has(u.id);
+                const deptNames = (u.departments || []).map(departmentLabel).join(', ');
                 return (
                     <div key={u.id}
                         style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '8px 12px', padding: '14px clamp(12px, 2.5vw, 20px)', borderBottom: '1px solid var(--border)', transition: 'background 0.15s', background: isSelected ? 'rgba(var(--accent-rgb),0.08)' : 'transparent' }}
@@ -145,9 +177,14 @@ export default function UserList({
                             <div style={{ minWidth: 0 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                                     <p style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>{u.fullName}</p>
-                                    {isAdmin && <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', fontWeight: 500, background: 'rgba(var(--accent-rgb),0.15)', color: '#c4b5fd', border: '1px solid rgba(var(--accent-light-rgb),0.25)', flexShrink: 0 }}>Admin</span>}
+                                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', fontWeight: 500, background: badge.bg, color: badge.color, border: `1px solid ${badge.border}`, flexShrink: 0 }}>
+                                        {roleLabel(primaryRole)}
+                                    </span>
                                 </div>
                                 <p style={{ fontSize: '12px', color: 'var(--gray-light)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}{u.personnelCode ? ` · ${u.personnelCode}` : ''} · {formatDate(u.createdAt)}</p>
+                                {deptNames && (
+                                    <p style={{ fontSize: '12px', color: '#a5b4fc', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>🏢 {deptNames}</p>
+                                )}
                             </div>
                         </div>
                         {!isAdmin && !selectMode && (

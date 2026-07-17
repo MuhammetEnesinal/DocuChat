@@ -210,8 +210,10 @@ public class ChatUseCase : IChatUseCase
         // Soru embedding'i
         var questionVector = await _embeddingService.GetEmbeddingAsync(searchQuestion, ct);
 
-        // Cache araması
-        var cacheMatch = await _uow.QuestionCache.FindSimilarAsync(questionVector, _cacheSimilarityThreshold, ct);
+        // Cache araması — departman izolasyonu: kullanıcı yalnız kendi departmanlarına etiketli
+        // cache kayıtlarını görür (admin → filtre yok, hepsi).
+        var cacheMatch = await _uow.QuestionCache.FindSimilarAsync(
+            questionVector, _cacheSimilarityThreshold, DepartmentScope(), ct);
         if (cacheMatch is not null)
         {
             // Kullanıcıya özel feedback net skoru (global cache'i değiştirmez):
@@ -294,8 +296,10 @@ public class ChatUseCase : IChatUseCase
             }
         }
 
-        // Cache yok: önbelleğe alınabilirlik kontrolü + gerekirse netleştirme sorusu
-        var docNamesWithSummary = await _uow.Documents.GetDocumentNamesAndSummariesAsync(ct);
+        // Cache yok: önbelleğe alınabilirlik kontrolü + gerekirse netleştirme sorusu.
+        // Departman filtresi ŞART: bu liste (belge ADI + ÖZETİ) LLM'e gidip netleştirme
+        // seçeneklerine dönüşüyor — filtresiz olsa başka departmanın belge içeriği sızardı.
+        var docNamesWithSummary = await _uow.Documents.GetDocumentNamesAndSummariesAsync(DepartmentScope(), ct);
         // Netleştirme kalitesi: belge sayısı makulse "isim — kısa özet" ver → LLM, kriptik dosya
         // adları yerine İÇERİKTEN seçenek üretir. Belge çoksa token korumak için yalnız isim verilir.
         var docNameStrings = docNamesWithSummary.Count <= 20
@@ -371,6 +375,7 @@ public class ChatUseCase : IChatUseCase
             searchQuestion, history,
             isStandalone: isCacheable,
             precomputedQueryVector: questionVector,
+            departmentIds: DepartmentScope(),
             ct: ct)).ToList();
 
         // Kullanıcının soru-benzerliğine göre geçmiş feedback bağlamı (cache hit doğrulama
@@ -506,7 +511,23 @@ public class ChatUseCase : IChatUseCase
 
         var qualityOkForCache = quality.Validated
             && (quality.Score >= 0.65 || (quality.Score >= 0.4 && quality.Issues.Count == 0));
-        var willCache = isCacheable && !llmRejected && qualityOkForCache;
+
+        // Cache departman etiketi (kesin izolasyon):
+        //   admin            → null (global kapsam; normal kullanıcıya servis edilmez)
+        //   tek departmanlı  → o departman
+        //   çok departmanlı  → cevap hangi departmana ait belirsiz → güvenli tarafta CACHE'LEME
+        var isAdmin = _currentUser.IsInRole(Roles.Admin);
+        Guid? cacheDeptId = null;
+        var canCacheForDept = true;
+        if (!isAdmin)
+        {
+            if (_currentUser.DepartmentIds.Count == 1)
+                cacheDeptId = _currentUser.DepartmentIds[0];
+            else
+                canCacheForDept = false;
+        }
+
+        var willCache = isCacheable && !llmRejected && qualityOkForCache && canCacheForDept;
         if (willCache)
         {
             try
@@ -527,6 +548,7 @@ public class ChatUseCase : IChatUseCase
                     Answer = answer,
                     ImagesJson = imagesJson,
                     SourceDocumentIds = sourceDocCsv,
+                    DepartmentId = cacheDeptId,
                 }, ct);
             }
             catch (Exception ex)
@@ -782,11 +804,18 @@ public class ChatUseCase : IChatUseCase
     public async Task<Result<IReadOnlyList<string>>> GetPopularQuestionsAsync(
         int limit, CancellationToken ct)
     {
-        var cached = await _uow.QuestionCache.GetTopByHitCountAsync(limit, ct);
+        // Popüler sorular da departmana göre izole — soru metinleri başka departmanın belge
+        // içeriğini ele verir (admin → filtre yok). Çok departmanlı kullanıcı, üyesi olduğu
+        // TÜM departmanların popüler sorularını birlikte görür.
+        var cached = await _uow.QuestionCache.GetTopByHitCountAsync(limit, DepartmentScope(), ct);
         if (cached.Count > 0)
             return Result<IReadOnlyList<string>>.Success(cached);
 
-        var recentMessages = await _uow.Messages.GetByRoleAsync(MessageRole.User, ct);
+        // Fallback (cache boş): mesajlarda departman bilgisi YOK → departmana göre süzemeyiz.
+        // Bu yüzden admin dışında yalnız kullanıcının KENDİ soruları kullanılır; aksi halde
+        // başka departmanların soruları sızardı.
+        var ownQuestionsOnly = _currentUser.IsInRole(Roles.Admin) ? null : _currentUser.UserId;
+        var recentMessages = await _uow.Messages.GetByRoleAsync(MessageRole.User, ownQuestionsOnly, ct);
         var popular = recentMessages
             .Select(m => m.Content.Trim())
             .Where(q => q.Length > 10 && q.Length < 200)
@@ -965,6 +994,11 @@ public class ChatUseCase : IChatUseCase
         return Result<FeedbackResponseDto>.Success(
             new FeedbackResponseDto(feedback.Id, feedback.CreatedAt));
     }
+
+    // Departman izolasyon kapsamı: admin → null (filtre yok, tüm belgeler); diğer kullanıcı →
+    // üye olduğu departman ID'leri. Boş liste = hiç departman → arama/cache hiçbir şey döndürmez.
+    private IReadOnlyList<Guid>? DepartmentScope() =>
+        _currentUser.IsInRole(Roles.Admin) ? null : _currentUser.DepartmentIds;
 
     // Kullanıcının son 6 aydaki dislike feedback'lerini soru-benzerliğine göre kümeler ve en
     // çok şikayet edilen kümeleri LLM system prompt bölümü olarak hazırlar. Benzerlik için
