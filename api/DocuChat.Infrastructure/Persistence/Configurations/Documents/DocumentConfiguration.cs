@@ -23,12 +23,14 @@ public class DocumentConfiguration : IEntityTypeConfiguration<Document>
                .IsRequired()
                .HasMaxLength(100);
 
-        builder.Property(d => d.UserId).IsRequired();
-
+        // UserId = yükleyen (bilgi amaçlı). SetNull: kullanıcı silinince BELGE KALIR, yalnız
+        // yükleyen bilgisi boşalır. Cascade idi → yönetici hesabı silinince departmanın tüm
+        // belgeleri sessizce uçuyordu; üstelik cascade uygulama kodunu atladığı için diskte
+        // öksüz dosya kalıyor ve cache invalidate edilmiyordu (silinen belge hâlâ cevaplanabiliyordu).
         builder.HasOne<AppUser>()
                .WithMany()
                .HasForeignKey(d => d.UserId)
-               .OnDelete(DeleteBehavior.Cascade);
+               .OnDelete(DeleteBehavior.SetNull);
 
         // Belge → Departman (zorunlu). Restrict: içinde belge olan departman silinemez
         // (referential integrity — departman silme admin tarafında ayrıca bloklanır).

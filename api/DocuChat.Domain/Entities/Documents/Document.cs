@@ -10,7 +10,10 @@ namespace DocuChat.Domain.Entities.Documents;
 
 public class Document : BaseEntity
 {
-    public string UserId { get; set; } = string.Empty;
+    // Belgeyi YÜKLEYEN kullanıcı — yalnızca bilgi amaçlı, hiçbir yetki/dedup mantığında
+    // kullanılmaz (dedup ve izolasyon DepartmentId üzerinden). Kullanıcı silinirse null olur:
+    // belge departmanın malıdır, yükleyen ayrılınca departmanın bilgi tabanı silinmemeli.
+    public string? UserId { get; set; }
 
     // Belgenin ait olduğu departman (zorunlu). Arama izolasyonunun anahtarı: kullanıcı yalnız
     // üye olduğu departmanların belgelerinde arama yapar.
