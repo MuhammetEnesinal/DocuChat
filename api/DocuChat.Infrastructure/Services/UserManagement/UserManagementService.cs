@@ -155,7 +155,7 @@ public sealed class UserManagementService : IUserManagementService
         await _db.SaveChangesAsync(ct);
 
         // Welcome mail fire-and-forget — SMTP hatası user oluşturmayı engellemesin
-        _ = SendWelcomeEmailAsync(user, req.PersonnelCode, ct);
+        _ = SendWelcomeEmailAsync(user, req.PersonnelCode, req.Role, departments, ct);
 
         _logger.LogInformation("[UserManagement] Yeni kullanıcı oluşturuldu. UserId: {UserId}, Email: {Email}, Rol: {Role}",
             user.Id, user.Email, req.Role);
@@ -426,8 +426,14 @@ public sealed class UserManagementService : IUserManagementService
             // Eşleşme BİREBİR (Ordinal, büyük/küçük harf duyarlı): Türkçe'de İ/I ve ı/i AYRI
             // harflerdir; bunları katlamak "IT" ile "ıt"i aynı sayardı — oysa ikisi farklı kod olabilir.
             var deptByCode = new Dictionary<string, Guid>(StringComparer.Ordinal);
-            foreach (var d in await _db.Departments.Select(d => new { d.Id, d.Code }).ToListAsync(ct))
+            // Id → (Ad, Kod): hoş geldin mailinde departmanı "Ad - KOD" göstermek için. Satır
+            // başına ekstra sorgu atmamak adına tek seferde belleğe alınır.
+            var deptById = new Dictionary<Guid, DepartmentBriefDto>();
+            foreach (var d in await _db.Departments.Select(d => new { d.Id, d.Name, d.Code }).ToListAsync(ct))
+            {
                 deptByCode[d.Code] = d.Id;
+                deptById[d.Id] = new DepartmentBriefDto { Id = d.Id, Name = d.Name, Code = d.Code };
+            }
 
             var results = new List<BulkImportUserResultDto>();
             var successCount = 0;
@@ -454,8 +460,13 @@ public sealed class UserManagementService : IUserManagementService
                 else
                 {
                     var role = NormalizeRole(row.Value.RoleRaw);
+                    // Departman brief'leri bellekteki haritadan çözülür (mail için "Ad - KOD").
+                    var deptBriefs = deptIds
+                        .Where(deptById.ContainsKey)
+                        .Select(id => deptById[id])
+                        .ToList();
                     result = await ProcessImportRowAsync(
-                        rowNum, row.Value.FullName, row.Value.Email, row.Value.PersonnelCode, role, deptIds, ct);
+                        rowNum, row.Value.FullName, row.Value.Email, row.Value.PersonnelCode, role, deptIds, deptBriefs, ct);
                 }
                 results.Add(result);
                 if (result.Status == "success") successCount++; else skippedCount++;
@@ -544,7 +555,8 @@ public sealed class UserManagementService : IUserManagementService
     // Tek satır işler — validate, email check, create user, rol+departman ata, mail. Sonuç DTO döner.
     private async Task<BulkImportUserResultDto> ProcessImportRowAsync(
         int rowNum, string fullName, string email, string personnelCode,
-        string role, List<Guid> departmentIds, CancellationToken ct)
+        string role, List<Guid> departmentIds,
+        IReadOnlyList<DepartmentBriefDto> departmentBriefs, CancellationToken ct)
     {
         var dto = new RegisterRequestDto(fullName, email, personnelCode, role, departmentIds);
 
@@ -590,7 +602,7 @@ public sealed class UserManagementService : IUserManagementService
         await _db.SaveChangesAsync(ct);
 
         // Welcome mail fire-and-forget (SMTP hatası bulk'u durdurmaz)
-        _ = SendWelcomeEmailAsync(user, personnelCode, CancellationToken.None);
+        _ = SendWelcomeEmailAsync(user, personnelCode, role, departmentBriefs, CancellationToken.None);
 
         return new BulkImportUserResultDto(rowNum, email, "success", null);
     }
@@ -644,28 +656,67 @@ public sealed class UserManagementService : IUserManagementService
 
     // ====== Email helpers ======
 
-    private async Task SendWelcomeEmailAsync(AppUser user, string password, CancellationToken ct)
+    // Rol anahtarı → kullanıcıya gösterilen Türkçe etiket (frontend roleLabel ile aynı sözlük).
+    private static string RoleLabel(string? role) => role switch
     {
+        Roles.Admin => "Admin",
+        Roles.Manager => "Yönetici",
+        Roles.User => "Personel",
+        _ => role ?? "Personel",
+    };
+
+    // Departman gösterimi "Ad - KOD" (frontend departmentLabel ile aynı biçim).
+    private static string DepartmentLabels(IReadOnlyList<DepartmentBriefDto>? departments)
+        => departments is null || departments.Count == 0
+            ? "—"
+            : string.Join(", ", departments.Select(d =>
+                string.IsNullOrWhiteSpace(d.Code) ? d.Name : $"{d.Name} - {d.Code}"));
+
+    private async Task SendWelcomeEmailAsync(
+        AppUser user, string password, string role,
+        IReadOnlyList<DepartmentBriefDto>? departments, CancellationToken ct)
+    {
+        // Satır stilleri tekrar etmesin diye yerel sabitler (mail istemcileri <style> bloğunu
+        // sık sık atar → inline stil zorunlu).
+        const string th = "padding:11px 14px;background:#f1f5f9;font-weight:600;color:#334155;font-size:14px;border-bottom:1px solid #e2e8f0";
+        const string td = "padding:11px 14px;background:#ffffff;color:#0f172a;font-size:14px;border-bottom:1px solid #e2e8f0";
+
         var body = $"""
-            <div style="font-family:sans-serif;max-width:480px;margin:auto">
-              <h2 style="color:#3b82f6">DocuChat'e Hoş Geldiniz!</h2>
-              <p>Merhaba <strong>{Esc(user.FullName ?? user.Email)}</strong>,</p>
-              <p>Hesabınız yönetici tarafından oluşturuldu. Giriş bilgileriniz aşağıdadır:</p>
-              <table style="border-collapse:collapse;width:100%;margin:16px 0">
-                <tr>
-                  <td style="padding:8px 12px;background:#f1f5f9;font-weight:600;border-radius:4px 0 0 4px">Ad Soyad</td>
-                  <td style="padding:8px 12px;background:#f8fafc;border-radius:0 4px 4px 0">{Esc(user.FullName)}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 12px;background:#f1f5f9;font-weight:600;border-radius:4px 0 0 4px">E-posta</td>
-                  <td style="padding:8px 12px;background:#f8fafc;border-radius:0 4px 4px 0">{Esc(user.Email)}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 12px;background:#f1f5f9;font-weight:600;border-radius:4px 0 0 4px">Personel Kodu (İlk Şifre)</td>
-                  <td style="padding:8px 12px;background:#f8fafc;border-radius:0 4px 4px 0">{password}</td>
-                </tr>
-              </table>
-              <p style="color:#64748b;font-size:13px">İlk şifreniz personel kodunuzdur. İlk girişten sonra şifrenizi değiştirmenizi öneririz.</p>
+            <div style="margin:0;padding:24px 12px;background:#eef2f7;font-family:-apple-system,Segoe UI,Roboto,sans-serif">
+              <div style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0">
+
+                <div style="background:#4f46e5;padding:22px 24px">
+                  <div style="color:#ffffff;font-size:19px;font-weight:700;letter-spacing:-0.2px">DocuChat'e Hoş Geldiniz</div>
+                  <div style="color:#c7d2fe;font-size:13px;margin-top:4px">Hesabınız yönetici tarafından oluşturuldu</div>
+                </div>
+
+                <div style="padding:22px 24px">
+                  <p style="margin:0 0 16px;color:#0f172a;font-size:15px">
+                    Merhaba <strong>{Esc(user.FullName ?? user.Email)}</strong>, giriş bilgileriniz aşağıdadır:
+                  </p>
+
+                  <table style="border-collapse:collapse;width:100%;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+                    <tr><td style="{th}">Ad Soyad</td><td style="{td}">{Esc(user.FullName)}</td></tr>
+                    <tr><td style="{th}">E-posta</td><td style="{td}">{Esc(user.Email)}</td></tr>
+                    <tr><td style="{th}">Yetki</td><td style="{td}">{Esc(RoleLabel(role))}</td></tr>
+                    <tr><td style="{th}">Departman</td><td style="{td}">{Esc(DepartmentLabels(departments))}</td></tr>
+                    <tr>
+                      <td style="{th}border-bottom:none">Personel Kodu<br><span style="font-weight:400;color:#64748b;font-size:12px">(ilk şifreniz)</span></td>
+                      <td style="{td}border-bottom:none">
+                        <span style="display:inline-block;padding:6px 12px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:6px;font-family:Consolas,monospace;font-size:14px;color:#3730a3;font-weight:600">{Esc(password)}</span>
+                      </td>
+                    </tr>
+                  </table>
+
+                  <div style="margin:18px 0 0;padding:12px 14px;background:#fffbeb;border-left:3px solid #f59e0b;border-radius:0 6px 6px 0">
+                    <span style="color:#92400e;font-size:13px">İlk şifreniz personel kodunuzdur. Güvenliğiniz için ilk girişten sonra değiştirmenizi öneririz.</span>
+                  </div>
+
+                  <p style="margin:16px 0 0;color:#64748b;font-size:12px">
+                    Yalnızca size atanan departman(lar)ın belgelerine erişebilirsiniz.
+                  </p>
+                </div>
+              </div>
             </div>
             """;
 
