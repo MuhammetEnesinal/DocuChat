@@ -139,10 +139,14 @@ public class DocumentsController : ControllerBase
         return result.ToActionResult();
     }
 
+    // Tekil silme de disk temizliği + cache invalidation yapıyor — batch kadar ağır değil ama
+    // döngüye sokulmasın diye sınırlı (batch-delete zaten ayrıca sınırlıydı, bu tutarsızdı).
     [HttpDelete("{id:guid}")]
+    [EnableRateLimiting("admin-write")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         var result = await _document.DeleteAsync(id, ct);

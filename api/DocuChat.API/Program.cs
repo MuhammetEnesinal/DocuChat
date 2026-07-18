@@ -174,6 +174,16 @@ try
                 PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
+        // admin-write — departman CRUD + TEKİL belge silme. Batch uçları ayrıca sınırlı, ama tekil
+        // silme de disk temizliği + cache invalidation + sohbet geçmişi temizliği yapıyor: tek tek
+        // ağır değil, döngüye sokulursa yük çıkarır. 30/dk insan kullanımına bol (kimse elle dakikada
+        // 30 belge silmez), kaçak script'i sınırlar.
+        options.AddPolicy("admin-write", ctx =>
+            RateLimitPartition.GetFixedWindowLimiter(GetIp(ctx), _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
+            }));
+
         // user-write — admin user CRUD. Create/Update welcome+notice mail gönderiyor → SMTP spam vektörü.
         options.AddPolicy("user-write", ctx =>
             RateLimitPartition.GetFixedWindowLimiter(GetIp(ctx), _ => new FixedWindowRateLimiterOptions
