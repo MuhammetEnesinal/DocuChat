@@ -649,16 +649,16 @@ public sealed class UserManagementService : IUserManagementService
         var body = $"""
             <div style="font-family:sans-serif;max-width:480px;margin:auto">
               <h2 style="color:#3b82f6">DocuChat'e Hoş Geldiniz!</h2>
-              <p>Merhaba <strong>{user.FullName ?? user.Email}</strong>,</p>
+              <p>Merhaba <strong>{Esc(user.FullName ?? user.Email)}</strong>,</p>
               <p>Hesabınız yönetici tarafından oluşturuldu. Giriş bilgileriniz aşağıdadır:</p>
               <table style="border-collapse:collapse;width:100%;margin:16px 0">
                 <tr>
                   <td style="padding:8px 12px;background:#f1f5f9;font-weight:600;border-radius:4px 0 0 4px">Ad Soyad</td>
-                  <td style="padding:8px 12px;background:#f8fafc;border-radius:0 4px 4px 0">{user.FullName}</td>
+                  <td style="padding:8px 12px;background:#f8fafc;border-radius:0 4px 4px 0">{Esc(user.FullName)}</td>
                 </tr>
                 <tr>
                   <td style="padding:8px 12px;background:#f1f5f9;font-weight:600;border-radius:4px 0 0 4px">E-posta</td>
-                  <td style="padding:8px 12px;background:#f8fafc;border-radius:0 4px 4px 0">{user.Email}</td>
+                  <td style="padding:8px 12px;background:#f8fafc;border-radius:0 4px 4px 0">{Esc(user.Email)}</td>
                 </tr>
                 <tr>
                   <td style="padding:8px 12px;background:#f1f5f9;font-weight:600;border-radius:4px 0 0 4px">Personel Kodu (İlk Şifre)</td>
@@ -688,16 +688,16 @@ public sealed class UserManagementService : IUserManagementService
         var body = $"""
             <div style="font-family:sans-serif;max-width:480px;margin:auto">
               <h2 style="color:#ef4444">⚠️ Hesap E-postanız Değiştirildi</h2>
-              <p>Merhaba <strong>{fullName}</strong>,</p>
+              <p>Merhaba <strong>{Esc(fullName)}</strong>,</p>
               <p>DocuChat hesabınızın e-posta adresi yönetici tarafından güncellendi.</p>
               <table style="border-collapse:collapse;width:100%;margin:16px 0">
                 <tr>
                   <td style="padding:8px 12px;background:#f1f5f9;font-weight:600;border-radius:4px 0 0 4px">Eski E-posta</td>
-                  <td style="padding:8px 12px;background:#f8fafc;border-radius:0 4px 4px 0">{oldEmail}</td>
+                  <td style="padding:8px 12px;background:#f8fafc;border-radius:0 4px 4px 0">{Esc(oldEmail)}</td>
                 </tr>
                 <tr>
                   <td style="padding:8px 12px;background:#f1f5f9;font-weight:600;border-radius:4px 0 0 4px">Yeni E-posta</td>
-                  <td style="padding:8px 12px;background:#f8fafc;border-radius:0 4px 4px 0">{newEmail}</td>
+                  <td style="padding:8px 12px;background:#f8fafc;border-radius:0 4px 4px 0">{Esc(newEmail)}</td>
                 </tr>
               </table>
               <p>Bundan sonra giriş yapmak için <strong>yeni e-posta adresinizi</strong> kullanmalısınız.</p>
@@ -726,16 +726,16 @@ public sealed class UserManagementService : IUserManagementService
         var body = $"""
             <div style="font-family:sans-serif;max-width:480px;margin:auto">
               <h2 style="color:#3b82f6">E-posta Güncellendi</h2>
-              <p>Merhaba <strong>{fullName}</strong>,</p>
+              <p>Merhaba <strong>{Esc(fullName)}</strong>,</p>
               <p>DocuChat hesabınızın e-posta adresi yönetici tarafından bu adrese güncellendi.</p>
               <table style="border-collapse:collapse;width:100%;margin:16px 0">
                 <tr>
                   <td style="padding:8px 12px;background:#f1f5f9;font-weight:600;border-radius:4px 0 0 4px">Önceki E-posta</td>
-                  <td style="padding:8px 12px;background:#f8fafc;border-radius:0 4px 4px 0">{oldEmail}</td>
+                  <td style="padding:8px 12px;background:#f8fafc;border-radius:0 4px 4px 0">{Esc(oldEmail)}</td>
                 </tr>
                 <tr>
                   <td style="padding:8px 12px;background:#f1f5f9;font-weight:600;border-radius:4px 0 0 4px">Yeni E-posta</td>
-                  <td style="padding:8px 12px;background:#f8fafc;border-radius:0 4px 4px 0">{newEmail}</td>
+                  <td style="padding:8px 12px;background:#f8fafc;border-radius:0 4px 4px 0">{Esc(newEmail)}</td>
                 </tr>
               </table>
               <p>Bundan sonra giriş için bu e-posta adresini kullanın.</p>
@@ -754,4 +754,7 @@ public sealed class UserManagementService : IUserManagementService
         }
     }
 
+
+    // Mail gövdeleri HTML (IsBodyHtml=true) — kullanıcı verisi encode edilmeden gömülmemeli.
+    private static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? string.Empty);
 }

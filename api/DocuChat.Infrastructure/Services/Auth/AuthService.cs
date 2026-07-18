@@ -87,7 +87,7 @@ public sealed class AuthService : IAuthService
         var body = $"""
             <div style="font-family:sans-serif;max-width:480px;margin:auto">
               <h2 style="color:#3b82f6">Şifre Sıfırlama</h2>
-              <p>Merhaba {user.FullName ?? user.Email},</p>
+              <p>Merhaba {Esc(user.FullName ?? user.Email)},</p>
               <p>Şifrenizi sıfırlamak için aşağıdaki butona tıklayın. Link <strong>24 saat</strong> geçerlidir.</p>
               <a href="{resetLink}"
                  style="display:inline-block;margin:20px 0;padding:12px 28px;background:#3b82f6;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">
@@ -171,4 +171,7 @@ public sealed class AuthService : IAuthService
         _logger.LogInformation("Şifre değiştirildi. UserId: {UserId}", userId);
         return Result<bool>.Success(true);
     }
+
+    // Mail gövdeleri HTML (IsBodyHtml=true) — kullanıcı verisi encode edilmeden gömülmemeli.
+    private static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? string.Empty);
 }
