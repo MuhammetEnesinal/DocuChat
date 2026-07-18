@@ -29,23 +29,58 @@ public class LocalFileStorage : IFileStorage
     public async Task<string> SaveAsync(
         Stream stream, string fileName, string? subFolder = null, CancellationToken ct = default)
     {
-        var uniqueName = $"{Guid.NewGuid()}_{fileName}";
+        // fileName KULLANICIDAN gelir (upload'daki dosya adı) — sanitize edilmeden path'e
+        // konursa "../../../tmp/x" gibi bir ad depolama kökünün dışına yazar (path traversal).
+        var uniqueName = $"{Guid.NewGuid()}_{SanitizeFileName(fileName)}";
         return await WriteAsync(stream, Combine(subFolder, uniqueName), ct);
     }
 
     public async Task<string> SaveRawAsync(
         Stream stream, string exactFileName, string? subFolder = null, CancellationToken ct = default)
     {
-        return await WriteAsync(stream, Combine(subFolder, exactFileName), ct);
+        return await WriteAsync(stream, Combine(subFolder, SanitizeFileName(exactFileName)), ct);
+    }
+
+    // Dosya adından dizin bileşenlerini ve geçersiz karakterleri atar → yalnız düz bir ad kalır.
+    // Hem '/' hem '\' kesilir: container Linux olsa da istemci Windows-stil ad gönderebilir.
+    private static string SanitizeFileName(string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName)) return "dosya";
+
+        var name = fileName.Replace('\\', '/');
+        name = name[(name.LastIndexOf('/') + 1)..];          // son '/' sonrası = saf dosya adı
+        foreach (var c in Path.GetInvalidFileNameChars())
+            name = name.Replace(c, '_');
+        name = name.Trim();
+
+        // "." / ".." gibi özel adlar dosya adı olamaz.
+        if (string.IsNullOrEmpty(name) || name == "." || name == "..") return "dosya";
+        return name;
     }
 
     // Alt klasör (varsa) ile dosya adını URL uyumlu '/' ayracıyla birleştirir.
     private static string Combine(string? subFolder, string name)
         => string.IsNullOrEmpty(subFolder) ? name : $"{subFolder.Trim('/')}/{name}";
 
+    // SAVUNMA KATMANI 2: çözülen mutlak yol depolama kökünün ALTINDA olmalı. Sanitize atlansa
+    // veya DB'de eski/bozuk bir path bulunsa bile kök dışına okuma/yazma/silme engellenir.
+    private string ResolveWithinBase(string relativePath)
+    {
+        var baseFull = Path.GetFullPath(_basePath);
+        var full = Path.GetFullPath(Path.Combine(baseFull, relativePath));
+
+        if (!full.StartsWith(baseFull + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+            && !string.Equals(full, baseFull, StringComparison.Ordinal))
+        {
+            _logger.LogWarning("[FileStorage] Depolama kökü dışına erişim ENGELLENDİ: {Path}", relativePath);
+            throw new UnauthorizedAccessException("Depolama kökü dışına erişim engellendi.");
+        }
+        return full;
+    }
+
     public Task DeleteAsync(string storagePath, CancellationToken ct = default)
     {
-        var fullPath = Path.Combine(_basePath, storagePath);
+        var fullPath = ResolveWithinBase(storagePath);
         if (File.Exists(fullPath))
             File.Delete(fullPath);
         return Task.CompletedTask;
@@ -54,7 +89,7 @@ public class LocalFileStorage : IFileStorage
     public Task DeleteDirectoryAsync(string relativeFolder, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(relativeFolder)) return Task.CompletedTask;
-        var fullPath = Path.Combine(_basePath, relativeFolder);
+        var fullPath = ResolveWithinBase(relativeFolder);
         if (Directory.Exists(fullPath))
             Directory.Delete(fullPath, recursive: true);
         return Task.CompletedTask;
@@ -62,7 +97,7 @@ public class LocalFileStorage : IFileStorage
 
     public Stream OpenRead(string storagePath)
     {
-        var fullPath = Path.GetFullPath(Path.Combine(_basePath, storagePath));
+        var fullPath = ResolveWithinBase(storagePath);
         _logger.LogDebug("[FileStorage] OpenRead: {FullPath} | Exists: {Exists}", fullPath, File.Exists(fullPath));
         if (!File.Exists(fullPath))
             throw new FileNotFoundException($"Dosya bulunamadı: {fullPath}");
@@ -72,7 +107,7 @@ public class LocalFileStorage : IFileStorage
     private async Task<string> WriteAsync(
         Stream stream, string relativePath, CancellationToken ct)
     {
-        var fullPath = Path.Combine(_basePath, relativePath);
+        var fullPath = ResolveWithinBase(relativePath);
         // Alt klasörlü yollarda hedef dizin yoksa oluştur.
         var dir = Path.GetDirectoryName(fullPath);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
