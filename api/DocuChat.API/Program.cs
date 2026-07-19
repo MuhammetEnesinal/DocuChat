@@ -90,11 +90,11 @@ try
          .AllowAnyHeader()
          .AllowCredentials()));
 
-    // nginx arkasında çalışıyoruz: Connection.RemoteIpAddress her istekte nginx container'ının
-    // IP'sini verir → rate limit tüm kullanıcılar için TEK kovaya düşer (bir kişinin hatalı
-    // giriş denemeleri herkesi kilitler). X-Forwarded-For'u işleyerek gerçek istemci IP'sini alıyoruz.
-    // GÜVENLİK: yalnız Docker ağındaki proxy'ye güveniliyor. Aksi halde dışarıdan sahte
-    // X-Forwarded-For yollayan biri her istekte taze kova alıp rate limit'i tamamen bypass ederdi.
+    // Uygulama nginx arkasında çalışmaktadır. X-Forwarded-For başlığı işlenerek gerçek istemci
+    // IP'si okunur; bu olmadan Connection.RemoteIpAddress nginx container'ının IP'sini döndürür
+    // ve IP bazlı rate limit tüm kullanıcıları tek kovada toplar.
+    // Güven sınırı yalnız Docker ağındaki proxy'dir: dışarıdan gelen sahte X-Forwarded-For
+    // başlıkları dikkate alınmaz, aksi halde her istek için taze bir kova elde edilebilir.
     builder.Services.Configure<ForwardedHeadersOptions>(o =>
     {
         o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
@@ -123,8 +123,8 @@ try
 
             var logger = ctx.HttpContext.RequestServices
                 .GetRequiredService<ILogger<Program>>();
-            // Kullanıcı da loglanıyor: kimlik doğrulamalı uçlarda kova kullanıcı bazlı olduğu için
-            // "hangi IP" tek başına yetmez, kimin limiti dolmuş onu bilmek gerekir.
+            // Kimlik doğrulamalı uçlarda kova kullanıcı bazlı olduğundan, hangi hesabın limitine
+            // takıldığını görebilmek için kullanıcı kimliği de loglanır.
             logger.LogWarning("Rate limit aşıldı. IP: {IP}, Kullanıcı: {User}, Path: {Path}, RetryAfter: {RetryAfter}s",
                 ctx.HttpContext.Connection.RemoteIpAddress,
                 ctx.HttpContext.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "(anonim)",
@@ -142,53 +142,50 @@ try
             }, cancellationToken);
         };
 
-        // ANONİM uçlar için: gerçek istemci IP'si (ForwardedHeaders sayesinde artık doğru).
+        // Anonim uçların bölümleme anahtarı: gerçek istemci IP'si.
         static string GetIp(HttpContext ctx) =>
             ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
-        // KİMLİK DOĞRULAMALI uçlar için: kullanıcı ID'si. IP'ye göre bölmek yetmez — aynı ofisten
-        // NAT arkasından giren 20 kişi yine tek kovayı paylaşırdı. Asıl istenen "bir kullanıcı
-        // diğerini etkilemesin"; bunu sağlayan tek anahtar kullanıcı kimliğidir.
-        // Kimlik yoksa (henüz doğrulanmamış istek) IP'ye düşer.
-        // NOT: çalışması için UseRateLimiter, UseAuthentication'dan SONRA gelmeli — yoksa ctx.User boştur.
+        // Kimlik doğrulamalı uçların bölümleme anahtarı: kullanıcı kimliği. Aynı ofisten veya NAT
+        // arkasından gelen kullanıcılar tek IP paylaştığı için IP bazlı bölümleme onları aynı kovaya
+        // toplar; kullanıcı kimliği her hesaba kendi kotasını verir. Kimlik yoksa IP'ye düşülür.
+        // Bu anahtarın dolu olabilmesi için UseRateLimiter, UseAuthentication'dan sonra çağrılır.
         static string GetUserKey(HttpContext ctx)
         {
             var userId = ctx.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             return string.IsNullOrEmpty(userId) ? $"ip:{GetIp(ctx)}" : $"u:{userId}";
         }
 
-        // login — kimlik henüz doğrulanmamış, kullanıcı ID'si yok; tek güvenilir anahtar IP.
-        // Asıl kaba kuvvet koruması ARTIK BURADA DEĞİL: hesap bazlı lockout (Identity, 5 hatalı
-        // deneme → 15 dk kilit) o işi IP'den bağımsız ve isabetli yapıyor.
-        // Buradaki IP sınırı yalnız geniş bir ağ: bir bot'un binlerce e-posta deneyerek hesap
-        // taraması yapmasını engeller. 5 yerine 20 — aynı ofisten/NAT arkasından giren onlarca
-        // kişi birbirini kilitlemesin diye (5 iken tek IP'den dakikada 5 giriş demekti).
+        // login — istek anında kimlik doğrulanmamıştır, bu yüzden IP bazlıdır.
+        // Hedefli kaba kuvvet denemelerini hesap bazlı kilit karşılar (Identity lockout: 5 hatalı
+        // deneme, 15 dk). Buradaki sınır ise bir bot'un çok sayıda e-posta deneyerek hesap taraması
+        // yapmasını engelleyen geniş bir ağdır; kalabalık bir ofisin tek IP'den giriş yapmasına
+        // yetecek kadar geniş tutulur.
         options.AddPolicy("login", ctx =>
             RateLimitPartition.GetFixedWindowLimiter(GetIp(ctx), _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
-        // auth-write — şifre DEĞİŞTİRME (login'den farklı: burada kullanıcı zaten kimlik doğrulamış).
-        // IP bazlı olsaydı aynı ofisten/NAT arkasından gelen kullanıcılar birbirini kilitlerdi.
-        // Amaç "mevcut şifre" alanının kaba kuvvetle denenmesini yavaşlatmak → kullanıcı bazlı doğru anahtar.
+        // auth-write — şifre değiştirme. İstek kimlik doğrulamalı olduğu için kullanıcı bazlıdır.
+        // "Mevcut şifre" alanının kaba kuvvetle denenmesini yavaşlatır.
         options.AddPolicy("auth-write", ctx =>
             RateLimitPartition.GetFixedWindowLimiter(GetUserKey(ctx), _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 5, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
-        // password-reset (forgot/reset password) — kimlik yok, IP bazlı. Amaç SMTP suistimali
-        // (mail bombardımanı). 3 → 10: aynı ofisten birkaç kişi aynı anda şifre unutursa
-        // kilitlenmesin; mail spam'ini durdurmak için 10/dk hâlâ yeterince dar.
+        // password-reset (forgot/reset password) — kimlik doğrulanmadığı için IP bazlıdır.
+        // SMTP suistimalini (mail bombardımanı) sınırlar; aynı ofisten birkaç kişinin aynı anda
+        // şifre sıfırlamasına yetecek genişlikte tutulur.
         options.AddPolicy("password-reset", ctx =>
             RateLimitPartition.GetFixedWindowLimiter(GetIp(ctx), _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
-        // chat-ask (LLM cüzdan koruması — Gemini free tier limiti var). Kullanıcı bazlı:
-        // bir kişinin çok soru sorması diğerlerinin sohbetini engellememeli.
+        // chat-ask — her istek bir LLM çağrısı doğurduğu için sağlayıcı kotasını ve faturayı korur.
+        // Kullanıcı bazlıdır: yoğun soru soran bir kişi diğerlerinin sohbetini engellemez.
         options.AddPolicy("chat-ask", ctx =>
             RateLimitPartition.GetFixedWindowLimiter(GetUserKey(ctx), _ => new FixedWindowRateLimiterOptions
             {
@@ -202,73 +199,71 @@ try
                 PermitLimit = 30, Window = TimeSpan.FromHours(1), QueueLimit = 0
             }));
 
-        // upload (admin için yüksek — toplu klasör yüklemede sıkışmayı önle, abuse koruması yine de var:
-        // disk dolma + Mistral cost; queue zaten max 2 paralel işliyor → DB/disk yükü doğal sınırlı).
+        // upload — toplu klasör yüklemesine yetecek genişlikte tutulur. Disk dolması ve OCR maliyeti
+        // için üst sınır görevi görür; işleme kuyruğu en fazla 2 belgeyi paralel işlediğinden
+        // DB ve disk yükü zaten doğal olarak sınırlıdır.
         options.AddPolicy("upload", ctx =>
             RateLimitPartition.GetFixedWindowLimiter(GetUserKey(ctx), _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
-        // reprocess — Mistral OCR + Pixtral caption + LLM context generation. En pahalı op.
-        // Admin hesabı compromise olsa bile API faturasını koruma.
+        // reprocess — OCR, görsel açıklama ve bağlam üretimini birlikte çalıştıran en pahalı işlem.
+        // Ele geçirilmiş bir yönetici hesabının API faturasını şişirmesini sınırlar.
         options.AddPolicy("reprocess", ctx =>
             RateLimitPartition.GetFixedWindowLimiter(GetUserKey(ctx), _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 5, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
-        // batch-delete — bulk DB write + disk cleanup. Ids[] array büyük olabilir, DB yükü.
+        // batch-delete — tek istekte çok sayıda kayıt siler ve disk temizliği yapar; gönderilen
+        // kimlik listesi büyük olabildiğinden DB yükü yaratır.
         options.AddPolicy("batch-delete", ctx =>
             RateLimitPartition.GetFixedWindowLimiter(GetUserKey(ctx), _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
-        // admin-write — departman CRUD + TEKİL belge silme. Batch uçları ayrıca sınırlı, ama tekil
-        // silme de disk temizliği + cache invalidation + sohbet geçmişi temizliği yapıyor: tek tek
-        // ağır değil, döngüye sokulursa yük çıkarır. 30/dk insan kullanımına bol (kimse elle dakikada
-        // 30 belge silmez), kaçak script'i sınırlar.
+        // admin-write — departman yönetimi ve tekil belge silme. Tekil silme de disk temizliği,
+        // cache geçersizleştirme ve sohbet geçmişi temizliği yaptığından tek başına hafif olsa da
+        // döngüye sokulduğunda yük çıkarır. Sınır, elle yapılan yönetim işlerinin çok üstünde
+        // kalacak şekilde belirlenmiştir.
         options.AddPolicy("admin-write", ctx =>
             RateLimitPartition.GetFixedWindowLimiter(GetUserKey(ctx), _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 30, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
-        // user-write — admin user CRUD. Create/Update welcome+notice mail gönderiyor → SMTP spam vektörü.
+        // user-write — kullanıcı oluşturma ve güncelleme işlemleri karşılama ve bilgilendirme
+        // maili gönderdiğinden SMTP suistimaline açıktır.
         options.AddPolicy("user-write", ctx =>
             RateLimitPartition.GetFixedWindowLimiter(GetUserKey(ctx), _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
-        // read-heavy — okuma ama "ucuz okuma" değil: preview diskten dosya akıtır (I/O + bant
-        // genişliği), chunks belgenin tüm metnini JSON'a serileştirir, bulk-import/template her
-        // çağrıda bellekte Excel üretir (CPU). Döngüye sokulursa sistemi yorar — veri sızdırmaz,
-        // hepsi yetki duvarının arkasında. 60/dk insan kullanımının çok üstünde (kimse dakikada
-        // 60 belge önizlemez), yalnız kaçak script'i keser. Sayfalanmış hafif GET'lere dokunulmadı.
+        // read-heavy — maliyeti yüksek okuma uçları: önizleme diskten dosya akıtır, Excel şablonu
+        // her çağrıda bellekte üretilir. Yetki denetiminin arkasında oldukları için veri sızdırmazlar,
+        // ancak döngüye sokulduklarında I/O ve CPU yükü yaratırlar. Sayfalanmış hafif okuma uçları
+        // bu politikanın dışındadır.
         options.AddPolicy("read-heavy", ctx =>
             RateLimitPartition.GetFixedWindowLimiter(GetUserKey(ctx), _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 60, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
-        // session-write — kendi sohbet oturumunu yeniden adlandırma/arşivleme/sabitleme/silme.
-        // Kullanıcı yalnız kendi verisine dokunuyor, ama her çağrı bir DB write; döngüye sokulursa
-        // gereksiz yük. Kullanıcı bazlı olduğu için kimse başkasını etkilemez — bu yüzden limit
-        // rahat tutuldu (60/dk normal kullanımın çok üstünde, kaçak script'i yine de keser).
+        // session-write — sohbet oturumunu yeniden adlandırma, arşivleme, sabitleme ve silme.
+        // Kullanıcı yalnız kendi verisine dokunur, ancak her çağrı bir DB yazması olduğundan
+        // döngüye sokulduğunda gereksiz yük yaratır.
         options.AddPolicy("session-write", ctx =>
             RateLimitPartition.GetFixedWindowLimiter(GetUserKey(ctx), _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 60, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
-        // GLOBAL TAVAN — yalnız chat/ask-stream için, tüm kullanıcılar toplamı.
-        // Neden gerekli: politikaları kullanıcı bazlı yapınca en kötü durum LLM maliyeti
-        // "10/dk" değil "10/dk × kullanıcı sayısı" oldu (50 kullanıcı = 500 çağrı/dk).
-        // Eski (bozuk) IP-global kurulum bunu yan etki olarak sınırlıyordu; o koruma kalktı.
-        // Bu tavan Mistral faturasını koruyan tek mekanizma. Kullanıcı başına limit ayrıca işler:
-        // ikisi birlikte "tek kişi taşkınlık yapamaz + sistem toplamda şu kadarı aşamaz" verir.
+        // Sohbet ucu için sistem geneli üst sınır: tüm kullanıcıların toplam LLM çağrısını sınırlar.
+        // Kullanıcı bazlı politika tek bir kişinin taşkınlık yapmasını engeller, bu tavan ise
+        // kullanıcı sayısı arttıkça toplam maliyetin büyümesini engeller. İkisi birlikte çalışır.
         options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
             ctx.Request.Path.StartsWithSegments("/api/chat/ask-stream")
                 ? RateLimitPartition.GetFixedWindowLimiter("global-chat", _ => new FixedWindowRateLimiterOptions
@@ -277,7 +272,8 @@ try
                 })
                 : RateLimitPartition.GetNoLimiter<string>("diger"));
 
-        // Read endpoint'lerinde rate limit yok (GET ops) — yalnız write/pahalı operasyonlar korunur.
+        // Sayfalanmış hafif okuma uçları politikasızdır; korunanlar yazma işlemleri, pahalı
+        // operasyonlar ve read-heavy kapsamındaki maliyetli okumalardır.
     });
 
     // AddInfrastructure calls AddIdentity<> which sets cookie as default scheme.
@@ -348,7 +344,8 @@ try
     // tarafından yapılır — orada queue'ya enqueue edilir, DocumentProcessingConsumer bounded
     // concurrency ile işler. Burada manuel Failed işaretleme YAPMA — recovery'i nullify eder.
 
-    // EN BAŞTA olmalı: sonraki tüm middleware (loglama, rate limit) gerçek istemci IP'sini görsün.
+    // Pipeline'ın başında çağrılır; sonraki middleware'lerin (loglama, rate limit) gerçek istemci
+    // IP'sini görmesini sağlar.
     app.UseForwardedHeaders();
 
     if (app.Environment.IsDevelopment())
@@ -372,9 +369,8 @@ try
     app.UseAuthentication();
     app.UseAuthorization();
 
-    // Rate limiter AUTH'TAN SONRA: kimlik doğrulamalı politikalar kullanıcı ID'sine göre bölünüyor
-    // (GetUserKey), bu da ctx.User'ın dolu olmasını gerektirir. Auth'tan önce çağrılırsa tüm
-    // authenticated istekler "ip:..." anahtarına düşer ve kullanıcı bazlı ayrım kaybolur.
+    // Rate limiter kimlik doğrulamadan sonra çalışır: kullanıcı bazlı politikalar bölümleme
+    // anahtarını ctx.User üzerinden okur ve bu aşamadan önce ctx.User boştur.
     app.UseRateLimiter();
 
     // /uploads/* — authentication + DEPARTMAN yetkisi. Görsel içeriği = belge içeriği; departman

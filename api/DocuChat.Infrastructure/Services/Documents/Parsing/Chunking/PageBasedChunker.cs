@@ -177,7 +177,7 @@ public sealed class PageBasedChunker
         var i = 0;
         while (i < text.Length)
         {
-            // [IMG_PATH: arama — string match, regex yok
+            // "[IMG_PATH:" öneki aranır — düz metin karşılaştırması, regex kullanılmaz.
             if (i <= text.Length - 10 && text.AsSpan(i, 10).SequenceEqual("[IMG_PATH:"))
             {
                 var close = text.IndexOf(']', i + 10);

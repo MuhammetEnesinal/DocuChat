@@ -86,7 +86,9 @@ public class DocumentParserService : IDocumentParser
         _maxTokens = int.TryParse(cfg["Chunking:MaxTokens"], out var mt) ? mt : 800;
         _sofficePath = cfg["LibreOffice:Path"] ?? "soffice";
 
-        // Adaptive token budget config (varsayılan: enabled, median × 2.5, 400-1500 clamp)
+        // Adaptive token budget: chunk boyutu paragraf uzunluklarının medyanı × çarpan ile
+        // hesaplanır ve alt/üst sınıra çekilir. Aşağıdaki değerler yapılandırma bulunmadığında
+        // kullanılan geri dönüş değerleridir; appsettings.json bunları geçersiz kılar.
         _adaptiveEnabled = cfg.GetValue<bool>("Chunking:AdaptiveEnabled", true);
         _adaptiveMultiplier = cfg.GetValue<double>("Chunking:AdaptiveMultiplier", 2.5);
         _adaptiveMin = cfg.GetValue<int>("Chunking:AdaptiveMinTokens", 400);
@@ -258,9 +260,10 @@ public class DocumentParserService : IDocumentParser
             _logger.LogInformation("[TableCoalesce] {Before} → {After} block ({Merged} tablo fragmanı birleşti)",
                 beforeTableCoalesce, allBlocks.Count, beforeTableCoalesce - allBlocks.Count);
 
-        // [2c] Mini-block coalesce — aynı header + aynı tip + tek başına < 80 token olan
-        // ardışık Paragraph/List blokları birleşir. Eski MergeSmallAdjacentChunks'ın
-        // doğru-katmandaki muadili (rendered markdown'da değil, SemanticBlock seviyesinde).
+        // [2c] Mini-block coalesce — aynı header altında, aynı tipte ve tek başına eşik altında
+        // kalan ardışık Paragraph/List blokları birleşir. Birleştirme SemanticBlock seviyesinde
+        // yapılır; render edilmiş markdown üzerinde yapılsaydı görsel numaraları ve tablo
+        // bütünlüğü bozulurdu.
         var beforeBlockCoalesce = allBlocks.Count;
         allBlocks = _blockCoalescer.Coalesce(allBlocks);
         if (beforeBlockCoalesce != allBlocks.Count)
@@ -360,7 +363,8 @@ public class DocumentParserService : IDocumentParser
         if (beforeTable != allBlocks.Count)
             _logger.LogInformation("[TableCoalesce] {Before} → {After} block", beforeTable, allBlocks.Count);
 
-        // [4] Mini-block coalesce (ardışık < 80 token paragraflar, AYNI HeaderChain)
+        // [4] Mini-block coalesce — aynı header zinciri altındaki, eşik altında kalan ardışık
+        // paragraflar birleştirilir (eşik yapılandırmadan gelir).
         var beforeBlock = allBlocks.Count;
         allBlocks = _blockCoalescer.Coalesce(allBlocks);
         if (beforeBlock != allBlocks.Count)
@@ -440,10 +444,10 @@ public class DocumentParserService : IDocumentParser
         return result;
     }
 
-    // Aynı SHA256 hash'li chunk'ları filtreler — Mistral OCR'ın bazı sayfalarda tekrar verdiği
-    // içerik (örn. aynı tablonun yeniden basımı) DB'ye 2 kez yazılmaz.
-    // Universal: sadece hash karşılaştırma, hiçbir dil-spesifik kural yok.
-    // Her dedup için INFO log + content preview → API loglarından doğrulayabilirsin
+    // Aynı SHA256 hash'li chunk'ları filtreler; OCR'ın bazı sayfalarda tekrar ürettiği içerik
+    // (örneğin aynı tablonun yeniden basımı) veritabanına iki kez yazılmaz.
+    // Karşılaştırma yalnız hash üzerinden yapılır, dile özgü kural içermez.
+    // Atılan her chunk için içerik önizlemesiyle bilgi logu düşülür.
     private List<PipelineChunk> DeduplicateChunks(List<PipelineChunk> chunks)
     {
         if (chunks.Count <= 1) return chunks;
@@ -467,7 +471,7 @@ public class DocumentParserService : IDocumentParser
             if (seenHashes.TryGetValue(hash, out var originalIdx))
             {
                 skipped++;
-                // Atılan chunk için detaylı log → user logdan doğrulayabilir
+                // Atılan chunk loglanır; hangi chunk'ın hangisiyle eşleştiği izlenebilir.
                 var preview = content.Length > 120 ? content[..120] + "…" : content;
                 _logger.LogInformation(
                     "[Dedup] Chunk #{Index} atlandı — chunk #{Original} ile aynı içerik. Hash={Hash} | Preview: \"{Preview}\"",
@@ -487,9 +491,10 @@ public class DocumentParserService : IDocumentParser
         return result;
     }
 
-    // Belgenin paragraf token dağılımına göre dinamik maxTokens üretir.
-    // Median paragraf × multiplier → clamp(min, max). Çok az/yok paragraf varsa _maxTokens fallback.
-    // Sebep: sözleşme belgeleri (kısa madde) için 400, teknik kılavuz için 1500 tipik ihtiyaç.
+    // Belgenin paragraf token dağılımına göre dinamik maxTokens üretir: medyan paragraf uzunluğu
+    // çarpanla ölçeklenip alt/üst sınıra çekilir. Üç paragraftan az bulunursa yapılandırmadaki
+    // sabit değere düşülür. Kısa maddeli sözleşme belgeleriyle uzun anlatımlı teknik kılavuzlar
+    // farklı chunk boyutu gerektirdiği için boyut belgeye göre belirlenir.
     private int ComputeAdaptiveMaxTokens(IReadOnlyList<SemanticBlock> blocks)
     {
         var paragraphTokens = blocks
@@ -627,9 +632,9 @@ public class DocumentParserService : IDocumentParser
     // signed URL kullanılır → request body ~67MB string allocation kaybolur. Küçük dosyalarda
     // base64 inline kalır (round-trip yok, bilinen stabil yol).
     private const long MistralLargeFileThreshold = 20L * 1024 * 1024;
-    // Worst-case retry zinciri: 1+2+4+8 sleep + 4 × HttpClient.Timeout (120s) → ~8 dakika.
-    // Outer global cap: 5 dakika. Çok büyük belgelerde tek istek 120s+ sürebilir; 5dk
-    // pratikte 2-3 deneme + retry sleep'ine yeter.
+    // En kötü durumda dört deneme, aralarında artan bekleme ve her denemede istemci timeout'u
+    // kadar süre geçebilir; bu toplam, global üst sınırı aşabilir. Bu yüzden zincirin tamamı
+    // aşağıdaki süreyle sınırlanır ve büyük belgelerde pratikte iki üç denemeye yeter.
     private static readonly TimeSpan MistralCallGlobalTimeout = TimeSpan.FromMinutes(5);
 
     private async Task<List<MistralPage>> CallMistralAsync(byte[] bytes, string mime, CancellationToken outerCt)

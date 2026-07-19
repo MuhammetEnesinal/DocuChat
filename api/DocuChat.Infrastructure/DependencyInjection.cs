@@ -68,11 +68,10 @@ public static class DependencyInjection
             o.Password.RequireNonAlphanumeric = false;
             o.User.RequireUniqueEmail = true;
 
-            // HESAP BAZLI kaba kuvvet koruması. IP bazlı sınır burada yetmez: aynı ofisten/NAT
-            // arkasından onlarca kullanıcı tek IP'den gelir, biri şifresini unutunca hepsi kilitlenirdi.
-            // Lockout sayacı kullanıcı satırında tutulur → IP'den tamamen bağımsız, hedefi doğru.
-            // Takas: saldırgan bir hesaba kasten yanlış şifre yağdırıp o kullanıcıyı kilitleyebilir;
-            // bu yüzden süre kısa (15 dk) — kalıcı kilit yerine yavaşlatma amaçlanıyor.
+            // Hesap bazlı kaba kuvvet koruması. Deneme sayacı kullanıcı satırında tutulduğundan
+            // koruma IP'den bağımsız çalışır; aynı IP'yi paylaşan kullanıcılar birbirini etkilemez.
+            // Kilit süresi kısa tutulur: bir hesaba kasten yanlış şifre gönderilerek o kullanıcının
+            // kilitlenmesi mümkün olduğundan, amaç kalıcı engelleme değil denemeleri yavaşlatmaktır.
             o.Lockout.MaxFailedAccessAttempts = 5;
             o.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
             o.Lockout.AllowedForNewUsers = true;

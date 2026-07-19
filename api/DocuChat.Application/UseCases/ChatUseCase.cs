@@ -296,9 +296,9 @@ public class ChatUseCase : IChatUseCase
             }
         }
 
-        // Cache yok: önbelleğe alınabilirlik kontrolü + gerekirse netleştirme sorusu.
-        // Departman filtresi ŞART: bu liste (belge ADI + ÖZETİ) LLM'e gidip netleştirme
-        // seçeneklerine dönüşüyor — filtresiz olsa başka departmanın belge içeriği sızardı.
+        // Cache bulunamadığında önbelleğe alınabilirlik denetlenir ve gerekirse netleştirme
+        // sorusu üretilir. Belge adı ve özetinden oluşan bu liste LLM'e gönderilip netleştirme
+        // seçeneklerine dönüştüğü için departman kapsamıyla sınırlanır.
         var docNamesWithSummary = await _uow.Documents.GetDocumentNamesAndSummariesAsync(DepartmentScope(), ct);
         // Netleştirme kalitesi: belge sayısı makulse "isim — kısa özet" ver → LLM, kriptik dosya
         // adları yerine İÇERİKTEN seçenek üretir. Belge çoksa token korumak için yalnız isim verilir.
@@ -811,9 +811,9 @@ public class ChatUseCase : IChatUseCase
         if (cached.Count > 0)
             return Result<IReadOnlyList<string>>.Success(cached);
 
-        // Fallback (cache boş): mesajlarda departman bilgisi YOK → departmana göre süzemeyiz.
-        // Bu yüzden admin dışında yalnız kullanıcının KENDİ soruları kullanılır; aksi halde
-        // başka departmanların soruları sızardı.
+        // Cache boş olduğunda geçmiş mesajlara düşülür. Mesaj kayıtları departman bilgisi
+        // taşımadığından departman bazlı süzme yapılamaz; bu nedenle admin dışındaki kullanıcılar
+        // için yalnız kendi soruları kullanılır.
         var ownQuestionsOnly = _currentUser.IsInRole(Roles.Admin) ? null : _currentUser.UserId;
         var recentMessages = await _uow.Messages.GetByRoleAsync(MessageRole.User, ownQuestionsOnly, ct);
         var popular = recentMessages

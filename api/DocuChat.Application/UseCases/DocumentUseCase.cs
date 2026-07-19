@@ -683,7 +683,7 @@ public class DocumentUseCase : IDocumentUseCase
         for (var ci = 0; ci < chunks.Count; ci++)
         {
             var chunk = chunks[ci];
-            var parsed = parsedList[ci];  // path source artık parsed
+            var parsed = parsedList[ci];  // görsel path'leri parse çıktısından okunur
             if (string.IsNullOrWhiteSpace(parsed.ImagePath)) continue;
 
             List<string> paths;
@@ -812,16 +812,16 @@ public class DocumentUseCase : IDocumentUseCase
         });
     }
 
-    // Belgenin baş + orta + son bölgelerinden örnek chunk'lar alıp LLM ile 1-2 cümlelik özet
-    // üretir. Baş/orta/son örnekleme, kapak veya içindekiler sayfasına takılıp kalmayı önler ve
-    // belgeyi daha iyi temsil eder. contents, chunk içeriklerini ChunkIndex sırasında alır.
+    // Belgeye eşit aralıklarla yayılmış örnek chunk'lar alıp LLM ile 1-2 cümlelik özet üretir.
+    // Örnekleme belgenin tamamına dağıldığı için kapak veya içindekiler sayfasına takılıp kalmaz.
+    // contents, chunk içeriklerini ChunkIndex sırasında alır.
     private async Task<string?> TryGenerateSummaryAsync(IReadOnlyList<ParsedChunk> parsedList, CancellationToken ct)
     {
         try
         {
-            // Belge boyutuyla ölçeklenen eşit-aralıklı örnekleme: sabit 6 örnek (baş/orta/son)
-            // 2200 chunk'lık belgede içeriğin binde 3'ünü temsil ediyordu. Şimdi örnek sayısı
-            // chunk sayısıyla büyür (40 chunk'a 1, 6-24 arası) ve TÜM belgeye eşit yayılır.
+            // Örnek sayısı belge boyutuyla ölçeklenir: her 40 chunk'a bir örnek, 6 ile 24 arasında
+            // sınırlanır. Sabit sayıda örnek, binlerce chunk'lık belgelerde içeriğin çok küçük bir
+            // kısmını temsil eder.
             var contents = parsedList.Select(p => p.Content).ToList();
             var sampleCount = Math.Clamp(contents.Count / 40, 6, 24);
             var sample = BuildEvenSpreadSample(contents, sampleCount, SummarySampleMaxCharsPerChunk);
@@ -841,7 +841,8 @@ public class DocumentUseCase : IDocumentUseCase
         }
     }
 
-    // Örnek başına max char — örnek sayısı arttığı için 500→300 (24 örnek × 300 ≈ 7.2K kar girdi)
+    // Örnek başına alınacak en fazla karakter. Örnek sayısıyla çarpımı özet prompt'unun girdi
+    // boyutunu belirler (en yüksek örnek sayısında yaklaşık 7.2K karakter).
     private const int SummarySampleMaxCharsPerChunk = 300;
 
     // Eşit aralıklı örnekleme: stride = toplam/örnekSayısı → belgenin her bölgesi temsil edilir.
@@ -1027,7 +1028,8 @@ public class DocumentUseCase : IDocumentUseCase
             var (captionMap, pathToHash) = await PreComputeImageCaptionsAsync(
                 parsedList, earlySummary, processingNotes, ct);
 
-            // Yeni: per-chunk captions da topla → DocumentImage caption'ları için
+            // Chunk'lar kurulurken görsel açıklamaları da chunk başına toplanır; bu açıklamalar
+            // chunk içeriğine [IMG:N — açıklama] biçiminde gömülür ve embedding metnine katılır.
             var (newChunks, captionsByChunk) = await BuildChunksAndCollectCaptionsAsync(
                 doc, parsedList, earlySummary, captionMap, pathToHash, ct);
 
@@ -1079,8 +1081,8 @@ public class DocumentUseCase : IDocumentUseCase
             doc.Status = DocumentStatus.Ready;
             doc.ChunkCount = newChunks.Count;
             doc.UpdatedAt = DateTime.UtcNow;
-            // earlySummary parse sonrasında (ChunkContext üretmeden ÖNCE) zaten oluşturuldu.
-            // İkinci kez Mistral'a gitmek yerine onu tekrar kullanıyoruz → ~50% summary cost ↓.
+            // Özet, chunk bağlamları üretilmeden önce bir kez oluşturulur ve burada yeniden
+            // kullanılır; böylece belge başına tek özet çağrısı yapılır.
             doc.Summary = string.IsNullOrWhiteSpace(earlySummary) ? null : earlySummary;
             doc.ProcessingNotes = processingNotes.Count > 0
                 ? string.Join(" | ", processingNotes)
@@ -1403,7 +1405,8 @@ public class DocumentUseCase : IDocumentUseCase
         }
     }
 
-    // Bilinmeyen tip null döner — çağıran 400 Validation üretir (throw edilirse upload 500'e dönüşür).
+    // Bilinmeyen tip için null döner; çağıran bunu 422 doğrulama hatasına çevirir. İstisna
+    // fırlatılsaydı yükleme 500 ile sonuçlanırdı.
     private static FileType? DetectFileType(string contentType) => contentType switch
     {
         "application/pdf" => FileType.Pdf,

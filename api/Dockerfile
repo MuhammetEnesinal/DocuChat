@@ -11,7 +11,7 @@ RUN dotnet restore DocuChat.API/DocuChat.API.csproj
 
 COPY . .
 # Cache-bust kolu: daemon çökmesi publish katmanını bozuk cache'lerse
-# `--build-arg REBUILD=<yeni değer>` yalnız BU katmandan itibarens yeniden derletir
+# `--build-arg REBUILD=<yeni değer>` yalnız bu katmandan itibaren yeniden derletir
 # (apt/LibreOffice katmanı runtime aşamasında — etkilenmez).
 ARG REBUILD=0
 RUN echo "rebuild-tag: $REBUILD" \

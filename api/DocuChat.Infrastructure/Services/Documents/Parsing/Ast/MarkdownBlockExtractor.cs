@@ -37,7 +37,7 @@ public sealed class MarkdownBlockExtractor
         .UseAutoIdentifiers()                 // heading'lere ID
         .UseGenericAttributes()               // {#id .class}
         .UseYamlFrontMatter()                 // --- YAML --- metadata
-        .UseEmojiAndSmiley()                  // :smile: → 😄
+        .UseEmojiAndSmiley()                  // :smile: gibi kısayolları emoji karakterine çevirir
         .UseSmartyPants()                     // smart quotes
         .UseGlobalization()                   // RTL support (Arabic, Hebrew, vb.)
         .Build();
@@ -226,14 +226,12 @@ public sealed class MarkdownBlockExtractor
                         break;
 
                     // HEADING PROMOTION:
-                    // Mistral OCR bazen H1/H2 yerine **bold paragraph** üretir (özellikle taranmış
-                    // belgelerde all-caps başlıklar). Belirgin "heading-look" pattern'leri yakala:
-                    //   - "BÖLÜM", "MADDE", "KISIM", "EK", "SECTION", "PART", "CHAPTER" prefix
-                    //   - Numeric prefix (1., 1.1., 1.1.1.)
-                    //   - Roman numeral (I., II., III.)
-                    //   - All-caps + uzunluk > 8 char
-                    // Match → block olarak EMIT ETME, sadece HeaderChainTracker'a push.
-                    // Sonraki paragraflar bu heading chain'iyle etiketlenir → embedding/BM25 retrieval ↑
+                    // OCR çıktısı başlıkları bazen H1/H2 yerine kalın paragraf olarak verir
+                    // (özellikle taranmış belgelerdeki büyük harfli başlıklar). Aşağıdaki belirgin
+                    // başlık desenleri yakalanır: bölüm anahtar kelimesi (SectionKeywordRegex),
+                    // numaralı önek, Roma rakamı ve ağırlıklı büyük harfli kısa satır.
+                    // Eşleşen satır blok olarak yazılmaz, yalnızca HeaderChainTracker'a eklenir;
+                    // sonraki paragraflar bu başlık zinciriyle etiketlenerek arama isabetini artırır.
                     if (node is ParagraphBlock paraHead
                         && TryDetectBoldHeading(paraHead, text, out var headingLevel))
                     {
@@ -258,13 +256,12 @@ public sealed class MarkdownBlockExtractor
         return blocks;
     }
 
-    // Bold paragraph'ı heading olarak tespit eder (Mistral OCR bazen H1/H2 üretmek yerine
-    // **bold** olarak başlıkları verir). Sadece NET sinyal varsa heading say:
-    // - Section keyword (BÖLÜM/MADDE/KISIM/EK/SECTION/PART/CHAPTER) → level 1
-    // - Numeric prefix "1.", "1.1.", "1.1.1." → level = dot count + 1 (max 4)
-    // - Roman numeral "I.", "II." → level 1
-    // - All-caps + length > 8 → level 1
-    // Belirsiz durumlarda false → normal paragraph (false positive minimal).
+    // Kalın yazılmış paragrafı başlık olarak tespit eder. Yalnız net sinyal varsa başlık sayılır:
+    // - Bölüm anahtar kelimesiyle başlıyorsa (tam liste SectionKeywordRegex'te) → seviye 1
+    // - Numaralı önek ("1.", "1.1.", "1.1.1.") → seviye = nokta sayısı + 1, en fazla 4
+    // - Roma rakamı öneki → seviye 1
+    // - Kısa satırda harflerin çoğunluğu büyük harfse → seviye 1
+    // Belirsiz durumlarda false döner ve satır normal paragraf olarak işlenir.
     private static bool TryDetectBoldHeading(ParagraphBlock para, string text, out int level)
     {
         level = 0;
@@ -319,7 +316,8 @@ public sealed class MarkdownBlockExtractor
             return true;
         }
 
-        // All-caps + length > 8 char (kısa bold "OK" gibi şeyler heading değil)
+        // Harflerin belirgin çoğunluğu büyük harf olan yeterince uzun satırlar başlık sayılır;
+        // kısa kalın ifadeler (örneğin "OK") başlık kabul edilmez.
         if (trimmed.Length > 8)
         {
             var letterCount = trimmed.Count(char.IsLetter);

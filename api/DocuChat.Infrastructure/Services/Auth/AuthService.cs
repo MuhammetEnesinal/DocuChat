@@ -57,11 +57,10 @@ public sealed class AuthService : IAuthService
 
         var passwordOk = await _userManager.CheckPasswordAsync(user, req.Password);
 
-        // Kilit kontrolü şifre doğrulamasından SONRA yapılıyor — sıra kasıtlı.
-        // "Hesabınız kilitli" mesajı hesabın VAR olduğunu ele verir; bunu yalnız şifresini doğru
-        // giren kişi görmeli. Şifreyi bilmeyen saldırgan her durumda generic mesaj alır, yani
-        // kilit bilgisiyle hesap varlığını çıkaramaz. Şifreyi zaten bilen için kilit bilgisi
-        // ek bir sızıntı değil, aksine neden giremediğini anlaması için gerekli.
+        // Kilit denetimi şifre doğrulamasından sonra yapılır. Kilit mesajı hesabın var olduğunu
+        // ele verdiğinden yalnız şifresini doğru giren kişiye gösterilir; şifreyi bilmeyen her
+        // durumda genel hata mesajı alır ve hesabın varlığını çıkaramaz. Şifresini bilen kullanıcı
+        // için ise bu bilgi giriş yapamama nedenini açıklar.
         if (await _userManager.IsLockedOutAsync(user))
         {
             if (!passwordOk)
@@ -75,13 +74,14 @@ public sealed class AuthService : IAuthService
 
         if (!passwordOk)
         {
-            // Sayaç kullanıcı satırında tutulur → IP'den bağımsız. 5'e ulaşınca Identity kilitler.
+            // Sayaç kullanıcı satırında tutulur ve eşiğe ulaşıldığında Identity hesabı kilitler.
             await _userManager.AccessFailedAsync(user);
             return Result<AuthResponseDto>.Failure(
                 Error.Unauthorized("E-posta veya şifre hatalı."));
         }
 
-        // Başarılı giriş sayacı sıfırlar; yoksa aylar içinde birikip masum kilitlenmeye yol açar.
+        // Başarılı giriş sayacı sıfırlar; aksi halde zaman içinde biriken denemeler beklenmedik
+        // bir kilitlenmeye yol açar.
         if (await _userManager.GetAccessFailedCountAsync(user) > 0)
             await _userManager.ResetAccessFailedCountAsync(user);
 
