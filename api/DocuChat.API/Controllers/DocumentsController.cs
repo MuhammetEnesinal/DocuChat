@@ -129,8 +129,8 @@ public class DocumentsController : ControllerBase
         return result.ToActionResult();
     }
 
-    // Tekil silme de disk temizliği + cache invalidation yapıyor — batch kadar ağır değil ama
-    // döngüye sokulmasın diye sınırlı (batch-delete zaten ayrıca sınırlıydı, bu tutarsızdı).
+    // Tekil silme de disk temizliği ve cache geçersizleştirmesi yapar; tek başına ağır olmasa da
+    // döngüye sokulduğunda yük çıkardığı için toplu silme ile aynı şekilde sınırlandırılır.
     [HttpDelete("{id:guid}")]
     [EnableRateLimiting("admin-write")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

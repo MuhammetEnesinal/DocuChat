@@ -11,10 +11,12 @@ function formatTime(dateStr) {
     return new Date(dateStr).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 }
 
-// Bozuk üretilmiş markdown görsel söz dizimini düzeltir. Üç durumu ele alır:
-//   nested ![alt]( ![alt](url) ) → dış sarma atılır
-//   çok satırlı / URL'de boşluk ![alt](  url  ) → URL içindeki whitespace temizlenir
-// Önce nested katmanlar, sonra whitespace işlenir.
+// Bozuk üretilmiş markdown görsel söz dizimini düzeltir. Aşağıdaki dört durum sırayla işlenir:
+//   [0] kod işareti içine alınmış görsel `![alt](url)` → işaretler soyulur
+//   [1] iç içe sarılmış görsel ![alt]( ![alt](url) ) → dış sarma atılır
+//   [2] URL içinde boşluk veya satır sonu ![alt](  url  ) → boşluklar temizlenir
+//   [3] çözülmemiş ham görsel işareti [[IMG-N]] → gizlenir
+// Sıra önemlidir: kod işaretleri soyulmadan iç içe sarma deseni eşleşmez.
 function normalizeImageMarkdown(content) {
     if (!content) return content;
     let out = content;

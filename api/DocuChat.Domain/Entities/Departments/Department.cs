@@ -9,8 +9,9 @@ public class Department : BaseEntity
 {
     public string Name { get; set; } = string.Empty;
 
-    // Kısa departman kodu (örn. "YAZILIM", "IK"). Zorunlu ve benzersiz. Excel import'ta ad yerine
-    // kodla da eşleştirme yapılabilir; ekranda "Ad (KOD)" biçiminde gösterilir.
+    // Kısa departman kodu (örneğin "YAZILIM", "IK"). Zorunlu ve benzersizdir. Excel ile toplu
+    // kullanıcı aktarımında departman eşleştirmesi yalnızca bu kod üzerinden yapılır; departman
+    // adı yazılan satırlar atlanır. Arayüzde "Ad - KOD" biçiminde gösterilir.
     // İzolasyon mantığına DAHİL DEĞİLDİR — arama/cache/yetki her zaman DepartmentId üzerinden.
     public string Code { get; set; } = string.Empty;
 

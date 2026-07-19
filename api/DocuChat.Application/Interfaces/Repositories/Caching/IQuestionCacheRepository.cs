@@ -35,8 +35,10 @@ public interface IQuestionCacheRepository : IRepository<QuestionCache>
         IReadOnlyList<Guid>? departmentIds = null,
         CancellationToken ct = default);
 
-    // Upsert: aynı normalize edilmiş QuestionText varsa cevap/vector güncellenir ve HitCount++,
-    // yoksa yeni kayıt eklenir. SaveChanges UoW'da çağrılmalı.
+    // Upsert: aynı departman kapsamında aynı normalize edilmiş QuestionText varsa cevap, vektör
+    // ve kaynak belge listesi güncellenir; yoksa yeni kayıt eklenir. HitCount ve LastHitAt'e
+    // dokunulmaz — kullanım sayacı yalnız cache'ten cevap servis edildiğinde artar
+    // (IncrementHitAsync). SaveChanges UoW'da çağrılmalı.
     // (IRepository.AddAsync vanilla INSERT yapar — bu metot upsert semantic için ayrı.)
     Task UpsertAsync(QuestionCache entry, CancellationToken ct = default);
 

@@ -203,8 +203,9 @@ export function useDocuments() {
 
         if (valid.length === 0) return;
 
-        // Throttled upload — 5'li gruplar: bir grup tamamen bitmeden sonraki başlamaz.
-        // Sebep: backend upload rate limit (10/dk) + Mistral OCR rate limit + browser network sıkışması.
+        // Yükleme 5'li gruplar hâlinde yapılır; bir grup tamamlanmadan sonraki başlamaz.
+        // Böylece tarayıcının eşzamanlı bağlantı sınırı zorlanmaz ve OCR sağlayıcısına giden
+        // istekler tek seferde yığılmaz. Sunucu tarafındaki yükleme sınırı da aşılmamış olur.
         (async () => {
             const BATCH = 5;
             for (let i = 0; i < valid.length; i += BATCH) {

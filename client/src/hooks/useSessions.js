@@ -160,8 +160,9 @@ export function useSessions() {
     }, [toast, sortSessionsClientSide, fetchSessions]);
 
     const handleBatchArchiveSessions = useCallback(async (ids) => {
-        // Sequential — her arşivleme yan etkili (DB write), N tek istek de mevcut user-write
-        // rate-limit'inde rahat sığar (typically <20).
+        // İstekler sırayla gönderilir; her arşivleme bir veritabanı yazması olduğundan aynı anda
+        // yığılmaları gereksiz yük yaratır. Oturum yazma uçlarının sunucu tarafındaki sınırı
+        // kullanıcı bazlıdır ve elle yapılan çoklu seçime fazlasıyla yeter.
         // Listeden yalnız gerçekten arşivlenenler düşürülür; başarısız olanlar yerinde kalır.
         const archivedIds = new Set();
         let failed = 0;

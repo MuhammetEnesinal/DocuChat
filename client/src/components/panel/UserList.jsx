@@ -150,7 +150,7 @@ export default function UserList({
             ) : users.map((u) => {
                 const isAdmin = u.roles?.includes('Admin');
                 const isManager = u.roles?.includes('Manager');
-                // Her kullanıcının rozeti olur — Personel'in boş kalması tutarsızdı.
+                // Her kullanıcı için rozet gösterilir; Personel dahil hiçbir yetki boş bırakılmaz.
                 const primaryRole = isAdmin ? 'Admin' : isManager ? 'Manager' : 'User';
                 const badge = ROLE_BADGE[primaryRole];
                 const isSelected = selectMode && selectedIds.has(u.id);

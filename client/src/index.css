@@ -579,7 +579,7 @@ input::-webkit-textfield-decoration-container {
     30% { opacity: 0.15; }
 }
 
-/* B3 — "Düşünme" göstergesindeki noktalar (Belgeler aranıyor…) */
+/* Arama/hazırlama göstergesindeki animasyonlu noktalar ("Belgeler aranıyor…") */
 @keyframes thinkingDots {
     0%, 20% { opacity: 0.2; }
     50% { opacity: 1; }

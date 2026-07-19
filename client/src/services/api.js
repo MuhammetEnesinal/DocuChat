@@ -58,7 +58,9 @@ export const changePassword = (currentPassword, newPassword) =>
 // Chat
 // SSE streaming — backend'in chat endpoint'i: /api/chat/ask-stream.
 // onEvent her event'te çağrılır.
-// Event tipleri: start | cache_hit | clarification | token | complete | done | error
+// Event tipleri: start | searching | generating | cache_hit | clarification | token |
+// complete | done | error. searching ve generating yalnızca ilerleme göstergesi içindir;
+// cache'ten cevaplanan sorularda generating hiç gelmez.
 // Dönüş: {ok: true} normal bitti, {ok: false, error} hata, {aborted: true} iptal.
 export const askQuestionStream = async (
     { question, sessionId = null, skipClarification = false },
@@ -245,7 +247,8 @@ export const deleteDepartment = (id) =>
 export const deleteDepartmentsBatch = (ids) =>
     api.post('/departments/batch-delete', { ids });
 
-// Çoklu kullanıcı silme — tek istek (admin self-delete + son admin koruması serverda).
+// Çoklu kullanıcı silme — tek istek. Admin rolündeki kullanıcılar sunucu tarafında atlanır;
+// dönen sayı gerçekten silinen adedidir.
 export const adminDeleteUsersBatch = (ids) =>
     api.post('/admin/users/batch-delete', { ids });
 
