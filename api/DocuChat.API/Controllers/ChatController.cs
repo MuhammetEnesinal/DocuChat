@@ -144,6 +144,7 @@ public class ChatController : ControllerBase
 
     // ── Archive / Unarchive ──
     [HttpPatch("sessions/{sessionId:guid}/archive")]
+    [EnableRateLimiting("session-write")]
     [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -152,6 +153,7 @@ public class ChatController : ControllerBase
         => (await _chat.ArchiveSessionAsync(sessionId, ct)).ToActionResult();
 
     [HttpPatch("sessions/{sessionId:guid}/unarchive")]
+    [EnableRateLimiting("session-write")]
     [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -161,6 +163,7 @@ public class ChatController : ControllerBase
 
     // ── Pin / Unpin ──
     [HttpPatch("sessions/{sessionId:guid}/pin")]
+    [EnableRateLimiting("session-write")]
     [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -169,6 +172,7 @@ public class ChatController : ControllerBase
         => (await _chat.PinSessionAsync(sessionId, ct)).ToActionResult();
 
     [HttpPatch("sessions/{sessionId:guid}/unpin")]
+    [EnableRateLimiting("session-write")]
     [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -194,6 +198,7 @@ public class ChatController : ControllerBase
     }
 
     [HttpPatch("sessions/{sessionId:guid}")]
+    [EnableRateLimiting("session-write")]
     [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
@@ -210,6 +215,7 @@ public class ChatController : ControllerBase
     }
 
     [HttpDelete("sessions/{sessionId:guid}")]
+    [EnableRateLimiting("session-write")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]

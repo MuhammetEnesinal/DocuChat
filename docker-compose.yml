@@ -66,7 +66,11 @@ services:
     volumes:
       - uploads:/app/uploads
     ports:
-      - "5026:5025"
+      # SADECE localhost'a bağlı. Gerçek trafik web (nginx) üzerinden gelir; bu port yalnız
+      # geliştirme/hata ayıklama içindir. Dışarı açık bırakılırsa: API, X-Forwarded-For'a güvenen
+      # ForwardedHeaders ile çalıştığı ve Docker ağ aralığı güvenilir sayıldığı için, doğrudan bu
+      # porta ulaşan biri her istekte sahte bir IP yollayıp rate limit'i tamamen bypass edebilir.
+      - "127.0.0.1:5026:5025"
 
   web:
     restart: unless-stopped

@@ -137,7 +137,7 @@ public class AuthController : ControllerBase
 
     [HttpPost("change-password")]
     [Authorize]
-    [EnableRateLimiting("login")]
+    [EnableRateLimiting("auth-write")]
     [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequestDto req, CancellationToken ct)

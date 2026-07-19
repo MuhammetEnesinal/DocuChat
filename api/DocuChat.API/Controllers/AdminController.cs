@@ -139,6 +139,7 @@ public class AdminController : ControllerBase
     // ── Bulk Import (Excel) ──
 
     [HttpGet("users/bulk-import/template")]
+    [EnableRateLimiting("read-heavy")]
     [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
