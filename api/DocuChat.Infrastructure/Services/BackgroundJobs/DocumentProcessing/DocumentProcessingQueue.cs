@@ -60,9 +60,4 @@ public sealed class DocumentProcessingQueue : IDocumentProcessingScheduler
     // Consumer için stream — döngüde await foreach ile okunur.
     public IAsyncEnumerable<Guid> ReadAllAsync(CancellationToken ct) =>
         _channel.Reader.ReadAllAsync(ct);
-
-    // Kuyruğa yeni öğe alınmasını durdurur; kuyrukta bekleyenler consumer tarafından işlenmeye
-    // devam eder. Uygulama kapanışında kuyruk kapatılmadan da consumer, iptal belirteciyle
-    // sonlandığı için bu çağrı zorunlu değildir.
-    public void Complete() => _channel.Writer.TryComplete();
 }

@@ -845,8 +845,8 @@ public class DocumentParserService : IDocumentParser
                     .ToList();
                 var pagePaths = new List<string>();
 
-                // Mistral'in bu sayfada yakaladığı hash'ler — duplicate atlamak için
-                mistralHashesByPage?.TryGetValue(pageNum - 1, out var mistralHashes);
+                // Mistral'in bu sayfada yakaladığı görsel hash'leri; aynı görseli ikinci kez
+                // diske yazmamak için kullanılır.
                 var mistralHashesSet = mistralHashesByPage != null
                     && mistralHashesByPage.TryGetValue(pageNum - 1, out var h) ? h : null;
 
@@ -1073,7 +1073,7 @@ public class DocumentParserService : IDocumentParser
                     : html + sb.ToString();
             }
 
-            _logger.LogInformation("[MHTML] {Chars} kar, {Embed} embed, {Fetch} dış URL fetch, {Data} mevcut data URI, {Unref} sahipsiz",
+            _logger.LogInformation("[MHTML] {Chars} karakter, {Embed} gömülü, {Fetch} dış URL indirildi, {Data} mevcut data URI, {Unref} sahipsiz",
                 html.Length, cidToDataUri.Count, fetched, alreadyData, unreferencedImages.Count);
             return Encoding.UTF8.GetBytes(html);
         }

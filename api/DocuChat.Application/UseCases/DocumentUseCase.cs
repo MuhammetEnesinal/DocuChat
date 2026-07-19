@@ -468,11 +468,11 @@ public class DocumentUseCase : IDocumentUseCase
         }
     }
 
-    // Chunk paralel build sırasında per-chunk caption listesi topla (DocumentImages için lazım).
-    // captionMap: PreComputeImageCaptionsAsync'ten gelen path → caption sözlüğü.
-    // pathToHash: chunk-level path dedup için (aynı ContentHash'li PdfPig+Mistral path'leri tek IMG marker'a indir).
-    private async Task<(List<DocumentChunk> Chunks, List<string?>[] CaptionsByChunk)>
-        BuildChunksAndCollectCaptionsAsync(
+    // Parse çıktısından DocumentChunk listesi kurar: görsel açıklamalarını chunk metnine gömer,
+    // bağlam ön-ekini ekler, embedding'leri tek batch'te alır ve chunk zincirini bağlar.
+    // captionMap: PreComputeImageCaptionsAsync'ten gelen path → açıklama sözlüğü.
+    // pathToHash: chunk içi path tekilleştirmesi için (aynı içerikli görseller tek markere iner).
+    private async Task<List<DocumentChunk>> BuildChunksAsync(
         Document doc,
         IReadOnlyList<ParsedChunk> parsedList,
         string earlySummary,
@@ -481,7 +481,6 @@ public class DocumentUseCase : IDocumentUseCase
         CancellationToken ct)
     {
         var results = new DocumentChunk[parsedList.Count];
-        var captionsByChunk = new List<string?>[parsedList.Count];  // index → caption listesi
         var embedTexts = new string[parsedList.Count];              // embedding'e girecek metinler
         var finalContents = new string[parsedList.Count];           // DB'ye yazılacak chunk içeriği
         using var sem = new SemaphoreSlim(_maxParallelChunks);
@@ -507,7 +506,6 @@ public class DocumentUseCase : IDocumentUseCase
 
                 var captions = dedupPaths.Select(p =>
                     captionMap.TryGetValue(p, out var c) ? c : null).ToList();
-                captionsByChunk[idx] = captions;
 
                 var chunkCtx = precomputedContexts[idx] ?? string.Empty;
 
@@ -578,15 +576,6 @@ public class DocumentUseCase : IDocumentUseCase
                 skipped, total);
         }
 
-        // captionsByChunk array'inin filtrelenmiş indeks'lere göre yeniden hizalanması gerekiyor
-        var alignedCaptions = new List<string?>[validChunks.Count];
-        var newIdx = 0;
-        for (var oldIdx = 0; oldIdx < results.Length; oldIdx++)
-        {
-            if (results[oldIdx] is null) continue;
-            alignedCaptions[newIdx++] = captionsByChunk[oldIdx] ?? new List<string?>();
-        }
-
         // Prev/Next zincirleme link
         for (var i = 0; i < validChunks.Count; i++)
         {
@@ -594,7 +583,7 @@ public class DocumentUseCase : IDocumentUseCase
             validChunks[i].PrevChunkId = i > 0 ? validChunks[i - 1].Id : null;
             validChunks[i].NextChunkId = i < validChunks.Count - 1 ? validChunks[i + 1].Id : null;
         }
-        return (validChunks, alignedCaptions);
+        return validChunks;
     }
 
     // Chunk içinde aynı ContentHash'li path'leri (PdfPig + Mistral aynı görseli yakaladıysa)
@@ -670,7 +659,6 @@ public class DocumentUseCase : IDocumentUseCase
         Document doc,
         IReadOnlyList<DocumentChunk> chunks,
         IReadOnlyList<ParsedChunk> parsedList,
-        IReadOnlyList<List<string?>> captionsByChunk,
         IReadOnlyDictionary<string, string?> precomputedPathToHash,
         CancellationToken ct)
     {
@@ -1030,7 +1018,7 @@ public class DocumentUseCase : IDocumentUseCase
 
             // Chunk'lar kurulurken görsel açıklamaları da chunk başına toplanır; bu açıklamalar
             // chunk içeriğine [IMG:N — açıklama] biçiminde gömülür ve embedding metnine katılır.
-            var (newChunks, captionsByChunk) = await BuildChunksAndCollectCaptionsAsync(
+            var newChunks = await BuildChunksAsync(
                 doc, parsedList, earlySummary, captionMap, pathToHash, ct);
 
             // Embedding'i alınamayan chunk'lar atlanır (belge yine Ready olur). Atlanan sayı
@@ -1065,7 +1053,7 @@ public class DocumentUseCase : IDocumentUseCase
                 foreach (var old in existingChunks) _uow.Chunks.Delete(old);
                 foreach (var img in existingImages) _uow.Images.Delete(img);
                 foreach (var chunk in newChunks) await _uow.Chunks.AddAsync(chunk, ct);
-                await PersistImagesAndLinksAsync(doc, newChunks, parsedList, captionsByChunk, pathToHash, ct);
+                await PersistImagesAndLinksAsync(doc, newChunks, parsedList, pathToHash, ct);
                 _logger.LogInformation(
                     "[Process] Reprocess: {OldC}→{NewC} chunk, {OldI} görsel DB'den silindi (disk cleanup SaveChanges sonrası)",
                     existingChunks.Count, newChunks.Count, existingImages.Count);
@@ -1075,7 +1063,7 @@ public class DocumentUseCase : IDocumentUseCase
                 // İlk upload: batch commit (memory efficiency; chat zaten ilk uploadda hiç çalışmıyor)
                 await AddAndCommitInBatchesAsync(newChunks, ct);
                 // Görsel + link'ler ayrıca yazılır (chunks committed, ID'ler var)
-                await PersistImagesAndLinksAsync(doc, newChunks, parsedList, captionsByChunk, pathToHash, ct);
+                await PersistImagesAndLinksAsync(doc, newChunks, parsedList, pathToHash, ct);
             }
 
             doc.Status = DocumentStatus.Ready;
