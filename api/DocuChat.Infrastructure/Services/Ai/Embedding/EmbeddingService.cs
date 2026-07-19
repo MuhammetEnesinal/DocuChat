@@ -161,7 +161,8 @@ public class EmbeddingService : IEmbeddingService
                     catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
                     catch (Exception ex)
                     {
-                        // Tekil de başarısız → eleman null kalır, caller chunk'ı atlar (A2).
+                        // Tekil çağrı da başarısız olursa ilgili eleman null kalır; çağıran taraf
+                        // o chunk'ı atlar ve belge işlenmeye devam eder.
                         _logger.LogWarning(ex, "[Embedding] Tekil fallback başarısız — metin atlanacak");
                     }
                 }

@@ -40,6 +40,8 @@ public class SmtpEmailService : IEmailService
             Credentials = new NetworkCredential(_from, _password),
         };
 
+        // Gövde HTML olarak gönderilir; bu nedenle çağıran taraflar kullanıcıdan gelen değerleri
+        // şablona gömmeden önce HTML olarak kaçışlamak zorundadır.
         using var message = new MailMessage(_from, to, subject, htmlBody)
         {
             IsBodyHtml = true,
@@ -52,6 +54,9 @@ public class SmtpEmailService : IEmailService
         }
         catch (Exception ex)
         {
+            // Hata loglanır ve yeniden fırlatılır: gönderimin başarısızlığı çağıranı ilgilendirir.
+            // Şifre sıfırlama gibi akışlar kullanıcıya hata döndürür; karşılama maili gibi
+            // ikincil bildirimler ise çağrıyı bilinçli olarak beklemeden başlatır.
             _logger.LogError(ex, "Mail gönderilemedi: {To} — {Subject}", to, subject);
             throw;
         }

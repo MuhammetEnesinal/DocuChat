@@ -385,8 +385,8 @@ internal static class LlmPrompts
             for (var i = 0; i < chunks.Count; i++)
             {
                 var (h, c) = chunks[i];
-                // İçerik çağıran tarafta örneklenmiş gelir (YAPI metası + baş/orta/son kesit,
-                // ~600 kar) — buradaki 900 yalnız güvenlik tavanı.
+                // İçerik çağıran tarafta örneklenmiş gelir (yapı metası + baş/orta/son kesit,
+                // yaklaşık 600 karakter); buradaki sınır yalnızca güvenlik tavanıdır.
                 var content = c.Length > 900 ? c[..900] : c;
                 sb.Append('[').Append(i).Append("]\n");
                 sb.Append("Header: ").Append(string.IsNullOrWhiteSpace(h) ? "(yok)" : h!.Trim()).Append('\n');

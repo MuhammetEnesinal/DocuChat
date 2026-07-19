@@ -23,10 +23,11 @@ public class DocumentConfiguration : IEntityTypeConfiguration<Document>
                .IsRequired()
                .HasMaxLength(100);
 
-        // UserId = yükleyen (bilgi amaçlı). SetNull: kullanıcı silinince BELGE KALIR, yalnız
-        // yükleyen bilgisi boşalır. Cascade idi → yönetici hesabı silinince departmanın tüm
-        // belgeleri sessizce uçuyordu; üstelik cascade uygulama kodunu atladığı için diskte
-        // öksüz dosya kalıyor ve cache invalidate edilmiyordu (silinen belge hâlâ cevaplanabiliyordu).
+        // UserId yalnızca yükleyen kişiyi bilgi amaçlı tutar; belgenin sahipliğini departman
+        // belirler. SetNull davranışı seçilir: kullanıcı silindiğinde belge korunur, yalnız
+        // yükleyen bilgisi boşalır. Cascade silme burada uygun değildir; bir hesabın silinmesi
+        // departmanın belgelerini götürür ve uygulama kodunu atladığı için diskteki dosyalar ile
+        // cache kayıtları geride kalırdı.
         builder.HasOne<AppUser>()
                .WithMany()
                .HasForeignKey(d => d.UserId)

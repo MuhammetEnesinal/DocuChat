@@ -162,9 +162,9 @@ public class LlmService : ILlmService
         return s.Length > 80 ? s[..80].TrimEnd() + "…" : s;
     }
 
-    // Streaming variant — token delta'larını üretir. OpenAI-compat dışındaki provider'lar için
-    // (Anthropic/Gemini) tam cevap tek delta olarak döner (fallback). Ollama'nın kendi streaming
-    // formatı OpenAI'dan farklı olduğu için onu da non-streaming'e düşürdük.
+    // Cevabı token parçaları hâlinde üretir. Yalnız OpenAI uyumlu sağlayıcılar gerçek akış
+    // sağlar; Anthropic, Gemini ve Ollama için tam cevap tek parça olarak döner. Ollama akış
+    // formatı OpenAI'dan farklı olduğundan bu grupta değerlendirilir.
     public async IAsyncEnumerable<string> StreamAnswerAsync(
         AnswerContext context,
         string question,
@@ -207,6 +207,10 @@ public class LlmService : ILlmService
         }
     }
 
+    // Konuşma geçmişindeki mesajları prompt'a girmeden önce kırpar. Asistan cevapları
+    // kullanıcı sorularından uzun olduğu için onlara daha geniş pay verilir. Amaç, uzun bir
+    // geçmişin bağlam penceresini doldurup asıl soruyu ve belge içeriğini dışarı itmesini
+    // önlemektir.
     private static IReadOnlyList<(string Role, string Content)> TrimHistory(
         IEnumerable<(string Role, string Content)>? history)
     {
@@ -620,7 +624,8 @@ public class LlmService : ILlmService
     {
         if (string.IsNullOrWhiteSpace(sampleContent)) return null;
 
-        // Girdi 9K kar: ölçekli örnekleme (24 örnek × 300) + başlık iskeleti sığar.
+        // Girdi üst sınırı, örneklenmiş içerik ile başlık iskeletinin birlikte sığacağı
+        // büyüklükte tutulur; aşan kısım kırpılır.
         var truncated = sampleContent.Length > 9000 ? sampleContent[..9000] : sampleContent;
         var payload = HelperPayload(
             LlmPrompts.DocumentSummary.System,

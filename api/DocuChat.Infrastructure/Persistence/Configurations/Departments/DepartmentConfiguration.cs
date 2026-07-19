@@ -18,8 +18,9 @@ public class DepartmentConfiguration : IEntityTypeConfiguration<Department>
                .IsRequired()
                .HasMaxLength(20);
 
-        // Ad ve kod benzersiz — admin aynısını iki kez ekleyemez. (Uygulama katmanı ayrıca
-        // Türkçe-duyarlı normalleştirmeyle yakın-mükerrerleri de engeller: "YAZILIM" vs "Yazılım".)
+        // Ad ve kod benzersizdir. Karşılaştırma birebir yapılır: Türkçe'de İ/I ve ı/i ayrı
+        // harfler olduğundan büyük/küçük harf katlaması uygulanmaz, "IT" ile "ıt" farklı
+        // kodlardır. Uygulama katmanındaki mükerrer denetimi de aynı semantiği kullanır.
         builder.HasIndex(d => d.Name).IsUnique();
         builder.HasIndex(d => d.Code).IsUnique();
     }

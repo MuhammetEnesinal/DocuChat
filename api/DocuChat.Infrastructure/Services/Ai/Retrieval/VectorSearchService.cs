@@ -359,6 +359,10 @@ public class VectorSearchService : IVectorSearch
     private static string? SerializeImagePaths(List<string> paths) =>
         paths.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(paths);
 
+    // LLM'e gönderilecek chunk sayısı aday havuzunun büyüklüğüne göre belirlenir. Az aday varsa
+    // hepsi gönderilir; havuz büyüdükçe üst sınır kademeli olarak artar ama sabit bir tavanda
+    // durur. Amaç, alakasız chunk'ların bağlamı seyreltmesini ve token maliyetinin havuz
+    // büyüklüğüyle birlikte artmasını önlemektir.
     private static int GetDynamicTopK(int candidateCount)
     {
         if (candidateCount <= 5) return candidateCount;
@@ -416,6 +420,11 @@ public class VectorSearchService : IVectorSearch
         }
     }
 
+    // Reciprocal Rank Fusion: iki sıralamayı skorlarını karşılaştırmadan birleştirir.
+    // Her liste bir sonuca 1/(k + sıra) katkısı verir; her iki listede de üst sıralarda çıkan
+    // sonuç en yüksek toplamı alır. Skorlar yerine sıralar kullanıldığı için dense benzerliği
+    // ile BM25 sıralama skorunun farklı ölçeklerde olması sorun yaratmaz. k sabiti, üst sıralar
+    // arasındaki farkı yumuşatarak tek bir listenin sonucu tek başına belirlemesini engeller.
     private List<Guid> FuseRrf(
         IReadOnlyList<(Guid Id, int Rank)> dense,
         IReadOnlyList<(Guid Id, int Rank)> bm25,

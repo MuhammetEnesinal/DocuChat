@@ -27,7 +27,8 @@ namespace DocuChat.Infrastructure.Services.BackgroundJobs.DocumentProcessing;
 // AKIŞ:
 // 1. IHostedService olarak uygulama startup'ında ÇALIŞIR (StartAsync)
 // 2. DocumentRepository ile Pending+Processing statüsündeki belge ID'lerini çek
-// 3. Her bir ID için DocumentUseCase.ProcessPendingAsync'i background Task.Run ile başlat
+// 3. Her bir ID işleme kuyruğuna eklenir; belgeleri DocumentProcessingConsumer sınırlı
+//    eşzamanlılıkla işler
 // 4. Service yaşamı boyunca tek seferlik çalışır, sonra idle olur
 public sealed class DocumentRecoveryService : IHostedService
 {

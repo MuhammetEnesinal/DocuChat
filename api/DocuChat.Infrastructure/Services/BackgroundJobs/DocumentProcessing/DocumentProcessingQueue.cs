@@ -61,6 +61,8 @@ public sealed class DocumentProcessingQueue : IDocumentProcessingScheduler
     public IAsyncEnumerable<Guid> ReadAllAsync(CancellationToken ct) =>
         _channel.Reader.ReadAllAsync(ct);
 
-    // Kuyruğu kapat (app shutdown). Pending item'lar consumer'da işlenir.
+    // Kuyruğa yeni öğe alınmasını durdurur; kuyrukta bekleyenler consumer tarafından işlenmeye
+    // devam eder. Uygulama kapanışında kuyruk kapatılmadan da consumer, iptal belirteciyle
+    // sonlandığı için bu çağrı zorunlu değildir.
     public void Complete() => _channel.Writer.TryComplete();
 }

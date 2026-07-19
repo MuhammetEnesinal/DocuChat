@@ -454,7 +454,8 @@ public sealed class UserManagementService : IUserManagementService
                 totalRows++;
                 processed++;
 
-                // Departman adlarını (virgülle çoklu) ID'ye çöz. Boş veya bilinmeyen ad → satır atlanır.
+                // Virgülle ayrılmış departman kodlarını ID'ye çözer. Kod boşsa veya tanımsızsa
+                // satır atlanır; departman ataması zorunludur.
                 var (deptIds, deptError) = ResolveDepartmentCodes(row.Value.DepartmentsRaw, deptByCode);
                 BulkImportUserResultDto result;
                 if (deptError is not null)
@@ -500,7 +501,8 @@ public sealed class UserManagementService : IUserManagementService
     }
 
     // Tek satır okur, tamamen boşsa null döner.
-    // Kolonlar: 1=Ad Soyad, 2=E-posta, 3=Personel Kodu, 4=Departman(lar) (virgülle çoklu), 5=Rol
+    // Kolonlar: 1=Ad Soyad, 2=E-posta, 3=Personel Kodu, 4=Departman Kod(lar)ı (virgülle çoklu),
+    // 5=Yetki. Sıra, indirilen şablondaki başlık sırasıyla aynıdır.
     private static (string FullName, string Email, string PersonnelCode, string DepartmentsRaw, string RoleRaw)? ReadRow(
         IXLWorksheet worksheet, int rowNum)
     {
