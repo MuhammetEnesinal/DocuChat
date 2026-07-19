@@ -1,4 +1,5 @@
 ﻿// DocuChat.Infrastructure/Services/LocalFileStorage.cs
+using System.Text;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using DocuChat.Application.Interfaces.Services.Ai.Embedding;
@@ -31,14 +32,52 @@ public class LocalFileStorage : IFileStorage
     {
         // fileName KULLANICIDAN gelir (upload'daki dosya adı) — sanitize edilmeden path'e
         // konursa "../../../tmp/x" gibi bir ad depolama kökünün dışına yazar (path traversal).
-        var uniqueName = $"{Guid.NewGuid()}_{SanitizeFileName(fileName)}";
+        // GUID öneki 37 karakter ekler; dosya sistemi sınırına sığması için ad kırpılır.
+        var prefix = $"{Guid.NewGuid()}_";
+        var uniqueName = prefix + TruncateToByteLimit(SanitizeFileName(fileName), MaxComponentBytes - prefix.Length);
         return await WriteAsync(stream, Combine(subFolder, uniqueName), ct);
     }
 
     public async Task<string> SaveRawAsync(
         Stream stream, string exactFileName, string? subFolder = null, CancellationToken ct = default)
     {
-        return await WriteAsync(stream, Combine(subFolder, SanitizeFileName(exactFileName)), ct);
+        var safe = TruncateToByteLimit(SanitizeFileName(exactFileName), MaxComponentBytes);
+        return await WriteAsync(stream, Combine(subFolder, safe), ct);
+    }
+
+    // Linux/ext4 ve overlayfs'te tek bir yol bileşeni en fazla 255 BAYT olabilir (karakter değil).
+    // Validator dosya adını 255 KARAKTER'e kadar kabul ediyor; üstüne GUID öneki de eklenince
+    // sınır aşılıyordu ve diske yazarken PathTooLongException → kullanıcıya 500 dönüyordu.
+    private const int MaxComponentBytes = 255;
+
+    // Adı UTF-8 bayt sınırına kırpar, UZANTIYI KORUR. Bayt bazlı olması şart: Türkçe harfler
+    // (Ç, ğ, İ…) UTF-8'de 2 bayt tutar, yani karakter saymak yanıltıcı olur — tamamen Türkçe
+    // bir ad, karakter sayısı sınırın altındayken bile bayt olarak sınırı aşabilir.
+    // Ayrıca çok baytlı bir karakterin ortasından kesmemek için sınıra kadar geriye gidilir.
+    private static string TruncateToByteLimit(string name, int maxBytes)
+    {
+        if (maxBytes <= 0) return "dosya";
+        if (Encoding.UTF8.GetByteCount(name) <= maxBytes) return name;
+
+        var ext = Path.GetExtension(name);
+        if (Encoding.UTF8.GetByteCount(ext) > maxBytes) ext = string.Empty;  // uzantı tek başına sığmıyorsa at
+
+        var stem = Path.GetFileNameWithoutExtension(name);
+        var stemBudget = maxBytes - Encoding.UTF8.GetByteCount(ext);
+
+        // Karakter karakter ekleyip bütçeyi aşmadan durur → çok baytlı karakter ortadan bölünmez.
+        var sb = new StringBuilder();
+        var used = 0;
+        foreach (var ch in stem)
+        {
+            var size = Encoding.UTF8.GetByteCount(ch.ToString());
+            if (used + size > stemBudget) break;
+            sb.Append(ch);
+            used += size;
+        }
+
+        var result = sb.ToString() + ext;
+        return string.IsNullOrWhiteSpace(result) ? "dosya" : result;
     }
 
     // Dosya adından dizin bileşenlerini ve geçersiz karakterleri atar → yalnız düz bir ad kalır.

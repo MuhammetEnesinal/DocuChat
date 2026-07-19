@@ -208,9 +208,13 @@ public sealed class UserManagementService : IUserManagementService
         if (!string.IsNullOrWhiteSpace(search))
         {
             var pattern = $"%{search}%";
+            // Personel kodu da aranabilir: listede gösterilen ve Excel içe aktarımında kimlik olarak
+            // kullanılan alan — departman aramasının (ad + kod) muadili. ILIKE, yani arama büyük/küçük
+            // harf duyarsız; kodun BENZERSİZLİĞİ ise ayrı bir mesele ve orada tam eşleşme geçerli.
             query = query.Where(u =>
                 (u.FullName != null && EF.Functions.ILike(u.FullName, pattern)) ||
-                (u.Email != null && EF.Functions.ILike(u.Email, pattern)));
+                (u.Email != null && EF.Functions.ILike(u.Email, pattern)) ||
+                (u.PersonnelCode != null && EF.Functions.ILike(u.PersonnelCode, pattern)));
         }
 
         var total = await query.CountAsync(ct);
