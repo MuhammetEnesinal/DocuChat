@@ -172,8 +172,6 @@ export const getArchivedSessionCount = () =>
 export const getDocuments = (params = {}) =>
     api.get('/documents', { params });
 
-export const getDocumentChunks = (id) =>
-    api.get(`/documents/${id}/chunks`);
 
 export const uploadDocument = (file, departmentId, onProgress) => {
     const form = new FormData();

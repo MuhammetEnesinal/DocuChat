@@ -51,17 +51,6 @@ public class DocumentsController : ControllerBase
         return result.ToActionResult();
     }
 
-    [HttpGet("{id:guid}/chunks")]
-    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<DocumentChunkResponseDto>>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public async Task<IActionResult> GetChunks(Guid id, CancellationToken ct)
-    {
-        var result = await _document.GetChunksAsync(id, ct);
-        return result.ToActionResult();
-    }
-
     [HttpPost("upload")]
     [EnableRateLimiting("upload")]
     [Consumes("multipart/form-data")]
@@ -87,6 +76,7 @@ public class DocumentsController : ControllerBase
     }
 
     [HttpGet("{id:guid}/preview")]
+    [EnableRateLimiting("read-heavy")]
     [ProducesResponseType(typeof(FileStreamResult), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]

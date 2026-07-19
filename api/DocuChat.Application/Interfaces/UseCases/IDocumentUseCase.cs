@@ -10,7 +10,6 @@ public interface IDocumentUseCase
     Task<Result<PaginatedResult<DocumentResponseDto>>> GetAllDocumentsPagedAsync(int page, int pageSize, string? search = null, CancellationToken ct = default);
     Task<Result<bool>> DeleteAsync(Guid id, CancellationToken ct = default);
     Task<Result<int>> DeleteBatchAsync(IEnumerable<Guid> ids, CancellationToken ct = default);
-    Task<Result<IReadOnlyList<DocumentChunkResponseDto>>> GetChunksAsync(Guid id, CancellationToken ct = default);
     Task<Result<DocumentResponseDto>> ReprocessAsync(Guid id, CancellationToken ct = default);
 
     // Çoklu reprocess — N belgeyi tek HTTP isteğinde queue'ya enqueue eder;

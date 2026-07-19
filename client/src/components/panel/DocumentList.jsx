@@ -35,7 +35,7 @@ function fileIcon(contentType, fileName) {
 
 export default function DocumentList({
     documents, loading, search, onSearchChange,
-    onViewChunks, onDelete, onBatchDelete,
+    onDelete, onBatchDelete,
     onBatchDownload, onBatchReprocess,
     deletingDocId, onReprocessStart, onReprocess,
     total, page, pageSize, onPageChange,
@@ -212,7 +212,7 @@ export default function DocumentList({
                                         {doc.fileName}
                                     </p>
                                     <p style={{ fontSize: '12px', color: 'var(--gray-light)', marginTop: '2px' }}>
-                                        {doc.departmentName ? `${departmentLabel({ name: doc.departmentName, code: doc.departmentCode })} · ` : ''}{formatSize(doc.fileSizeBytes)} · {doc.chunkCount} chunk · {formatDate(doc.createdAt)}
+                                        {doc.departmentName ? `${departmentLabel({ name: doc.departmentName, code: doc.departmentCode })} · ` : ''}{formatSize(doc.fileSizeBytes)} · {formatDate(doc.createdAt)}
                                     </p>
                                     {doc.errorMessage && <p style={{ fontSize: '12px', color: '#f87171', marginTop: '2px' }}>{doc.errorMessage}</p>}
                                     {doc.processingNotes && <p style={{ fontSize: '12px', color: '#fb923c', marginTop: '2px' }}>⚠ {doc.processingNotes}</p>}
@@ -231,11 +231,6 @@ export default function DocumentList({
                                 <IconButton onClick={() => handlePreview(doc)} title="Önizle" hoverColor="var(--accent-light)" hoverBg="rgba(var(--accent-light-rgb),0.1)">
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
                                 </IconButton>
-                                {doc.status === 'Ready' && (
-                                    <IconButton onClick={() => onViewChunks(doc)} title="Chunk görüntüle" hoverColor="var(--accent-light)" hoverBg="rgba(var(--accent-light-rgb),0.1)">
-                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" /></svg>
-                                    </IconButton>
-                                )}
                                 <IconButton
                                     onClick={() => handleReprocess(doc)}
                                     title={isProcessing ? 'Belge zaten işleniyor' : 'Yeniden İşle'}

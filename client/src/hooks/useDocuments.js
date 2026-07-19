@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { getDocuments, uploadDocument, deleteDocument, deleteDocumentsBatch, getDocumentChunks, reprocessDocument, reprocessDocumentsBatch, downloadDocument } from '../services/api';
+import { getDocuments, uploadDocument, deleteDocument, deleteDocumentsBatch, reprocessDocument, reprocessDocumentsBatch, downloadDocument } from '../services/api';
 import { useToast } from '../components/shared/Toast';
 import { showApiError, getApiErrorMessage } from '../lib/format';
 
@@ -13,10 +13,6 @@ export function useDocuments() {
     const [dragOver, setDragOver] = useState(false);
     // Belgelerin yükleneceği departman — DocumentUpload seçicisinden gelir. Zorunlu.
     const [uploadDepartmentId, setUploadDepartmentId] = useState('');
-    const [selectedDoc, setSelectedDoc] = useState(null);
-    const [chunks, setChunks] = useState([]);
-    const [chunksLoading, setChunksLoading] = useState(false);
-    const [showChunksModal, setShowChunksModal] = useState(false);
     // Server-side pagination
     const [page, setPage] = useState(1);
     const [totalCount, setTotalCount] = useState(0);      // aktif filtreye göre (arama dahil)
@@ -82,7 +78,6 @@ export function useDocuments() {
 
     const deleteDoc = useCallback(async (id) => {
         setDocuments(prev => prev.filter(d => d.id !== id));
-        if (selectedDoc?.id === id) setShowChunksModal(false);
         try {
             await deleteDocument(id);
             fetchDocs(true);  // toplam sayaç + sayfa dolgusunu reconcile et
@@ -90,7 +85,7 @@ export function useDocuments() {
             fetchDocs(true);
             throw err;
         }
-    }, [selectedDoc, fetchDocs]);
+    }, [fetchDocs]);
 
     // Çoklu yeniden işleme — TEK HTTP isteği (batch-reprocess). Backend queue'ya enqueue eder,
     // consumer maxConcurrent ile throttle yapar; client side rate-limit'e takılmaz.
@@ -143,7 +138,6 @@ export function useDocuments() {
         const idSet = new Set(ids);
         const snapshot = documents;
         setDocuments(prev => prev.filter(d => !idSet.has(d.id)));
-        if (selectedDoc && idSet.has(selectedDoc.id)) setShowChunksModal(false);
         try {
             const res = await deleteDocumentsBatch(ids);
             const count = res.data?.data ?? ids.length;
@@ -155,19 +149,8 @@ export function useDocuments() {
             showApiError(toast, err, 'Belgeler silinemedi.');
             throw err;
         }
-    }, [documents, selectedDoc, toast, fetchDocs]);
+    }, [documents, toast, fetchDocs]);
 
-    const handleViewChunks = useCallback(async (doc) => {
-        setSelectedDoc(doc);
-        setShowChunksModal(true);
-        setChunksLoading(true);
-        setChunks([]);
-        try {
-            const res = await getDocumentChunks(doc.id);
-            setChunks(res.data.data || []);
-        } catch (err) { showApiError(toast, err, "Chunk'lar yüklenemedi."); }
-        finally { setChunksLoading(false); }
-    }, [toast]);
 
     const uploadFile = useCallback(async (file) => {
         const uid = Date.now() + Math.random();
@@ -238,10 +221,6 @@ export function useDocuments() {
         docSearch, setDocSearch: handleDocSearch,
         dragOver, setDragOver,
         uploadDepartmentId, setUploadDepartmentId,
-        selectedDoc,
-        chunks,
-        chunksLoading,
-        showChunksModal, setShowChunksModal,
         // pagination
         page, totalCount, grandTotal, pageSize: PAGE_SIZE, goToPage,
         fetchDocs,
@@ -249,7 +228,6 @@ export function useDocuments() {
         batchDeleteDocs,
         batchReprocessDocs,
         batchDownloadDocs,
-        handleViewChunks,
         uploadFile,
         processFiles,
     };

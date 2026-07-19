@@ -1258,24 +1258,6 @@ public class DocumentUseCase : IDocumentUseCase
         return Result<bool>.Success(true);
     }
 
-    public async Task<Result<IReadOnlyList<DocumentChunkResponseDto>>> GetChunksAsync(
-        Guid id, CancellationToken ct)
-    {
-        var doc = await _uow.Documents.GetByIdAsync(id, ct);
-        if (doc is null)
-            return Result<IReadOnlyList<DocumentChunkResponseDto>>.Failure(Error.NotFound("Belge bulunamadı."));
-
-        if (!CanAccessDocument(doc))
-            return Result<IReadOnlyList<DocumentChunkResponseDto>>.Failure(Error.Forbidden("Bu belgeye erişim yetkiniz yok."));
-
-        var chunks = await _uow.Chunks.GetByDocumentIdAsync(id, ct);
-        var dtos = chunks
-            .Select(c => c.Adapt<DocumentChunkResponseDto>())  // GetByDocumentIdAsync zaten ChunkIndex'e göre sıralı döner
-            .ToList();
-
-        return Result<IReadOnlyList<DocumentChunkResponseDto>>.Success(dtos);
-    }
-
     public async Task<Result<DocumentResponseDto>> ReprocessAsync(Guid id, CancellationToken ct)
     {
         var doc = await _uow.Documents.GetByIdAsync(id, ct);
