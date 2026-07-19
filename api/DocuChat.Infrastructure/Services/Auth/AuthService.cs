@@ -51,9 +51,39 @@ public sealed class AuthService : IAuthService
     public async Task<Result<AuthResponseDto>> LoginAsync(LoginRequestDto req, CancellationToken ct = default)
     {
         var user = await _userManager.FindByEmailAsync(req.Email);
-        if (user is null || !await _userManager.CheckPasswordAsync(user, req.Password))
+        if (user is null)
             return Result<AuthResponseDto>.Failure(
                 Error.Unauthorized("E-posta veya şifre hatalı."));
+
+        var passwordOk = await _userManager.CheckPasswordAsync(user, req.Password);
+
+        // Kilit kontrolü şifre doğrulamasından SONRA yapılıyor — sıra kasıtlı.
+        // "Hesabınız kilitli" mesajı hesabın VAR olduğunu ele verir; bunu yalnız şifresini doğru
+        // giren kişi görmeli. Şifreyi bilmeyen saldırgan her durumda generic mesaj alır, yani
+        // kilit bilgisiyle hesap varlığını çıkaramaz. Şifreyi zaten bilen için kilit bilgisi
+        // ek bir sızıntı değil, aksine neden giremediğini anlaması için gerekli.
+        if (await _userManager.IsLockedOutAsync(user))
+        {
+            if (!passwordOk)
+                return Result<AuthResponseDto>.Failure(
+                    Error.Unauthorized("E-posta veya şifre hatalı."));
+
+            return Result<AuthResponseDto>.Failure(Error.Unauthorized(
+                "Çok fazla hatalı giriş denemesi nedeniyle hesabınız geçici olarak kilitlendi. " +
+                "Lütfen 15 dakika sonra tekrar deneyin."));
+        }
+
+        if (!passwordOk)
+        {
+            // Sayaç kullanıcı satırında tutulur → IP'den bağımsız. 5'e ulaşınca Identity kilitler.
+            await _userManager.AccessFailedAsync(user);
+            return Result<AuthResponseDto>.Failure(
+                Error.Unauthorized("E-posta veya şifre hatalı."));
+        }
+
+        // Başarılı giriş sayacı sıfırlar; yoksa aylar içinde birikip masum kilitlenmeye yol açar.
+        if (await _userManager.GetAccessFailedCountAsync(user) > 0)
+            await _userManager.ResetAccessFailedCountAsync(user);
 
         var roles = await _userManager.GetRolesAsync(user);
         var departments = await _db.UserDepartments
