@@ -22,6 +22,16 @@ public class JwtTokenService
             new(ClaimTypes.Name,           user.FullName ?? string.Empty),
         };
 
+        // İKİ damga — ikisi de her istekte doğrulanır (Program.cs OnTokenValidated):
+        //  sstamp (SERT / Identity SecurityStamp): şifre/e-posta değişince döner. /refresh de bunu
+        //    kontrol eder → uymuyorsa refresh REDDER → TÜM cihazlardan çıkış.
+        //  cstamp (YUMUŞAK / ClaimsStamp): departman/rol değişince döner. /refresh bunu ATLAR →
+        //    yeni claim'lerle token basar → kesintisiz yetki güncellemesi (kullanıcı atılmaz).
+        if (!string.IsNullOrEmpty(user.SecurityStamp))
+            claims.Add(new Claim("sstamp", user.SecurityStamp));
+        if (!string.IsNullOrEmpty(user.ClaimsStamp))
+            claims.Add(new Claim("cstamp", user.ClaimsStamp));
+
         claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
 
         // Departman üyelikleri — arama/erişim izolasyonu bu claim'lere göre yapılır.

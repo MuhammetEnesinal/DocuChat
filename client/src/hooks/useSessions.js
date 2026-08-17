@@ -47,17 +47,18 @@ export function useSessions() {
         return unsubscribe;
     }, []);
 
-    const fetchSessions = useCallback(async (archivedView = null) => {
+    // silent: gerçek zamanlı tazelemede skeleton flash'ı olmasın diye sessionsLoading değiştirilmez.
+    const fetchSessions = useCallback(async (archivedView = null, silent = false) => {
         const useArchived = archivedView ?? showArchived;
-        setSessionsLoading(true);
+        if (!silent) setSessionsLoading(true);
         try {
             // Default: aktif (archived=false). Archive view'da archived=true.
             const res = await getSessions({ archived: useArchived });
             const items = res.data.data || [];
             // Backend PaginatedResult ise items, IReadOnlyList ise direkt array
             setSessions(Array.isArray(items) ? items : (items.items || []));
-        } catch (err) { showApiError(toast, err, 'Sohbet listesi yüklenemedi.'); }
-        finally { setSessionsLoading(false); }
+        } catch (err) { if (!silent) showApiError(toast, err, 'Sohbet listesi yüklenemedi.'); }
+        finally { if (!silent) setSessionsLoading(false); }
     }, [toast, showArchived]);
 
     const fetchArchivedCount = useCallback(async () => {

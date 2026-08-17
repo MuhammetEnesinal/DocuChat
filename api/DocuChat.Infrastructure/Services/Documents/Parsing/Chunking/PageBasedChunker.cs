@@ -28,7 +28,7 @@ namespace DocuChat.Infrastructure.Services.Documents.Parsing.Chunking;
 // 2. Markdown TextChunker'a verilir → token-aware chunks (markdown-aware boundaries)
 // 3. Her chunk için Markdig AST ile section heading bulunur (regex değil, AST)
 // 4. [IMG_PATH:...] → [IMG:N] renumber (chunk-yerel)
-// 5. CleanContent (markdown syntax temizlenmiş, embedding + BM25 için)
+// 5. CleanContent (markdown syntax temizlenmiş, embedding + tam metin araması için)
 public sealed class PageBasedChunker
 {
     private readonly ITokenCounter _tokens;
@@ -147,7 +147,7 @@ public sealed class PageBasedChunker
         // [IMG_PATH:abc] → [IMG:1] (chunk-yerel numbering)
         var (content, paths) = RenumberImageMarkers(rawMarkdown.Trim());
 
-        // CleanContent: marker'sız + markdown syntax temizlenmiş (embedding + BM25 için)
+        // CleanContent: marker'sız + markdown syntax temizlenmiş (embedding + tam metin araması için)
         // Markdig kullanarak AST-based plain text extraction (regex yok).
         var clean = MakeCleanTextFromAst(content);
 
@@ -202,7 +202,7 @@ public sealed class PageBasedChunker
         return (sb.ToString(), paths);
     }
 
-    // Markdig AST üzerinden düz text çıkarımı — embedding + BM25 için.
+    // Markdig AST üzerinden düz text çıkarımı — embedding + tam metin araması için.
     // Hiçbir regex yok, hiçbir karakter sınıfı kuralı yok. Markdown sözdizimi
     // (|, *, #, vb.) AST tarafından doğal olarak elimine edilir, sadece içerik kalır.
     private static string MakeCleanTextFromAst(string markdown)

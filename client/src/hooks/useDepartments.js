@@ -2,6 +2,8 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { getDepartments, createDepartment, updateDepartment, deleteDepartment, deleteDepartmentsBatch } from '../services/api';
 import { useToast } from '../components/shared/Toast';
 import { showApiError } from '../lib/format';
+import { useRealtimeRefresh } from './useRealtime';
+import { RealtimeEvents } from '../lib/realtimeEvents';
 
 const PAGE_SIZE = 20;
 
@@ -71,6 +73,14 @@ export function useDepartments() {
         fetchDepartments(true);
         fetchAllDepartments();
     }, [fetchDepartments, fetchAllDepartments]);
+
+    // Gerçek zamanlı: departman değişince (başka admin CRUD yaptı) tazele. Ayrıca kullanıcı/belge
+    // değişimleri de dinlenir — yönetim listesindeki UserCount/DocumentCount sütunları bunlarla değişir.
+    // Coalescing 250 ms tüm bu tetikleri tek fetch'e indirir + reconnect telafisi.
+    useRealtimeRefresh(
+        [RealtimeEvents.DepartmentChanged, RealtimeEvents.UserChanged, RealtimeEvents.DocumentChanged],
+        refreshBoth,
+    );
 
     const goToPage = useCallback((p) => {
         pageRef.current = p;

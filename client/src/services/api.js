@@ -1,4 +1,5 @@
 import axios from 'axios';
+import useAuthStore from '../store/authStore';
 
 // ?? (|| değil): Docker build'de VITE_API_URL="" verilir → boş string = AYNI ORIGIN
 // (nginx /api ve /uploads'ı proxy'ler). Tanımsızsa (lokal dev) localhost fallback'i.
@@ -19,17 +20,50 @@ api.interceptors.request.use((config) => {
     return config;
 });
 
+// Eşzamanlı 401'ler tek refresh paylaşsın (yığın halinde istek varken çoklu yenileme olmasın).
+let _refreshPromise = null;
+
+function forceLogout() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    sessionStorage.setItem('session_expired', '1');  // Login.jsx "Oturum sona erdi" toast'ı
+    window.location.href = '/login';
+}
+
 api.interceptors.response.use(
     (res) => res,
-    (err) => {
-        // 401 gelince sadece token varsa yönlendir.
-        // sessionStorage flag'i Login.jsx'te "Oturum sona erdi" toast'u tetikler.
-        if (err.response?.status === 401 && localStorage.getItem('token')) {
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-            sessionStorage.setItem('session_expired', '1');
-            window.location.href = '/login';
+    async (err) => {
+        const original = err.config;
+        const status = err.response?.status;
+        const url = original?.url || '';
+        // refresh/login/logout uçlarının kendi 401'ini yenilemeye çalışma (döngü / gereksiz refresh).
+        const isAuthCall = url.includes('/auth/refresh')
+            || url.includes('/auth/login')
+            || url.includes('/auth/logout');
+
+        // Security-stamp değişince (dept/rol/şifre) eski token 401 döner. Proaktif "user.refresh"
+        // sinyali kaçmış olabilir → burada REAKTİF olarak sessizce yenile ve isteği bir kez tekrarla.
+        if (status === 401 && localStorage.getItem('token') && !isAuthCall && !original?._retried) {
+            original._retried = true;
+            try {
+                if (!_refreshPromise)
+                    _refreshPromise = refreshToken().finally(() => { _refreshPromise = null; });
+                const res = await _refreshPromise;
+                const { token, ...user } = res.data.data;
+                const store = useAuthStore.getState();
+                store.setAuth(token, { ...(store.user || {}), ...user });  // token + user'ı güncelle
+                // Tekrarlanan istek, request interceptor'ında yeni token'ı otomatik alır.
+                return api(original);
+            } catch {
+                forceLogout();   // yenileme başarısız (kullanıcı silindi/kilitli)
+                return Promise.reject(err);
+            }
         }
+
+        // Refresh uçları 401 döndüyse veya token yoksa: mevcut davranış — temiz logout.
+        if (status === 401 && localStorage.getItem('token'))
+            forceLogout();
+
         return Promise.reject(err);
     }
 );
@@ -42,6 +76,10 @@ export const login = (email, password) =>
 
 // Backend HttpOnly auth_token cookie'sini temizler (frontend JS bu cookie'yi göremez).
 export const logout = () => api.post('/auth/logout');
+
+// Sessiz token yenileme: mevcut token'la DB'den taze claim'lerle (rol/departman) yeni token alır.
+// "user.refresh" sinyalinde ve 401-retry akışında (Faz 5) kullanılır.
+export const refreshToken = () => api.post('/auth/refresh');
 
 export const forgotPassword = (email) =>
     api.post('/auth/forgot-password', { email });

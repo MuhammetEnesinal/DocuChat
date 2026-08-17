@@ -38,7 +38,7 @@ public sealed class RetrievalPipelineService : IRetrievalPipeline
         IReadOnlyList<Guid>? departmentIds = null,
         CancellationToken ct = default)
     {
-        // History bazlı enriched query (BM25 için kısa, embedding için zenginleştirilmiş)
+        // History bazlı enriched query (tam metin araması için kısa, embedding için zenginleştirilmiş)
         string? enrichedFromLlm = null;
         string? embedBoostText = null;
         if (history.Count > 0)
@@ -68,14 +68,14 @@ public sealed class RetrievalPipelineService : IRetrievalPipeline
         }
 
         // Embedding: boost'lu (varsa) > enriched > ham soru (VectorSearch içinde null ise ham)
-        // BM25: kısa tutulmalı; uzun metin PG tsquery stack'i taşırır → enriched (varsa) veya ham soru
+        // FTS: kısa tutulmalı; uzun metin PG tsquery stack'i taşırır → enriched (varsa) veya ham soru
         var embedText = embedBoostText ?? enrichedFromLlm;
-        var bm25Query = enrichedFromLlm ?? question;
+        var ftsQuery = enrichedFromLlm ?? question;
 
         // precomputedQueryVector yalnızca embedText null iken (boost/enrich yok) VectorSearch
         // tarafından kullanılır; embedText doluysa metin farklı olduğu için yeniden embed edilir.
         var chunks = await _vectorSearch.SearchAsync(
-            question, hydeText: embedText, bm25Query: bm25Query,
+            question, hydeText: embedText, ftsQuery: ftsQuery,
             precomputedQueryVector: precomputedQueryVector, departmentIds: departmentIds, ct: ct);
 
         return chunks.ToList();

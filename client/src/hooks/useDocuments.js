@@ -2,6 +2,8 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { getDocuments, uploadDocument, deleteDocument, deleteDocumentsBatch, reprocessDocument, reprocessDocumentsBatch, downloadDocument } from '../services/api';
 import { useToast } from '../components/shared/Toast';
 import { showApiError, getApiErrorMessage } from '../lib/format';
+import { useRealtimeRefresh } from './useRealtime';
+import { RealtimeEvents } from '../lib/realtimeEvents';
 
 const PAGE_SIZE = 20;
 
@@ -17,21 +19,18 @@ export function useDocuments() {
     const [page, setPage] = useState(1);
     const [totalCount, setTotalCount] = useState(0);      // aktif filtreye göre (arama dahil)
     const [grandTotal, setGrandTotal] = useState(0);      // aramasız GENEL toplam — sekme rozeti için
-    const pageRef = useRef(1);      // fetchDocs setTimeout/poll içinden güncel sayfayı okur
+    const pageRef = useRef(1);      // fetchDocs güncel sayfayı ref'ten okur (silent tazelemede)
     const searchRef = useRef('');   // aynı şekilde güncel aramayı okur
     const toast = useToast();
-    const pollTimerRef = useRef(null);
     const searchTimerRef = useRef(null);
 
     useEffect(() => {
         return () => {
-            if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
             if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
         };
     }, []);
 
     const fetchDocs = useCallback(async (silent = false) => {
-        if (pollTimerRef.current) { clearTimeout(pollTimerRef.current); pollTimerRef.current = null; }
         if (!silent) setDocsLoading(true);
         try {
             const params = { page: pageRef.current, pageSize: PAGE_SIZE };
@@ -53,11 +52,18 @@ export function useDocuments() {
             setDocuments(items);
             setTotalCount(total);
             if (!searchRef.current) setGrandTotal(total);  // arama yokken gelen total = genel toplam
-            if (items.some(d => d.status === 'Processing' || d.status === 'Pending'))
-                pollTimerRef.current = setTimeout(() => fetchDocs(true), 3000);
+            // NOT: Eski 3sn'lik polling KALDIRILDI. Artık backend, belge durumu değişince
+            // (Pending→Processing→Ready/Failed, upload, silme) `document.changed` sinyali yollar;
+            // aşağıdaki useRealtimeRefresh bu sinyalde listeyi sessizce tazeler. Bağlantı koparsa
+            // reconnect telafisi bir kez tazeler → polling'e gerek kalmaz.
         } catch (err) { if (!silent) showApiError(toast, err, 'Belgeler yüklenemedi.'); }
         finally { if (!silent) setDocsLoading(false); }
     }, [toast]);
+
+    // Gerçek zamanlı: departmanda bir belge değişince (başka pencere/cihaz yükledi/sildi ya da
+    // arka plan işleme bitti) listeyi + sayaçları sessizce tazele. Coalescing 250 ms; reconnect'te
+    // de tetiklenir (kaçan sinyal telafisi).
+    useRealtimeRefresh(RealtimeEvents.DocumentChanged, () => fetchDocs(true));
 
     const goToPage = useCallback((p) => {
         pageRef.current = p;

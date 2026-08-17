@@ -1,8 +1,18 @@
-import { useRef } from 'react';
+import { useRef, useEffect } from 'react';
 
 export default function ChatInput({ value, onChange, onSend, loading, onAbort, inputRef }) {
     const internalRef = useRef(null);
     const textareaRef = inputRef ?? internalRef;
+
+    // Yüksekliği içeriğe göre ayarla. onInput yalnız kullanıcı yazarken tetiklenir; gönderim sonrası
+    // value programatik olarak boşaltılınca tetiklenmez → bu effect boşalınca yüksekliği sıfırlar
+    // (aksi halde textarea büyük kalırdı). Değer varken içeriğe göre büyütür.
+    useEffect(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.style.height = 'auto';
+        if (value) el.style.height = el.scrollHeight + 'px';
+    }, [value, textareaRef]);
 
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {

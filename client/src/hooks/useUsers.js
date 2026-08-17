@@ -5,6 +5,8 @@ import {
 } from '../services/api';
 import { useToast } from '../components/shared/Toast';
 import { showApiError, getApiErrorMessage } from '../lib/format';
+import { useRealtimeRefresh } from './useRealtime';
+import { RealtimeEvents } from '../lib/realtimeEvents';
 
 const PAGE_SIZE = 20;
 
@@ -61,6 +63,10 @@ export function useUsers() {
         } catch (err) { if (!silent) showApiError(toast, err, 'Kullanıcılar yüklenemedi.'); }
         finally { if (!silent) setUsersLoading(false); }
     }, [toast]);
+
+    // Gerçek zamanlı: başka bir admin kullanıcı ekledi/güncelledi/sildi (veya toplu import) →
+    // liste + sekme rozeti sayısı (grandTotal) sessizce tazelensin. Coalescing 250 ms + reconnect telafisi.
+    useRealtimeRefresh(RealtimeEvents.UserChanged, () => fetchUsers(true));
 
     const goToUsersPage = useCallback((p) => {
         pageRef.current = p;

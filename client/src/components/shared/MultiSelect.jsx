@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 
 // Çoklu seçim dropdown'u. Native <select multiple> ctrl+click gerektirdiği için kullanılmadı;
-// yerine checkbox'lı açılır panel. Dışarı tıklama ve Escape ile kapanır.
+// yerine checkbox'lı açılır menü. Dışarı tıklama ve Escape ile kapanır.
 export default function MultiSelect({
     options = [],
     selected = [],

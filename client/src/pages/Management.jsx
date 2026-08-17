@@ -3,13 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { API_BASE, getMe } from '../services/api';
 import Modal from '../components/shared/Modal';
-import DocumentUpload from '../components/panel/DocumentUpload';
-import DocumentList from '../components/panel/DocumentList';
-import UserList from '../components/panel/UserList';
-import UserModal from '../components/panel/UserModal';
-import DepartmentManager from '../components/panel/DepartmentManager';
-import DepartmentModal from '../components/panel/DepartmentModal';
-import BulkImportUsersModal from '../components/panel/BulkImportUsersModal';
+import DocumentUpload from '../components/management/DocumentUpload';
+import DocumentList from '../components/management/DocumentList';
+import UserList from '../components/management/UserList';
+import UserModal from '../components/management/UserModal';
+import DepartmentManager from '../components/management/DepartmentManager';
+import DepartmentModal from '../components/management/DepartmentModal';
+import BulkImportUsersModal from '../components/management/BulkImportUsersModal';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import { useToast } from '../components/shared/Toast';
 import { showApiError } from '../lib/format';
@@ -18,7 +18,7 @@ import { useDocuments } from '../hooks/useDocuments';
 import { useUsers } from '../hooks/useUsers';
 import { useDepartments } from '../hooks/useDepartments';
 
-export default function ManagementPanel() {
+export default function Management() {
     const { isAdmin, departments: myDepartments } = useAuth();
     const [tab, setTab] = useState('documents');
     const [confirmDept, setConfirmDept] = useState(null);
@@ -235,7 +235,7 @@ export default function ManagementPanel() {
                     <span className="profile-back-text">Geri</span>
                 </button>
                 <div style={{ flex: 1 }} />
-                {/* Sağ: panel kimliği (ikon + başlık en sağda) */}
+                {/* Sağ: yönetim kimliği (ikon + başlık en sağda) */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flexShrink: 1 }}>
                     <div style={{ width: '30px', height: '30px', borderRadius: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--gradient-accent)', boxShadow: '0 6px 16px -6px rgba(var(--accent-rgb),0.6)', flexShrink: 0 }}>
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>
@@ -244,10 +244,10 @@ export default function ManagementPanel() {
                 </div>
             </div>
 
-            <div className="panel-content" style={{ position: 'relative', zIndex: 1, maxWidth: '1100px', margin: '0 auto', padding: 'clamp(20px, 4vw, 40px) clamp(12px, 3vw, 28px)' }}>
+            <div className="management-content" style={{ position: 'relative', zIndex: 1, maxWidth: '1100px', margin: '0 auto', padding: 'clamp(20px, 4vw, 40px) clamp(12px, 3vw, 28px)' }}>
                 {/* Sekmeler: içeriğin üstünde ortalı */}
                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 'clamp(16px, 3vw, 28px)' }}>
-                    <div className="panel-tabs" style={{ display: 'flex', gap: '4px', padding: '5px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', backdropFilter: 'blur(20px) saturate(180%)' }}>
+                    <div className="management-tabs" style={{ display: 'flex', gap: '4px', padding: '5px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', backdropFilter: 'blur(20px) saturate(180%)' }}>
                         {[
                             { key: 'documents', label: 'Belgeler', count: docGrandTotal, icon: <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /> },
                             // Kullanıcı ve departman yönetimi yalnız admin'e görünür.
@@ -256,9 +256,9 @@ export default function ManagementPanel() {
                                 { key: 'departments', label: 'Departmanlar', count: allDepartments.length, icon: <><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></> },
                             ] : []),
                         ].map(t => (
-                            <button key={t.key} onClick={() => setTab(t.key)} className={`btn panel-tab-btn ${tab === t.key ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '9px 16px', fontWeight: 600 }}>
+                            <button key={t.key} onClick={() => setTab(t.key)} className={`btn management-tab-btn ${tab === t.key ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '9px 16px', fontWeight: 600 }}>
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.icon}</svg>
-                                <span className="panel-tab-label">{t.label}</span>
+                                <span className="management-tab-label">{t.label}</span>
                                 <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '8px', fontWeight: 700, background: tab === t.key ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.1)', color: tab === t.key ? 'white' : 'var(--text-secondary)', minWidth: '22px', textAlign: 'center' }}>{t.count}</span>
                             </button>
                         ))}

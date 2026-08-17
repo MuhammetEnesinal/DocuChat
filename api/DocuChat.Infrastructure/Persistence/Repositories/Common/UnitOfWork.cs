@@ -1,21 +1,13 @@
-using DocuChat.Infrastructure.Persistence.Context;
-﻿
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using DocuChat.Application.Interfaces.Repositories;
+using DocuChat.Infrastructure.Persistence.Context;
+using DocuChat.Infrastructure.Persistence.Repositories.Chat;
+using DocuChat.Infrastructure.Persistence.Repositories.Documents;
+using DocuChat.Infrastructure.Persistence.Repositories.Caching;
 using DocuChat.Application.Interfaces.Repositories.Common;
 using DocuChat.Application.Interfaces.Repositories.Chat;
 using DocuChat.Application.Interfaces.Repositories.Documents;
 using DocuChat.Application.Interfaces.Repositories.Caching;
-using DocuChat.Domain.Entities;
-using DocuChat.Domain.Entities.Common;
-using DocuChat.Domain.Entities.Chat;
-using DocuChat.Domain.Entities.Documents;
-using DocuChat.Domain.Entities.Caching;
 
-using DocuChat.Infrastructure.Persistence.Repositories.Chat;
-using DocuChat.Infrastructure.Persistence.Repositories.Documents;
-using DocuChat.Infrastructure.Persistence.Repositories.Caching;
 namespace DocuChat.Infrastructure.Persistence.Repositories.Common;
 
 public class UnitOfWork : IUnitOfWork

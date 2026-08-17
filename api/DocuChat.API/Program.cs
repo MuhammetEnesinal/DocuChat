@@ -4,7 +4,11 @@ using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.Caching.Memory;
 using DocuChat.API.Common;
+using DocuChat.Application.Common;
+using DocuChat.API.Realtime;
+using DocuChat.Application.Interfaces.Services.Realtime;
 using DocuChat.Infrastructure;
 using DocuChat.Infrastructure.Persistence;
 using DocuChat.Infrastructure.Persistence.Context;
@@ -15,7 +19,8 @@ using DocuChat.Domain.Enums;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.FileProviders;
+using Microsoft.AspNetCore.StaticFiles;
+using DocuChat.Application.Interfaces.Services.Storage;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
@@ -199,9 +204,9 @@ try
                 PermitLimit = 30, Window = TimeSpan.FromHours(1), QueueLimit = 0
             }));
 
-        // upload — toplu klasör yüklemesine yetecek genişlikte tutulur. Disk dolması ve OCR maliyeti
+        // upload — toplu klasör yüklemesine yetecek genişlikte tutulur. Depo dolması ve OCR maliyeti
         // için üst sınır görevi görür; işleme kuyruğu en fazla 2 belgeyi paralel işlediğinden
-        // DB ve disk yükü zaten doğal olarak sınırlıdır.
+        // DB ve depo yükü zaten doğal olarak sınırlıdır.
         options.AddPolicy("upload", ctx =>
             RateLimitPartition.GetFixedWindowLimiter(GetUserKey(ctx), _ => new FixedWindowRateLimiterOptions
             {
@@ -216,7 +221,7 @@ try
                 PermitLimit = 5, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
-        // batch-delete — tek istekte çok sayıda kayıt siler ve disk temizliği yapar; gönderilen
+        // batch-delete — tek istekte çok sayıda kayıt siler ve depo temizliği yapar; gönderilen
         // kimlik listesi büyük olabildiğinden DB yükü yaratır.
         options.AddPolicy("batch-delete", ctx =>
             RateLimitPartition.GetFixedWindowLimiter(GetUserKey(ctx), _ => new FixedWindowRateLimiterOptions
@@ -224,7 +229,7 @@ try
                 PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
-        // admin-write — departman yönetimi ve tekil belge silme. Tekil silme de disk temizliği,
+        // admin-write — departman yönetimi ve tekil belge silme. Tekil silme de depo temizliği,
         // cache geçersizleştirme ve sohbet geçmişi temizliği yaptığından tek başına hafif olsa da
         // döngüye sokulduğunda yük çıkarır. Sınır, elle yapılan yönetim işlerinin çok üstünde
         // kalacak şekilde belirlenmiştir.
@@ -242,7 +247,7 @@ try
                 PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
             }));
 
-        // read-heavy — maliyeti yüksek okuma uçları: önizleme diskten dosya akıtır, Excel şablonu
+        // read-heavy — maliyeti yüksek okuma uçları: önizleme depodan (S3/MinIO) dosya akıtır, Excel şablonu
         // her çağrıda bellekte üretilir. Yetki denetiminin arkasında oldukları için veri sızdırmazlar,
         // ancak döngüye sokulduklarında I/O ve CPU yükü yaratırlar. Sayfalanmış hafif okuma uçları
         // bu politikanın dışındadır.
@@ -279,6 +284,14 @@ try
     // AddInfrastructure calls AddIdentity<> which sets cookie as default scheme.
     builder.Services.AddInfrastructure(builder.Configuration);
 
+    // ── Realtime (SignalR) ──
+    // Sunucu tarafı SignalR framework'te gömülü (Sdk.Web), ekstra paket gerekmez.
+    // "Sinyal taşı, veri taşıma" deseni: hub yalnız "şu değişti" event'i yollar, istemci
+    // mevcut REST fetch'ini tekrar çalıştırır. IRealtimeNotifier implementasyonu API katmanında
+    // (SignalRNotifier) — use-case'ler yalnız arayüze bağımlı; Hub tekil olduğundan Singleton'dır.
+    builder.Services.AddSignalR();
+    builder.Services.AddSingleton<IRealtimeNotifier, SignalRNotifier>();
+
     builder.Services.AddAuthentication(options =>
     {
         options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -306,11 +319,72 @@ try
             {
                 if (string.IsNullOrEmpty(ctx.Token))
                 {
-                    var cookieToken = ctx.Request.Cookies["auth_token"];
-                    if (!string.IsNullOrEmpty(cookieToken))
-                        ctx.Token = cookieToken;
+                    // SignalR: WebSocket handshake'i Authorization header taşıyamaz. JS istemci
+                    // token'ı access_token query param olarak yollar. Yalnız /hubs yollarında kabul et
+                    // (diğer uçlarda query'de token taşımak log/refere sızıntısı riski taşır).
+                    var accessToken = ctx.Request.Query["access_token"];
+                    if (!string.IsNullOrEmpty(accessToken) &&
+                        ctx.HttpContext.Request.Path.StartsWithSegments("/hubs"))
+                    {
+                        ctx.Token = accessToken;
+                    }
+                    else
+                    {
+                        var cookieToken = ctx.Request.Cookies["auth_token"];
+                        if (!string.IsNullOrEmpty(cookieToken))
+                            ctx.Token = cookieToken;
+                    }
                 }
                 return Task.CompletedTask;
+            },
+
+            // İki damgalı oturum doğrulaması (her istekte, 60 sn IMemoryCache'li; mutasyonda evict):
+            //   sstamp (SERT): şifre/e-posta değişince döner → /refresh DAHİL her yerde kontrol edilir
+            //     → uymuyorsa refresh de reddedilir → TÜM cihazlardan çıkış.
+            //   cstamp (YUMUŞAK): departman/rol değişince döner → /refresh HARİÇ kontrol edilir
+            //     → refresh atlar, yeni claim'lerle token basar → kesintisiz yetki güncellemesi.
+            OnTokenValidated = async ctx =>
+            {
+                var isRefresh = ctx.HttpContext.Request.Path.StartsWithSegments("/api/auth/refresh");
+
+                var userId = ctx.Principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                var tokenSec = ctx.Principal?.FindFirst("sstamp")?.Value;
+                var tokenClaims = ctx.Principal?.FindFirst("cstamp")?.Value;
+                if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(tokenSec))
+                {
+                    // Damga taşımayan eski token (bu özellik öncesi) → yenilenmeli.
+                    ctx.Fail("Oturum güncelliğini yitirdi.");
+                    return;
+                }
+
+                var cache = ctx.HttpContext.RequestServices.GetRequiredService<IMemoryCache>();
+                if (!cache.TryGetValue(AuthCacheKeys.Stamps(userId), out (string? Sec, string? Claims) stamps))
+                {
+                    var db = ctx.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                    var row = await db.Users
+                        .Where(u => u.Id == userId)
+                        .Select(u => new { u.SecurityStamp, u.ClaimsStamp })
+                        .FirstOrDefaultAsync();
+                    stamps = (row?.SecurityStamp, row?.ClaimsStamp);
+                    cache.Set(AuthCacheKeys.Stamps(userId), stamps, new MemoryCacheEntryOptions
+                    {
+                        AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(60),
+                        Size = 1,  // AddMemoryCache SizeLimit set → Size zorunlu, yoksa exception
+                    });
+                }
+                var curSec = stamps.Sec;
+                var curClaims = stamps.Claims;
+
+                // SERT damga — refresh dahil her istekte. Kullanıcı yok veya şifre/e-posta değişti → 401.
+                if (curSec is null || !string.Equals(curSec, tokenSec, StringComparison.Ordinal))
+                {
+                    ctx.Fail("Oturum güncelliğini yitirdi.");
+                    return;
+                }
+
+                // YUMUŞAK damga — refresh HARİÇ. Dept/rol değişti → normal isteklerde 401 (refresh ile tazelenir).
+                if (!isRefresh && (tokenClaims is null || !string.Equals(curClaims, tokenClaims, StringComparison.Ordinal)))
+                    ctx.Fail("Oturum güncelliğini yitirdi.");
             }
         };
     });
@@ -373,61 +447,84 @@ try
     // anahtarını ctx.User üzerinden okur ve bu aşamadan önce ctx.User boştur.
     app.UseRateLimiter();
 
-    // /uploads/* — authentication + DEPARTMAN yetkisi. Görsel içeriği = belge içeriği; departman
-    // izolasyonu burada da uygulanmalı. Aksi halde authenticated herhangi bir kullanıcı, başka
-    // departmanın görselini path'i bilerek çekebilir (CanAccessDocument'i atlayan tek delik).
+    // /uploads/* — authentication + DEPARTMAN yetkisi + dosya servisi. Görsel içeriği = belge
+    // içeriği; departman izolasyonu burada uygulanır. Aksi halde authenticated herhangi bir kullanıcı,
+    // başka departmanın görselini path'i bilerek çekebilir (CanAccessDocument'i atlayan tek delik).
     // Path yapısı: /uploads/{documentId}/img_xxx.jpg → ilk segment'ten departman çözülür.
     // JWT bearer header VEYA auth_token cookie üzerinden (OnMessageReceived event).
+    // Dosya IFileStorage'tan (S3/MinIO) stream edilir; presigned URL YOK
+    // → izolasyon kontrolü her istekte uygulanır.
+    var uploadsContentType = new FileExtensionContentTypeProvider();
     app.Use(async (ctx, next) =>
     {
-        if (ctx.Request.Path.StartsWithSegments("/uploads", out var uploadRest))
+        if (!ctx.Request.Path.StartsWithSegments("/uploads", out var uploadRest))
         {
-            if (!(ctx.User.Identity?.IsAuthenticated ?? false))
+            await next();
+            return;
+        }
+
+        if (!(ctx.User.Identity?.IsAuthenticated ?? false))
+        {
+            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
+        var relPath = uploadRest.Value?.Trim('/');
+        if (string.IsNullOrEmpty(relPath))
+        {
+            ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        // Admin tüm departmanlara erişir → departman kontrolü atlanır.
+        if (!ctx.User.IsInRole(Roles.Admin))
+        {
+            // İlk path segmenti = belge ID'si (GUID). GUID değilse doğrulanamaz → reddet.
+            var firstSeg = relPath.Split('/', 2)[0];
+            if (!Guid.TryParse(firstSeg, out var uploadDocId))
             {
-                ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
                 return;
             }
 
-            // Admin tüm departmanlara erişir → departman kontrolü atlanır.
-            if (!ctx.User.IsInRole(Roles.Admin))
+            var db = ctx.RequestServices.GetRequiredService<AppDbContext>();
+            var docDeptId = await db.Documents
+                .Where(d => d.Id == uploadDocId)
+                .Select(d => (Guid?)d.DepartmentId)
+                .FirstOrDefaultAsync();
+
+            var userDepts = ctx.User.FindAll(AppClaimTypes.Department).Select(c => c.Value);
+            if (docDeptId is null || !userDepts.Contains(docDeptId.Value.ToString()))
             {
-                // İlk path segmenti = belge ID'si (GUID). GUID değilse doğrulanamaz → reddet.
-                var firstSeg = uploadRest.Value?.Trim('/').Split('/', 2)[0];
-                if (!Guid.TryParse(firstSeg, out var uploadDocId))
-                {
-                    ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
-                    return;
-                }
-
-                var db = ctx.RequestServices.GetRequiredService<AppDbContext>();
-                var docDeptId = await db.Documents
-                    .Where(d => d.Id == uploadDocId)
-                    .Select(d => (Guid?)d.DepartmentId)
-                    .FirstOrDefaultAsync();
-
-                var userDepts = ctx.User.FindAll(AppClaimTypes.Department).Select(c => c.Value);
-                if (docDeptId is null || !userDepts.Contains(docDeptId.Value.ToString()))
-                {
-                    ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
-                    return;
-                }
+                ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return;
             }
         }
-        await next();
+
+        // İzin verildi → içeriği depolamadan (Local veya S3) stream et.
+        var storage = ctx.RequestServices.GetRequiredService<IFileStorage>();
+        Stream fileStream;
+        try
+        {
+            fileStream = storage.OpenRead(relPath);
+        }
+        catch (FileNotFoundException)
+        {
+            ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+        ctx.Response.RegisterForDispose(fileStream);
+        ctx.Response.ContentType = uploadsContentType.TryGetContentType(relPath, out var mime)
+            ? mime : "application/octet-stream";
+        ctx.Response.Headers.CacheControl = "private, max-age=3600";
+        await fileStream.CopyToAsync(ctx.Response.Body, ctx.RequestAborted);
     });
 
-    // Static files (CORS sonrası, auth check sonrası)
-    var storagePath = builder.Configuration["Storage:LocalPath"] ?? "uploads";
-    Directory.CreateDirectory(Path.GetFullPath(storagePath));
-    app.UseStaticFiles(new StaticFileOptions
-    {
-        FileProvider = new PhysicalFileProvider(Path.GetFullPath(storagePath)),
-        RequestPath = "/uploads",
-        ServeUnknownFileTypes = true,
-        DefaultContentType = "application/octet-stream"
-    });
     app.UseMiddleware<ExceptionHandlingMiddleware>();
     app.MapControllers();
+
+    // Realtime hub — [Authorize] hub sınıfında; JWT access_token query üzerinden doğrulanır.
+    app.MapHub<NotificationHub>("/hubs/notifications");
 
     app.Run();
 }

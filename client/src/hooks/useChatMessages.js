@@ -38,10 +38,12 @@ export function useChatMessages(virtuosoRef) {
         setMessagesPage(1);
     }, []);
 
-    const loadMessages = useCallback(async (session) => {
+    // silent: gerçek zamanlı (SignalR) tetiklenen tazelemede skeleton flash'ı olmasın diye
+    // messagesLoading değiştirilmez — mevcut mesajlar yerinde kalır, sessizce güncellenir.
+    const loadMessages = useCallback(async (session, { silent = false } = {}) => {
         if (abortRef.current) abortRef.current.abort();
         abortRef.current = new AbortController();
-        setMessagesLoading(true);
+        if (!silent) setMessagesLoading(true);
         try {
             const res = await getMessages(session.id, { page: 1, pageSize: PAGE_SIZE, signal: abortRef.current.signal });
             const data = res.data.data;
@@ -54,9 +56,9 @@ export function useChatMessages(virtuosoRef) {
             }
         } catch (err) {
             if (axios.isCancel(err)) return;
-            showApiError(toast, err, 'Mesajlar yüklenemedi.');
+            if (!silent) showApiError(toast, err, 'Mesajlar yüklenemedi.');
         } finally {
-            setMessagesLoading(false);
+            if (!silent) setMessagesLoading(false);
         }
     }, [toast]);
 
@@ -95,6 +97,7 @@ export function useChatMessages(virtuosoRef) {
 
         let receivedAnyToken = false;
         let receivedComplete = false;
+        let receivedClarification = false;  // netleştirme döndüyse: yeni session boş kalır → temizlenmeli
         let createdSessionId = null;  // bu istekte yeni session açıldıysa id'si (iptal temizliği için)
 
         const onEvent = (evt) => {
@@ -135,6 +138,7 @@ export function useChatMessages(virtuosoRef) {
                     break;
                 }
                 case 'clarification': {
+                    receivedClarification = true;
                     // Asistan placeholder'ını clarification kartına dönüştür
                     setMessages(prev => prev.map(m => m.id === assistantMsgId ? {
                         ...m,
@@ -199,7 +203,7 @@ export function useChatMessages(virtuosoRef) {
             if (result.aborted) {
                 // Kullanıcı iptal etti — boş kalan placeholder'ı sil veya partial content'i koru
                 setMessages(prev => prev.map(m => m.id === assistantMsgId
-                    ? { ...m, isStreaming: false, isAborted: !receivedAnyToken }
+                    ? { ...m, isStreaming: false, isAborted: !receivedAnyToken, statusText: undefined }
                     : m));
                 // İlk soru (yeni session) iptal edilip hiç cevap kaydedilmediyse boş session'ı
                 // temizle ve diğer sekmelere "silindi" broadcast'i at; mesajsız sohbet kalmasın.
@@ -230,13 +234,21 @@ export function useChatMessages(virtuosoRef) {
                     : m));
             }
 
+            // Netleştirme YENİ session için döndü → backend boş session'ı sildi. Chat.jsx bunu
+            // sidebar'dan kaldırıp activeSession'ı sıfırlasın; seçilen netleştirme yeni session açar.
+            // Diğer sekmelere de "silindi" broadcast'i at (start'ta gönderilen session-created'ı geri al).
+            if (receivedClarification && createdSessionId && !receivedComplete) {
+                broadcastSessionDeleted(createdSessionId);
+                return { clarifiedNewSession: true, createdSessionId };
+            }
+
             setTimeout(() => {
                 virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
             }, 50);
         } catch (err) {
             if (axios.isCancel(err) || err?.code === 'ERR_CANCELED' || err?.name === 'AbortError') {
                 setMessages(prev => prev.map(m => m.id === assistantMsgId
-                    ? { ...m, isStreaming: false, isAborted: !receivedAnyToken }
+                    ? { ...m, isStreaming: false, isAborted: !receivedAnyToken, statusText: undefined }
                     : m));
                 return;
             }

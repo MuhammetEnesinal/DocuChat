@@ -22,7 +22,7 @@ namespace DocuChat.Infrastructure.Migrations
                 type: "text",
                 nullable: true);
 
-            // TsVector generated stored column (Türkçe BM25 retrieval için)
+            // TsVector generated stored column (Türkçe tam metin araması (FTS) retrieval için)
             // Content (A), Header/Summary (B) ağırlıklı setweight
             migrationBuilder.Sql(@"
                 ALTER TABLE ""DocumentChunks""

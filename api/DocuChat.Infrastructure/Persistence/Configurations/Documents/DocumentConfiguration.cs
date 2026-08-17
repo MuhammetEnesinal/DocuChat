@@ -26,7 +26,7 @@ public class DocumentConfiguration : IEntityTypeConfiguration<Document>
         // UserId yalnızca yükleyen kişiyi bilgi amaçlı tutar; belgenin sahipliğini departman
         // belirler. SetNull davranışı seçilir: kullanıcı silindiğinde belge korunur, yalnız
         // yükleyen bilgisi boşalır. Cascade silme burada uygun değildir; bir hesabın silinmesi
-        // departmanın belgelerini götürür ve uygulama kodunu atladığı için diskteki dosyalar ile
+        // departmanın belgelerini götürür ve uygulama kodunu atladığı için depodaki dosyalar ile
         // cache kayıtları geride kalırdı.
         builder.HasOne<AppUser>()
                .WithMany()

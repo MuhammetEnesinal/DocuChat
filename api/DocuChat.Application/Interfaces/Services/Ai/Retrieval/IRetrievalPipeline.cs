@@ -2,7 +2,7 @@ using DocuChat.Application.ServiceContracts;
 
 namespace DocuChat.Application.Interfaces.Services.Ai.Retrieval;
 
-// Chunk retrieval orkestrasyonu: enriched query + boost + dense/BM25 search + rerank.
+// Chunk retrieval orkestrasyonu: enriched query + boost + dense/FTS search + rerank.
 // ChatUseCase'i pipeline detaylarından soyutlar.
 public interface IRetrievalPipeline
 {

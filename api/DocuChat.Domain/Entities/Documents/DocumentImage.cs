@@ -11,7 +11,7 @@ public class DocumentImage : BaseEntity
 {
     public Guid DocumentId { get; set; }
 
-    // Diskteki dosya yolu (LocalFileStorage)
+    // Depodaki obje anahtarı (IFileStorage → S3/MinIO key)
     public string Path { get; set; } = string.Empty;
 
     // Belge içindeki sayfa numarası (1-bazlı, varsa).

@@ -11,7 +11,7 @@ public interface IVectorSearch
     Task<IReadOnlyList<ChunkResult>> SearchAsync(
         string question,
         string? hydeText = null,
-        string? bm25Query = null,
+        string? ftsQuery = null,
         float[]? precomputedQueryVector = null,
         IReadOnlyList<Guid>? departmentIds = null,
         CancellationToken ct = default);

@@ -100,7 +100,30 @@ public static class DependencyInjection
         services.AddScoped<IDocumentParser, DocumentParserService>();
         services.AddScoped<IVectorSearch, VectorSearchService>();
         services.AddScoped<IRetrievalPipeline, RetrievalPipelineService>();
-        services.AddScoped<IFileStorage, LocalFileStorage>();
+
+        // Dosya depolama — S3-uyumlu object storage (MinIO veya gerçek AWS S3). IFileStorage
+        // soyutlaması sayesinde use-case'ler somut implementasyonu bilmez. Bağlantı ayarları
+        // Storage:S3:* altından okunur (ServiceUrl boşsa gerçek AWS, doluysa MinIO/özel endpoint).
+        services.AddSingleton<Amazon.S3.IAmazonS3>(_ =>
+        {
+            var s3cfg = new Amazon.S3.AmazonS3Config
+            {
+                // MinIO path-style ister (bucket adı host'ta değil path'te). AWS için de sorunsuz.
+                ForcePathStyle = cfg.GetValue("Storage:S3:ForcePathStyle", true),
+            };
+            var serviceUrl = cfg["Storage:S3:ServiceUrl"];
+            if (!string.IsNullOrWhiteSpace(serviceUrl))
+                s3cfg.ServiceURL = serviceUrl;   // MinIO / özel endpoint
+            else
+                s3cfg.RegionEndpoint = Amazon.RegionEndpoint.GetBySystemName(
+                    cfg["Storage:S3:Region"] ?? "us-east-1");   // gerçek AWS S3
+
+            var creds = new Amazon.Runtime.BasicAWSCredentials(
+                cfg["Storage:S3:AccessKey"], cfg["Storage:S3:SecretKey"]);
+            return new Amazon.S3.AmazonS3Client(creds, s3cfg);
+        });
+        services.AddScoped<IFileStorage, Services.Storage.S3FileStorage>();
+        services.AddHostedService<Services.Storage.S3BucketInitializer>();
         services.AddSingleton<IDbExceptionInspector, PostgresExceptionInspector>();
         services.AddScoped<JwtTokenService>();
 

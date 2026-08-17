@@ -3,6 +3,7 @@ using DocuChat.Application.Common.Results;
 using DocuChat.Application.DTOs.Departments;
 using DocuChat.Application.Interfaces.Services.Departments;
 using DocuChat.Application.Interfaces.Services.Persistence;
+using DocuChat.Application.Interfaces.Services.Realtime;
 using DocuChat.Domain.Entities.Departments;
 using DocuChat.Infrastructure.Persistence.Context;
 
@@ -13,12 +14,20 @@ public sealed class DepartmentService : IDepartmentService
 {
     private readonly AppDbContext _db;
     private readonly IDbExceptionInspector _dbExceptionInspector;
+    private readonly IRealtimeNotifier _notifier;
 
-    public DepartmentService(AppDbContext db, IDbExceptionInspector dbExceptionInspector)
+    public DepartmentService(
+        AppDbContext db, IDbExceptionInspector dbExceptionInspector, IRealtimeNotifier notifier)
     {
         _db = db;
         _dbExceptionInspector = dbExceptionInspector;
+        _notifier = notifier;
     }
+
+    // Departman değişikliğini yönetim ekranı pencerelerine sinyaller (best-effort). Departman CRUD
+    // yalnız admin olduğundan hedef admins grubudur.
+    private Task NotifyDepartmentsChangedAsync(CancellationToken ct) =>
+        _notifier.NotifyAdminsAsync(RealtimeEventTypes.DepartmentChanged, null, ct);
 
     public async Task<Result<IReadOnlyList<DepartmentResponseDto>>> GetAllAsync(CancellationToken ct = default)
     {
@@ -107,6 +116,8 @@ public sealed class DepartmentService : IDepartmentService
                 Error.Conflict("Bu departman adı veya kodu zaten var."));
         }
 
+        await NotifyDepartmentsChangedAsync(ct);
+
         return Result<DepartmentResponseDto>.Success(new DepartmentResponseDto
         {
             Id = dep.Id, Name = dep.Name, Code = dep.Code,
@@ -142,6 +153,8 @@ public sealed class DepartmentService : IDepartmentService
                 Error.Conflict("Bu departman adı veya kodu zaten var."));
         }
 
+        await NotifyDepartmentsChangedAsync(ct);
+
         var userCount = await _db.UserDepartments.CountAsync(x => x.DepartmentId == id, ct);
         var docCount = await _db.Documents.CountAsync(x => x.DepartmentId == id, ct);
         return Result<DepartmentResponseDto>.Success(new DepartmentResponseDto
@@ -168,6 +181,7 @@ public sealed class DepartmentService : IDepartmentService
 
         _db.Departments.Remove(dep);
         await _db.SaveChangesAsync(ct);
+        await NotifyDepartmentsChangedAsync(ct);
         return Result<bool>.Success(true);
     }
 
@@ -194,6 +208,7 @@ public sealed class DepartmentService : IDepartmentService
         {
             _db.Departments.RemoveRange(deletable);
             await _db.SaveChangesAsync(ct);
+            await NotifyDepartmentsChangedAsync(ct);
         }
 
         return Result<int>.Success(deletable.Count);

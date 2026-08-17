@@ -14,7 +14,7 @@ Uygulama uçtan uca Türkçe için tasarlanmıştır: metin arama, yeniden sıra
 - **Akıllı arama:** Anlamsal (embedding) arama ile anahtar kelime aramasını birleştirir, sonuçları çapraz kodlayıcı ile yeniden sıralar. Böylece hem eş anlamlı ifadeleri hem birebir terimleri yakalar.
 - **Sohbet geçmişi ve oturumlar:** Konuşmalar oturumlar hâlinde saklanır; sabitlenebilir, arşivlenebilir, yeniden adlandırılabilir ve dışa aktarılabilir. Takip soruları önceki bağlamı dikkate alır.
 - **Geri bildirim ile öğrenme:** Kullanıcı bir yanıtı beğenip beğenmediğini bildirebilir; bu geri bildirim yalnızca o kullanıcının sonraki sorgularının kalitesini iyileştirmek için kullanılır.
-- **Yönetim paneli:** Yöneticiler kullanıcı ekleyip düzenleyebilir, Excel ile toplu kullanıcı yükleyebilir, belgeleri yönetip yeniden işleyebilir.
+- **Yönetim ekranı:** Yöneticiler kullanıcı ekleyip düzenleyebilir, Excel ile toplu kullanıcı yükleyebilir, belgeleri yönetip yeniden işleyebilir.
 
 ---
 
@@ -26,7 +26,7 @@ DocuChat, klasik "sorgu-cevap" yerine bir **RAG (Retrieval-Augmented Generation)
 Yüklenen dosya biçimine göre uygun yolla metne dönüştürülür — Word ve eski `.doc` dosyaları LibreOffice ile PDF'e çevrilir, PDF'ler Mistral OCR ile okunur, Excel ve CSV dosyaları ise yapısal olarak (hücre hücre) ayrıştırılır. Elde edilen metin, anlamı bozmayacak biçimde parçalara (chunk) bölünür; her parça BGE-M3 modeliyle 1024 boyutlu bir vektöre gömülür ve PostgreSQL veritabanına kaydedilir. Belgedeki görseller ayrıca yapay zekâ ile betimlenir (caption) ve ilgili parçalarla ilişkilendirilir.
 
 **2. Soru yanıtlama (sohbet sırasında):**
-Soru geldiğinde önce anlamsal önbellek kontrol edilir; benzer bir soru daha önce yanıtlandıysa yanıt anında döner. Aksi hâlde soru hem vektör araması hem de anahtar kelime araması (BM25) ile en alakalı belge parçalarını getirir; bu adaylar bir çapraz kodlayıcı (reranker) ile yeniden sıralanır ve en isabetli parçalar dil modeline bağlam olarak verilir. Yanıt, kelime kelime akış hâlinde kullanıcıya iletilir ve arka planda kalite denetiminden geçirilir.
+Soru geldiğinde önce anlamsal önbellek kontrol edilir; benzer bir soru daha önce yanıtlandıysa yanıt anında döner. Aksi hâlde soru hem vektör araması hem de anahtar kelime araması (PostgreSQL tam metin araması) ile en alakalı belge parçalarını getirir; bu adaylar bir çapraz kodlayıcı (reranker) ile yeniden sıralanır ve en isabetli parçalar dil modeline bağlam olarak verilir. Yanıt, kelime kelime akış hâlinde kullanıcıya iletilir ve arka planda kalite denetiminden geçirilir.
 
 ---
 
@@ -46,7 +46,7 @@ Proje üç ana bileşenden oluşur ve tamamı tek bir `docker compose` komutuyla
 
 **Öne çıkan teknik nitelikler:**
 
-- **Hibrit arama:** pgvector ile yoğun (dense) vektör araması ve PostgreSQL tam metin araması (BM25, Türkçe yapılandırması) Reciprocal Rank Fusion ile birleştirilir.
+- **Hibrit arama:** pgvector ile yoğun (dense) vektör araması ve PostgreSQL tam metin araması (`tsvector` + GIN, Türkçe yapılandırması, `ts_rank_cd` sıralaması) Reciprocal Rank Fusion ile birleştirilir.
 - **Anlamsal önbellek:** Benzer sorular tekrar hesaplanmadan yanıtlanır; bir belge güncellendiğinde veya silindiğinde yalnızca o belgeye ait önbellek kayıtları temizlenir.
 - **Kimlik doğrulama:** ASP.NET Identity üzerine kurulu JWT; statik dosya erişimi için HttpOnly çerez desteği. Kullanıcının personel kodu ilk giriş şifresi olarak kullanılır.
 - **Dayanıklı belge işleme:** Belgeler sınırlı eşzamanlılıkla bir kuyrukta işlenir; uygulama yeniden başlarsa yarım kalan işler otomatik olarak kaldığı yerden devam eder.
@@ -107,8 +107,8 @@ Ollama ve yeniden sıralama servisleri yalnızca konteyner ağı içinde çalı�
 
 ## Kullanım
 
-1. **Giriş yapın.** İlk yönetici hesabıyla oturum açın. Yönetici, panelden yeni kullanıcılar oluşturabilir veya Excel şablonuyla toplu olarak ekleyebilir. Her kullanıcının personel kodu, ilk giriş şifresi olarak atanır.
-2. **Belge yükleyin.** Yönetim panelinden PDF, Word, Excel veya CSV dosyalarını yükleyin. Belgeler arka planda işlenir; durumları (Bekliyor, İşleniyor, Hazır) listede takip edilebilir.
+1. **Giriş yapın.** İlk yönetici hesabıyla oturum açın. Yönetici, yönetim ekranından yeni kullanıcılar oluşturabilir veya Excel şablonuyla toplu olarak ekleyebilir. Her kullanıcının personel kodu, ilk giriş şifresi olarak atanır.
+2. **Belge yükleyin.** Yönetim ekranından PDF, Word, Excel veya CSV dosyalarını yükleyin. Belgeler arka planda işlenir; durumları (Bekliyor, İşleniyor, Hazır) listede takip edilebilir.
 3. **Soru sorun.** Sohbet ekranından belgelerinize dair sorularınızı yazın. Yanıt akış hâlinde gelir, ilgili görseller yerinde gösterilir. Soru belirsizse sistem netleştirici seçenekler sunabilir; yanıt sonrasında takip soruları önerilir.
 4. **Geri bildirim verin.** Yanıtların altındaki beğen/beğenme düğmeleriyle geri bildirimde bulunabilirsiniz. Bu, sonraki sorularınızın kalitesini iyileştirir.
 5. **Oturumlarınızı yönetin.** Sohbetleri sabitleyebilir, arşivleyebilir, yeniden adlandırabilir veya dışa aktarabilirsiniz.
@@ -144,7 +144,7 @@ DocuChat/
 | Ayar | Açıklama |
 |---|---|
 | `Chunking:Mode` | Belge parçalama stratejisi: `Semantic` (varsayılan) veya `PageBased` |
-| `VectorSearch:Bm25Enabled` | Anahtar kelime aramasının (BM25) hibrit aramaya katılması |
+| `VectorSearch:FtsEnabled` | Anahtar kelime aramasının (PostgreSQL tam metin araması) hibrit aramaya katılması |
 | `Cache:SimilarityThreshold` | Bir sorunun önbellekten yanıtlanması için gereken benzerlik eşiği |
 | `Reranker:MinScore` | Bir belge parçasının bağlama alınması için gereken asgari alaka skoru |
 | `Chat:FollowUpsEnabled` | Yanıt sonrası takip sorusu önerilerinin üretilmesi |

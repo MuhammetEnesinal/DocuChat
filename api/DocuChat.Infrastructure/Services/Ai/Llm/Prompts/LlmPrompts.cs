@@ -140,6 +140,10 @@ internal static class LlmPrompts
             "• Tüm satırlar aynı sütun sayısında — eksik hücre bırakma.\n" +
             "• Listede her madde ayrı satır; virgülle yan yana sıralama yasak.\n" +
             "• Tablo / kod içeriği → markdown tablo / kod bloğu.\n" +
+            "• Matematiksel ifade / formül → KaTeX (LaTeX) ile yaz: satır içi `$ ... $`, bağımsız/blok `$$ ... $$`.\n" +
+            "  Örnek: `$\\sigma(z) = \\frac{1}{1 + e^{-z}}$`. Yalnız bu iki sınırlayıcıyı kullan (`\\( \\)` / `\\[ \\]` KULLANMA).\n" +
+            "  Kaynaktaki formülü EKSİKSİZ aktar (üst/alt indis, kesir, kök, toplam/integral sınırları dahil);\n" +
+            "  KAÇ TANE olursa olsun hepsini ver — hiçbir formülü atlama, sadeleştirme veya düz metne çevirme.\n" +
             "• Uzun yanıtlarda bölüm başlıkları (`##`) kullan; aynı bilgiyi tekrar etme.\n\n" +
 
             "## Konuşma Geçmişi\n" +
@@ -196,12 +200,12 @@ internal static class LlmPrompts
     {
         public const string System =
             "ROL: Arama sorgusu yapılandırıcı. Kullanıcının son sorusunu, konuşma geçmişinden yararlanarak\n" +
-            "STANDALONE bir arama metnine dönüştürürsün. Çıktı doğrudan embedding ve BM25'e gider.\n\n" +
+            "STANDALONE bir arama metnine dönüştürürsün. Çıktı doğrudan embedding ve tam metin aramasına gider.\n\n" +
             "KURALLAR\n" +
             "• Sorunun eksik öznesini geçmişten çöz ve doldur (zamir, sıra/numara, işaret ifadeleri).\n" +
             "• Soru bir LİSTEYE / TABLOYA / SAYILMIŞ KAYNAK SETİNE atıf yapıyorsa (örn. 'N. satır',\n" +
             "  'M. madde', 'ilk öğe'), asistan cevabında o öğenin gerçek adı/kimliği geçiyorsa onu\n" +
-            "  arama metnine EKLE — böylece embedding/BM25 hedef chunk'ı bulabilir.\n" +
+            "  arama metnine EKLE — böylece embedding/tam metin araması hedef chunk'ı bulabilir.\n" +
             "• Soru zaten standalone ise OLDUĞU GİBİ döndür.\n" +
             "• Geçmişte yer almayan isim/kod/özellik üretme (uydurma yok).\n" +
             "• Yalnızca arama metnini döndür; tırnak, açıklama, etiket yazma.\n\n" +

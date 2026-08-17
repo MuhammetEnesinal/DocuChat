@@ -172,7 +172,7 @@ public class DocumentParserService : IDocumentParser
             var mime = MimeFor(fileType);
 
             // XLSX: belgeye [[EMBED_IMG_N]] placeholder'ları enjekte et, Mistral metne çevirsin.
-            // Mistral fail olursa placeholder dosyalarını diske orphan bırakma → try/catch cleanup.
+            // Mistral fail olursa placeholder dosyalarını depoda orphan bırakma → try/catch cleanup.
             if (fileType == FileType.Xlsx)
             {
                 var prep = await PrepareXlsxWithPlaceholdersAsync(bytes);
@@ -200,7 +200,7 @@ public class DocumentParserService : IDocumentParser
         }
 
         // PDF için sayfa-bazlı PdfPig fallback (Mistral'in kaçırdığı dijital embedded'ler).
-        // Mistral'in görsel hash'leri PdfPig'e verilir; aynı görsel iki kez diske yazılmaz.
+        // Mistral'in görsel hash'leri PdfPig'e verilir; aynı görsel iki kez depoya yazılmaz.
         IReadOnlyList<List<string>> pdfEmbeddedPerPage = Array.Empty<List<string>>();
         if (fileType == FileType.Pdf)
         {
@@ -611,7 +611,7 @@ public class DocumentParserService : IDocumentParser
     }
 
     // ImageHashes: Mistral'in bu sayfada yakaladığı görsellerin SHA256 hash'leri.
-    // PdfPig fallback'i aynı hash'li görselleri atlar, böylece disk israfı olmaz.
+    // PdfPig fallback'i aynı hash'li görselleri atlar, böylece depo israfı olmaz.
     private class MistralPage
     {
         public int Index { get; set; }
@@ -706,8 +706,8 @@ public class DocumentParserService : IDocumentParser
             return pages;
 
         // Global hash → path map. Mistral aynı resmi (logo, header) HER sayfada base64 olarak
-        // dönebilir. Burada hash bazında dedup → disk'e tek kopya yazılır, sayfalar aynı path'i
-        // paylaşır → disk + DB israfı önlenir.
+        // dönebilir. Burada hash bazında dedup → depoya tek kopya yazılır, sayfalar aynı path'i
+        // paylaşır → depo + DB israfı önlenir.
         var globalHashToPath = new Dictionary<string, string>(StringComparer.Ordinal);
         var dedupedCount = 0;
 
@@ -744,7 +744,7 @@ public class DocumentParserService : IDocumentParser
                     string path;
                     if (globalHashToPath.TryGetValue(hash, out var existingPath))
                     {
-                        // Aynı hash daha önce görüldü → diske TEKRAR yazma, mevcut path'i kullan
+                        // Aynı hash daha önce görüldü → depoya TEKRAR yazma, mevcut path'i kullan
                         path = existingPath;
                         dedupedCount++;
                     }
@@ -846,7 +846,7 @@ public class DocumentParserService : IDocumentParser
                 var pagePaths = new List<string>();
 
                 // Mistral'in bu sayfada yakaladığı görsel hash'leri; aynı görseli ikinci kez
-                // diske yazmamak için kullanılır.
+                // depoya yazmamak için kullanılır.
                 var mistralHashesSet = mistralHashesByPage != null
                     && mistralHashesByPage.TryGetValue(pageNum - 1, out var h) ? h : null;
 
@@ -858,7 +858,7 @@ public class DocumentParserService : IDocumentParser
                     else if (img.RawMemory.Length > 0) imgBytes = img.RawMemory.ToArray();
                     if (imgBytes is null || imgBytes.Length < 64) continue;
 
-                    // Mistral aynı görseli zaten yakaladıysa diske yazma
+                    // Mistral aynı görseli zaten yakaladıysa depoya yazma
                     var hash = Convert.ToHexString(SHA256.HashData(imgBytes));
                     if (mistralHashesSet != null && mistralHashesSet.Contains(hash))
                     {

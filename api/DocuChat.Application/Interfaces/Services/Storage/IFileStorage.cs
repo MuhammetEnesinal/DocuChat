@@ -16,7 +16,7 @@ public interface IFileStorage
     // eski belgelerde böyle bir klasör olmadığından no-op'tur.
     Task DeleteDirectoryAsync(string relativeFolder, CancellationToken ct = default);
 
-    // Disk üzerindeki dosyayı okumak için lazy stream açar (caller dispose etmeli).
+    // Depodaki dosyayı okumak için lazy stream açar (caller dispose etmeli).
     // FileNotFoundException fırlatabilir.
     Stream OpenRead(string storagePath);
 }

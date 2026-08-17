@@ -8,6 +8,7 @@ namespace DocuChat.Application.Interfaces.Services.Auth;
 public interface IAuthService
 {
     Task<Result<AuthResponseDto>> LoginAsync(LoginRequestDto request, CancellationToken ct = default);
+    Task<Result<AuthResponseDto>> RefreshAsync(string userId, CancellationToken ct = default);
     Task<Result<bool>> ForgotPasswordAsync(string email, CancellationToken ct = default);
     Task<Result<bool>> ResetPasswordAsync(string email, string token, string newPassword, CancellationToken ct = default);
     Task<Result<UserSummaryResponseDto>> GetMeAsync(string userId, CancellationToken ct = default);

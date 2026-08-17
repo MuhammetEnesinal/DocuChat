@@ -179,7 +179,7 @@ internal sealed class MistralChatClient
         {
             try
             {
-                // Disk erişimi IFileStorage üzerinden — Storage:LocalPath config'ine uyar.
+                // İçeriği IFileStorage (S3/MinIO) üzerinden okur.
                 byte[] imgBytes;
                 using (var imgStream = _fileStorage.OpenRead(imgPath))
                 using (var ms = new MemoryStream())

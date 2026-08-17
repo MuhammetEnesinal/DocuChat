@@ -4,7 +4,7 @@
 # Host portları lokal geliştirme servisleriyle ÇAKIŞMAZ:
 #   web   → http://localhost:8080   (uygulamanın adresi)
 #   api   → http://localhost:5026   (Swagger/direkt erişim; içerde 5025)
-#   db    → localhost:5433          (lokal Postgres 5432'ye dokunmaz)
+#   db    → localhost:5434          (lokal Postgres 5432'ye dokunmaz; 5433 başka bir projede dolu)
 #   ollama/reranker → dışarı açılmaz (yalnız container ağı)
 
 services:
@@ -18,7 +18,9 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "5433:5432"
+      # Host portu yalnız dışarıdan hata ayıklama içindir; api container'ı db'ye iç ağdan
+      # (db:5432) bağlanır. 5433 bu makinede başka bir projeye ait olduğu için 5434 kullanılır.
+      - "5434:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d DocuChatDB"]
       interval: 5s
@@ -39,6 +41,20 @@ services:
     volumes:
       - hfcache:/models
 
+  # MinIO — S3-uyumlu object storage (belge + görsel deposu). api içeriden minio:9000 (S3 API)
+  # kullanır. 9001 = yönetim konsolu, yalnız localhost'a açılır. Kök kullanıcı = S3 access/secret.
+  minio:
+    restart: unless-stopped
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    volumes:
+      - miniodata:/data
+    ports:
+      - "127.0.0.1:9001:9001"
+
   api:
     restart: unless-stopped
     build: ./api
@@ -49,13 +65,20 @@ services:
         condition: service_started
       reranker:
         condition: service_started
+      minio:
+        condition: service_started
     environment:
       ASPNETCORE_URLS: http://+:5025
       ConnectionStrings__Default: Host=db;Port=5432;Database=DocuChatDB;Username=postgres;Password=${POSTGRES_PASSWORD}
       Embedding__BaseUrl: http://ollama:11434
       Reranker__BaseUrl: http://reranker:8085
       LibreOffice__Path: soffice
-      Storage__LocalPath: /app/uploads
+      # Dosya depolama → MinIO (S3). Bucket startup'ta otomatik oluşturulur (S3BucketInitializer).
+      Storage__S3__ServiceUrl: http://minio:9000
+      Storage__S3__AccessKey: ${MINIO_ACCESS_KEY}
+      Storage__S3__SecretKey: ${MINIO_SECRET_KEY}
+      Storage__S3__Bucket: docuchat
+      Storage__S3__ForcePathStyle: "true"
       AllowedOrigins__0: http://localhost:8080
       Jwt__Secret: ${JWT_SECRET}
       Llm__ApiKey: ${MISTRAL_API_KEY}
@@ -63,8 +86,6 @@ services:
       Mistral__ApiKey: ${MISTRAL_API_KEY}
       Caption__ApiKey: ${MISTRAL_API_KEY}
       Email__Password: ${EMAIL_PASSWORD}
-    volumes:
-      - uploads:/app/uploads
     ports:
       # SADECE localhost'a bağlı. Gerçek trafik web (nginx) üzerinden gelir; bu port yalnız
       # geliştirme/hata ayıklama içindir. Dışarı açık bırakılırsa: API, X-Forwarded-For'a güvenen
@@ -84,7 +105,7 @@ services:
       - "8080:80"
 
 volumes:
-  pgdata:    # veritabanı
-  ollama:    # bge-m3 modeli (~1.2 GB, bir kez iner)
-  hfcache:   # reranker modeli (~2.2 GB, bir kez iner)
-  uploads:   # yüklenen belgeler + görseller
+  pgdata:     # veritabanı
+  ollama:     # bge-m3 modeli (~1.2 GB, bir kez iner)
+  hfcache:    # reranker modeli (~2.2 GB, bir kez iner)
+  miniodata:  # MinIO object storage — yüklenen belgeler + görseller

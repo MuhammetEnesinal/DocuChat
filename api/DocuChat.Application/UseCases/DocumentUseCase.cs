@@ -21,6 +21,7 @@ using DocuChat.Application.Interfaces.Services.UserManagement;
 using DocuChat.Application.Interfaces.Services.Email;
 using DocuChat.Application.Interfaces.Services.Storage;
 using DocuChat.Application.Interfaces.Services.Persistence;
+using DocuChat.Application.Interfaces.Services.Realtime;
 using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Application.Interfaces.Repositories.Common;
 using DocuChat.Application.Interfaces.Repositories.Chat;
@@ -58,6 +59,7 @@ public class DocumentUseCase : IDocumentUseCase
     private readonly IHostApplicationLifetime _lifetime;
     private readonly IDocumentProcessingScheduler _scheduler;
     private readonly IDbExceptionInspector _dbExceptionInspector;
+    private readonly IRealtimeNotifier _notifier;
     private readonly ILogger<DocumentUseCase> _logger;
     private readonly bool _captionEnabled;
     private readonly int _captionMaxPerDoc;
@@ -79,6 +81,7 @@ public class DocumentUseCase : IDocumentUseCase
         IHostApplicationLifetime lifetime,
         IDocumentProcessingScheduler scheduler,
         IDbExceptionInspector dbExceptionInspector,
+        IRealtimeNotifier notifier,
         IConfiguration cfg,
         ILogger<DocumentUseCase> logger)
     {
@@ -93,6 +96,7 @@ public class DocumentUseCase : IDocumentUseCase
         _lifetime = lifetime;
         _scheduler = scheduler;
         _dbExceptionInspector = dbExceptionInspector;
+        _notifier = notifier;
         _logger = logger;
         _captionEnabled = cfg.GetValue<bool>("Caption:Enabled", false);
         _captionMaxPerDoc = cfg.GetValue<int>("Caption:MaxImagesPerDocument", 30);
@@ -324,7 +328,7 @@ public class DocumentUseCase : IDocumentUseCase
         }
 
         // [3] Path → bytes + hash: HER GÖRSEL DİSKTEN BİR KEZ OKUNUR. Bytes cache'lenir
-        // (Pixtral çağrısı disk'e ikinci kez gitmez). SHA256 cache'lenmiş byte'tan hesaplanır.
+        // (Pixtral çağrısı depoya ikinci kez gitmez). SHA256 cache'lenmiş byte'tan hesaplanır.
         // ConcurrentDictionary → lock-free yazım, paralel hızı artar.
         var pathToHash = new ConcurrentDictionary<string, string?>(StringComparer.Ordinal);
         var pathToBytes = new ConcurrentDictionary<string, byte[]?>(StringComparer.Ordinal);
@@ -365,7 +369,7 @@ public class DocumentUseCase : IDocumentUseCase
             "[Caption] Hash dedup: {Total} görsel → {Unique} benzersiz, {Saved} Pixtral çağrısı atlanacak",
             limitedPaths.Count, uniqueImageCount, pixtralCallsSaved);
 
-        // [5] Her benzersiz görsel için Pixtral çağrısı — cache'den oku, disk'e gitme
+        // [5] Her benzersiz görsel için Pixtral çağrısı — cache'den oku, depoya gitme
         var hashToCaption = new ConcurrentDictionary<string, string?>(StringComparer.Ordinal);
         var concurrentResult = new ConcurrentDictionary<string, string?>(StringComparer.Ordinal);
         using var captionSem = new SemaphoreSlim(_captionMaxParallel);
@@ -434,7 +438,7 @@ public class DocumentUseCase : IDocumentUseCase
         return clipped;
     }
 
-    // Disk'ten byte oku (yardımcı). Hatada null.
+    // Depodan byte oku (yardımcı). Hatada null.
     private async Task<byte[]?> ReadImageBytesAsync(string path, CancellationToken ct)
     {
         try
@@ -451,7 +455,7 @@ public class DocumentUseCase : IDocumentUseCase
         }
     }
 
-    // Pre-loaded bytes ile Pixtral caption — disk read yok.
+    // Pre-loaded bytes ile Pixtral caption — depo okuması yok.
     private async Task<string?> GenerateCaptionFromBytesAsync(byte[]? bytes, string path, string context, CancellationToken ct)
     {
         if (bytes is null || bytes.Length < 64) return null;
@@ -688,7 +692,7 @@ public class DocumentUseCase : IDocumentUseCase
                 var path = paths[localIdx];
                 if (string.IsNullOrWhiteSpace(path)) continue;
 
-                // 1. Path eşleşmesi — anlık (disk okuma yok)
+                // 1. Path eşleşmesi — anlık (depo okuması yok)
                 if (pathToImage.TryGetValue(path, out var image))
                 {
                     dedupHits++;
@@ -697,8 +701,8 @@ public class DocumentUseCase : IDocumentUseCase
                 }
 
                 // 2. Content hash — PreComputeImageCaptionsAsync zaten hesapladı (caption pipeline).
-                // Aynı path için ikinci disk read + SHA256 hesaplama yok. Cache miss durumunda
-                // (quota dışı kalan path'ler) fallback olarak disk'ten hesapla.
+                // Aynı path için ikinci depo okuması + SHA256 hesaplama yok. Cache miss durumunda
+                // (quota dışı kalan path'ler) fallback olarak depodan hesapla.
                 string? hash;
                 if (precomputedPathToHash.TryGetValue(path, out var preHash))
                     hash = preHash;
@@ -871,6 +875,21 @@ public class DocumentUseCase : IDocumentUseCase
         return string.Join("\n", lines);
     }
 
+    // ── Realtime bildirimi (best-effort) ──
+    // Belge değişikliği DEPARTMAN grubuna sinyallenir → yalnız o departmanın üyeleri (admin/yönetici)
+    // haberdar olur; departman izolasyonu korunur. _currentUser KULLANILMAZ — işleme background
+    // scope'ta çalışır (HTTP context yok); departman doğrudan doc.DepartmentId'den okunur.
+    // Frontend sinyali alınca belge listesini/sayaçları tazeler (payload sadece ipucu).
+    private async Task NotifyDocumentChangedAsync(
+        Guid departmentId, Guid? documentId, string status, CancellationToken ct)
+    {
+        var payload = new { documentId, status };
+        // Departman üyesi yöneticiler (dept grubu) + tüm belgeleri gören admin'ler (admins grubu).
+        // Admin bir departmanın üyesi de ise iki sinyal gelir; frontend coalescing tek fetch'e indirir.
+        await _notifier.NotifyDepartmentAsync(departmentId, RealtimeEventTypes.DocumentChanged, payload, ct);
+        await _notifier.NotifyAdminsAsync(RealtimeEventTypes.DocumentChanged, payload, ct);
+    }
+
     // Belge erişim/izolasyon yardımcıları.
     // Kapsam: admin → null (tüm departmanlar); yönetici → yalnız atandığı departmanlar.
     private IReadOnlyList<Guid>? DocumentDepartmentScope() =>
@@ -889,7 +908,7 @@ public class DocumentUseCase : IDocumentUseCase
             return Result<DocumentResponseDto>.Failure(
                 Error.Forbidden("Bu departmana belge yükleme yetkiniz yok."));
 
-        // Duplicate check — AYNI DEPARTMANDA aynı isim varsa disk'e bile yazma.
+        // Duplicate check — AYNI DEPARTMANDA aynı isim varsa depoya bile yazma.
         // Kapsam departman: aynı dosya farklı departmanlara yüklenebilir (her departmanın kendi
         // kopyası olur), aynı departmana kim yüklerse yüklesin ikinci kez giremez.
         var alreadyExists = await _uow.Documents.ExistsByDepartmentAndNameAsync(
@@ -908,7 +927,7 @@ public class DocumentUseCase : IDocumentUseCase
         }
         var declared = declaredType.Value;
 
-        // Magic byte validation + content hash — tek pass'te. Disk'e yazmadan önce stream'i
+        // Magic byte validation + content hash — tek pass'te. Depoya yazmadan önce stream'i
         // okuyarak bellek-içi byte buffer'ı çıkarıyoruz → hem header validation hem SHA256
         // tek read'le yapılır, sonra MemoryStream'den SaveAsync'e geçirilir.
         if (req.FileStream.CanSeek) req.FileStream.Position = 0;
@@ -959,7 +978,7 @@ public class DocumentUseCase : IDocumentUseCase
         catch (Exception ex) when (_dbExceptionInspector.IsUniqueConstraintViolation(ex))
         {
             // DB unique index (DepartmentId, FileName) — race koşulunda yakalanır (yukarıdaki
-            // check ile aynı anda gelen ikinci istek). Disk'e yazılan dosyayı temizle.
+            // check ile aynı anda gelen ikinci istek). Depoya yazılan dosyayı temizle.
             try { await _fileStorage.DeleteAsync(doc.StoragePath!, CancellationToken.None); } catch { }
             return Result<DocumentResponseDto>.Failure(
                 Error.Conflict($"'{req.FileName}' isimli bir belge bu departmanda zaten yüklü. Önce silin veya farklı isimde yükleyin."));
@@ -969,6 +988,9 @@ public class DocumentUseCase : IDocumentUseCase
         // Scheduler queue'ya ekler, consumer paralel max N belge işler.
         await ScheduleBackgroundProcessingAsync(doc.Id, ct);
         _logger.LogInformation("[Upload] {DocId} kabul edildi (Status=Pending), processing queue'sune eklendi", doc.Id);
+
+        // Diğer yönetici/admin pencerelerinde yeni belge Pending olarak anında görünsün.
+        await NotifyDocumentChangedAsync(doc.DepartmentId, doc.Id, nameof(DocumentStatus.Pending), ct);
 
         return Result<DocumentResponseDto>.Success(doc.Adapt<DocumentResponseDto>());
     }
@@ -990,6 +1012,7 @@ public class DocumentUseCase : IDocumentUseCase
             doc.Status = DocumentStatus.Failed;
             doc.ErrorMessage = "Storage path eksik";
             await SaveFinalStateAsync(doc.Id);
+            await NotifyDocumentChangedAsync(doc.DepartmentId, doc.Id, nameof(DocumentStatus.Failed), ct);
             return;
         }
 
@@ -1000,6 +1023,8 @@ public class DocumentUseCase : IDocumentUseCase
         doc.Status = DocumentStatus.Processing;
         doc.UpdatedAt = DateTime.UtcNow;
         await _uow.SaveChangesAsync(ct);
+        // "İşleniyor" durumu diğer pencerelerde anında görünsün (spinner/badge).
+        await NotifyDocumentChangedAsync(doc.DepartmentId, doc.Id, nameof(DocumentStatus.Processing), ct);
 
         try
         {
@@ -1032,8 +1057,8 @@ public class DocumentUseCase : IDocumentUseCase
             }
 
             // Reprocess'te silinecek eski image path'leri DB save BAŞARILI olduktan sonra
-            // diskten silinecek (önce silersek SaveChanges fail ederse broken references kalır).
-            List<string> pendingDiskDeletes = new();
+            // depodan silinecek (önce silersek SaveChanges fail ederse broken references kalır).
+            List<string> pendingStorageDeletes = new();
 
             if (isReprocess)
             {
@@ -1042,12 +1067,12 @@ public class DocumentUseCase : IDocumentUseCase
                 // eski chunks ile çalışmaya devam eder, swap anında yeni chunks aktif olur.
                 var existingImages = await _uow.Images.GetByDocumentIdAsync(doc.Id, ct);
 
-                // Disk silme, DB SaveChanges başarılı olduktan sonraya ertelenir; aksi halde
-                // SaveChanges başarısız olursa DB'deki path'ler diskte karşılıksız kalır.
+                // Depo silme, DB SaveChanges başarılı olduktan sonraya ertelenir; aksi halde
+                // SaveChanges başarısız olursa DB'deki path'ler depoda karşılıksız kalır.
                 foreach (var img in existingImages)
                 {
                     if (!string.IsNullOrWhiteSpace(img.Path))
-                        pendingDiskDeletes.Add(img.Path);
+                        pendingStorageDeletes.Add(img.Path);
                 }
 
                 foreach (var old in existingChunks) _uow.Chunks.Delete(old);
@@ -1055,7 +1080,7 @@ public class DocumentUseCase : IDocumentUseCase
                 foreach (var chunk in newChunks) await _uow.Chunks.AddAsync(chunk, ct);
                 await PersistImagesAndLinksAsync(doc, newChunks, parsedList, pathToHash, ct);
                 _logger.LogInformation(
-                    "[Process] Reprocess: {OldC}→{NewC} chunk, {OldI} görsel DB'den silindi (disk cleanup SaveChanges sonrası)",
+                    "[Process] Reprocess: {OldC}→{NewC} chunk, {OldI} görsel DB'den silindi (depo temizliği SaveChanges sonrası)",
                     existingChunks.Count, newChunks.Count, existingImages.Count);
             }
             else
@@ -1076,26 +1101,29 @@ public class DocumentUseCase : IDocumentUseCase
                 ? string.Join(" | ", processingNotes)
                 : null;
 
-            // Önce DB kaydedilir; başarısız olursa disk dosyaları korunur (karşılıksız referans olmaz).
+            // Önce DB kaydedilir; başarısız olursa depo dosyaları korunur (karşılıksız referans olmaz).
             await _uow.SaveChangesAsync(ct);
 
-            // DB commit başarılı olduğuna göre artık karşılıksız kalan disk dosyaları silinebilir.
-            if (pendingDiskDeletes.Count > 0)
+            // İŞLEM BİTTİ → diğer pencerelerde belge Ready olarak anında görünsün (polling'e gerek yok).
+            await NotifyDocumentChangedAsync(doc.DepartmentId, doc.Id, nameof(DocumentStatus.Ready), ct);
+
+            // DB commit başarılı olduğuna göre artık karşılıksız kalan depo dosyaları silinebilir.
+            if (pendingStorageDeletes.Count > 0)
             {
-                var deletedDiskCount = 0;
-                foreach (var path in pendingDiskDeletes)
+                var deletedCount = 0;
+                foreach (var path in pendingStorageDeletes)
                 {
-                    try { await _fileStorage.DeleteAsync(path, ct); deletedDiskCount++; }
+                    try { await _fileStorage.DeleteAsync(path, ct); deletedCount++; }
                     catch (Exception ex) { _logger.LogWarning(ex, "[Reprocess] Eski görsel silinemedi: {Path}", path); }
                 }
                 _logger.LogInformation(
-                    "[Process] Reprocess disk cleanup: {DiskN}/{Total} eski görsel silindi",
-                    deletedDiskCount, pendingDiskDeletes.Count);
+                    "[Process] Reprocess depo temizliği: {DeletedN}/{Total} eski görsel silindi",
+                    deletedCount, pendingStorageDeletes.Count);
 
-                // Chat geçmişindeki ÖLÜ resim referanslarını temizle — disk'te artık bu path'ler
+                // Chat geçmişindeki ÖLÜ resim referanslarını temizle — depoda artık bu path'ler
                 // yok, ChatMessage.ImagesJson içinde dursa frontend 404 alır (onError ile gizler ama
                 // gereksiz network spam ve cosmetic flicker olur). Silme yolundaki cleanup ile aynı.
-                await RemoveDeletedImagesFromChatHistoryAsync(pendingDiskDeletes, ct);
+                await RemoveDeletedImagesFromChatHistoryAsync(pendingStorageDeletes, ct);
                 await _uow.SaveChangesAsync(ct);
             }
 
@@ -1135,6 +1163,8 @@ public class DocumentUseCase : IDocumentUseCase
             // Failed state'i mutlaka kaydet — uygulama kapanmak üzere olsa bile.
             // (Happy path'te zaten try bloğu içinde SaveChangesAsync ile commit edildi → burada gereksiz round-trip yok.)
             await SaveFinalStateAsync(doc.Id);
+            // Hata durumu (Failed/Stale) diğer pencerelerde anında yansısın.
+            await NotifyDocumentChangedAsync(doc.DepartmentId, doc.Id, doc.Status.ToString(), CancellationToken.None);
         }
     }
 
@@ -1172,6 +1202,7 @@ public class DocumentUseCase : IDocumentUseCase
     {
         var idList = ids.ToList();
         var deletedIds = new List<Guid>();
+        var deletedDeptIds = new HashSet<Guid>();  // etkilenen departmanlar (bildirim için)
 
         var skipped = new List<Guid>();
         var allDeletedImagePaths = new List<string>();
@@ -1198,6 +1229,7 @@ public class DocumentUseCase : IDocumentUseCase
             await _fileStorage.DeleteDirectoryAsync(id.ToString(), ct);
             _uow.Documents.Delete(doc);
             deletedIds.Add(id);
+            deletedDeptIds.Add(doc.DepartmentId);
         }
 
         if (deletedIds.Count > 0)
@@ -1213,6 +1245,10 @@ public class DocumentUseCase : IDocumentUseCase
             _logger.LogInformation(
                 "[Batch] {Count} belge silindi, {CacheN} cache entry invalidate edildi",
                 deletedIds.Count, totalCacheDeleted);
+
+            // Etkilenen her departmana tek sinyal → o pencerelerde liste + sayaç tazelensin.
+            foreach (var deptId in deletedDeptIds)
+                await NotifyDocumentChangedAsync(deptId, null, "Deleted", ct);
         }
         return Result<int>.Success(deletedIds.Count);
     }
@@ -1234,6 +1270,7 @@ public class DocumentUseCase : IDocumentUseCase
             await _fileStorage.DeleteAsync(doc.StoragePath, ct);
         await _fileStorage.DeleteDirectoryAsync(docId.ToString(), ct);
 
+        var deletedDeptId = doc.DepartmentId;  // silmeden önce yakala (bildirim için)
         _uow.Documents.Delete(doc);
         await _uow.SaveChangesAsync(ct);
 
@@ -1244,6 +1281,9 @@ public class DocumentUseCase : IDocumentUseCase
         _logger.LogInformation(
             "[Cache] Belge silindi, {Count} cache entry invalidate edildi. DocId: {DocId}",
             deletedCacheCount, docId);
+
+        // Diğer pencerelerde belge listeden anında düşsün + sayaç azalsın.
+        await NotifyDocumentChangedAsync(deletedDeptId, docId, "Deleted", ct);
 
         return Result<bool>.Success(true);
     }
@@ -1277,6 +1317,9 @@ public class DocumentUseCase : IDocumentUseCase
         await ScheduleBackgroundProcessingAsync(id, ct);
         _logger.LogInformation("[Reprocess] {DocId} processing queue'sune eklendi (eski chunks korundu)", id);
 
+        // Diğer pencerelerde belge Pending'e dönsün (sonra Processing/Ready sinyalleri gelecek).
+        await NotifyDocumentChangedAsync(doc.DepartmentId, doc.Id, nameof(DocumentStatus.Pending), ct);
+
         return Result<DocumentResponseDto>.Success(doc.Adapt<DocumentResponseDto>());
     }
 
@@ -1288,6 +1331,7 @@ public class DocumentUseCase : IDocumentUseCase
         var queued = 0;
         var skipped = 0;
         var notFound = 0;
+        var affectedDeptIds = new HashSet<Guid>();  // etkilenen departmanlar (bildirim için)
 
         // Tek transaction: tüm belgelerin Status'unu Pending yap, eski chunks korunur (atomic swap).
         // Sonra hepsini queue'ya enqueue et — consumer maxConcurrent ile throttle yapacak,
@@ -1307,10 +1351,17 @@ public class DocumentUseCase : IDocumentUseCase
             doc.Status = DocumentStatus.Pending;
             doc.ErrorMessage = null;
             doc.UpdatedAt = DateTime.UtcNow;
+            affectedDeptIds.Add(doc.DepartmentId);
             queued++;
         }
 
-        if (queued > 0) await _uow.SaveChangesAsync(ct);
+        if (queued > 0)
+        {
+            await _uow.SaveChangesAsync(ct);
+            // Etkilenen her departmana tek sinyal → belgeler Pending'e döndü.
+            foreach (var deptId in affectedDeptIds)
+                await NotifyDocumentChangedAsync(deptId, null, nameof(DocumentStatus.Pending), ct);
+        }
 
         // Status değişikliği commit edildikten SONRA enqueue — consumer DB'den okurken Pending görsün.
         foreach (var id in idList)
@@ -1358,7 +1409,7 @@ public class DocumentUseCase : IDocumentUseCase
     private async Task<List<string>> DeleteChunkImagesAsync(Guid docId, CancellationToken ct)
     {
         var deletedPaths = new List<string>();
-        // DocumentImages tablosundaki disk path'lerini alıp dosyaları siler.
+        // DocumentImages tablosundaki depo path'lerini alıp dosyaları siler.
         var images = await _uow.Images.GetByDocumentIdAsync(docId, ct);
         foreach (var img in images)
         {

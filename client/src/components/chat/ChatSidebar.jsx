@@ -68,7 +68,7 @@ export default function ChatSidebar({
                         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                     </svg>
                 </div>
-                <button onClick={onToggleCollapse} title="Paneli Genişlet"
+                <button onClick={onToggleCollapse} title="Kenar çubuğunu genişlet"
                     style={{ width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '9px', color: '#ffffff', background: 'transparent', border: 'none', cursor: 'pointer', transition: 'background 0.15s' }}
                     onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
@@ -104,7 +104,7 @@ export default function ChatSidebar({
                         </div>
                         <span className="gradient-text" style={{ fontWeight: 700, fontSize: '16.5px', letterSpacing: '-0.01em', lineHeight: 1, display: 'flex', alignItems: 'center' }}>DocuChat</span>
                     </div>
-                    <button onClick={onToggleCollapse} title="Paneli Daralt" aria-label="Paneli Daralt"
+                    <button onClick={onToggleCollapse} title="Kenar çubuğunu daralt" aria-label="Kenar çubuğunu daralt"
                         style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '9px', color: '#e2e7ef', background: 'transparent', border: 'none', cursor: 'pointer', transition: 'all 0.15s' }}
                         onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#fff'; }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#e2e7ef'; }}>
@@ -403,10 +403,10 @@ export default function ChatSidebar({
                     <SidebarButton onClick={() => navigate('/profile')} label="Profil"
                         icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>}
                     />
-                    {/* Yönetici de belge yönetimi için /panel'e gider (içeride yalnız Belgeler sekmesini görür).
+                    {/* Yönetici de belge yönetimi için /management'e gider (içeride yalnız Belgeler sekmesini görür).
                         Sadece Admin'e gösterilirse yönetici chat'e düştüğünde geri dönemez. */}
                     {(user?.roles?.includes('Admin') || user?.roles?.includes('Manager')) && (
-                        <SidebarButton onClick={() => navigate('/panel')} label="Yönetim"
+                        <SidebarButton onClick={() => navigate('/management')} label="Yönetim"
                             icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>}
                         />
                     )}

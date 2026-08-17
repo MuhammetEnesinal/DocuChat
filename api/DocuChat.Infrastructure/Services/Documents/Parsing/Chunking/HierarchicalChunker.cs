@@ -277,7 +277,7 @@ public sealed class HierarchicalChunker
         return (sb.ToString(), paths);
     }
 
-    // Markdig AST üzerinden düz text çıkarımı (embedding + BM25 için).
+    // Markdig AST üzerinden düz text çıkarımı (embedding + tam metin araması için).
     // Regex YOK — AST node tipleri kontrolü ile içerik toplanır.
     private static string MakeCleanTextFromAst(string markdown)
     {

@@ -37,8 +37,8 @@ public class VectorSearchService : IVectorSearch
     // Vektör arama eşikleri (appsettings.json VectorSearch bölümünden okunur)
     private readonly int _rerankCandidates;
     private readonly bool _rerankerEnabled;
-    private readonly bool _bm25Enabled;
-    private readonly string _bm25TsConfig;
+    private readonly bool _ftsEnabled;
+    private readonly string _ftsTsConfig;
     private readonly int _rrfK;
     private readonly bool _neighborExpansionEnabled;
 
@@ -61,8 +61,8 @@ public class VectorSearchService : IVectorSearch
 
         _rerankCandidates         = cfg.GetValue<int>("VectorSearch:RerankCandidates", 20);
         _rerankerEnabled          = cfg.GetValue<bool>("Reranker:Enabled", true);
-        _bm25Enabled              = cfg.GetValue<bool>("VectorSearch:Bm25Enabled", true);
-        _bm25TsConfig             = cfg.GetValue<string>("VectorSearch:Bm25TsConfig", "turkish")!;
+        _ftsEnabled               = cfg.GetValue<bool>("VectorSearch:FtsEnabled", true);
+        _ftsTsConfig              = cfg.GetValue<string>("VectorSearch:FtsTsConfig", "turkish")!;
         _rrfK                     = cfg.GetValue<int>("VectorSearch:RrfK", 60);
         _neighborExpansionEnabled = cfg.GetValue<bool>("VectorSearch:NeighborExpansion", true);
     }
@@ -70,7 +70,7 @@ public class VectorSearchService : IVectorSearch
     public async Task<IReadOnlyList<ChunkResult>> SearchAsync(
         string question,
         string? hydeText = null,
-        string? bm25Query = null,
+        string? ftsQuery = null,
         float[]? precomputedQueryVector = null,
         IReadOnlyList<Guid>? departmentIds = null,
         CancellationToken ct = default)
@@ -83,7 +83,7 @@ public class VectorSearchService : IVectorSearch
             return Array.Empty<ChunkResult>();
         }
 
-        var bm25Text = !string.IsNullOrWhiteSpace(bm25Query) ? bm25Query : question;
+        var ftsText = !string.IsNullOrWhiteSpace(ftsQuery) ? ftsQuery : question;
         var textToEmbed = !string.IsNullOrWhiteSpace(hydeText) ? hydeText : question;
         // hydeText yoksa embed edilecek metin = ham soru. Çağıran (ChatUseCase) ham sorunun
         // embedding'ini cache araması için zaten hesapladıysa onu kullan → 2. Ollama çağrısı yok.
@@ -93,22 +93,22 @@ public class VectorSearchService : IVectorSearch
             : await _embedder.GetEmbeddingAsync(textToEmbed, ct);
         var vector = new Pgvector.Vector(queryVec);
 
-        // Tüm chunks içinde global dense + BM25 → RRF → global reranker → top K.
+        // Tüm chunks içinde global dense + tam metin araması → RRF → global reranker → top K.
 
         var denseRanked = await QueryDenseGlobalAsync(vector, _rerankCandidates, departmentIds, ct);
 
-        var bm25Ranked = _bm25Enabled
-            ? await QueryBm25GlobalAsync(bm25Text, _rerankCandidates, departmentIds, ct)
+        var ftsRanked = _ftsEnabled
+            ? await QueryFtsGlobalAsync(ftsText, _rerankCandidates, departmentIds, ct)
             : new List<(Guid, int)>();
 
-        if (denseRanked.Count == 0 && bm25Ranked.Count == 0)
+        if (denseRanked.Count == 0 && ftsRanked.Count == 0)
         {
-            _logger.LogInformation("[VectorSearch] Sonuç yok (dense=0, bm25=0)");
+            _logger.LogInformation("[VectorSearch] Sonuç yok (dense=0, fts=0)");
             return Array.Empty<ChunkResult>();
         }
 
-        var fusedIds = bm25Ranked.Count > 0
-            ? FuseRrf(denseRanked, bm25Ranked, _rerankCandidates)
+        var fusedIds = ftsRanked.Count > 0
+            ? FuseRrf(denseRanked, ftsRanked, _rerankCandidates)
             : denseRanked.Select(d => d.Id).ToList();
 
         // RRF adaylarını DB'den çeker (chunk + belge metadata + görsel join'leri).
@@ -139,8 +139,8 @@ public class VectorSearchService : IVectorSearch
             .Where(c => c != null)
             .ToList()!;
 
-        _logger.LogInformation("[VectorSearch] Global Dense={D}, BM25={B} → RRF top {C}",
-            denseRanked.Count, bm25Ranked.Count, candidates.Count);
+        _logger.LogInformation("[VectorSearch] Global Dense={D}, FTS={B} → RRF top {C}",
+            denseRanked.Count, ftsRanked.Count, candidates.Count);
 
         // LLM'e gönderilecek finaldeki sıra REranker skoruna göre (en alakalı en üstte).
         var topK = Math.Min(candidates.Count, GetDynamicTopK(candidates));
@@ -153,11 +153,11 @@ public class VectorSearchService : IVectorSearch
         {
             var docs = candidates.Select(c => c.Content).ToList();
 
-            // Reranker'a zenginleştirilmiş query verilir (bm25Text), böylece takip sorularında
+            // Reranker'a zenginleştirilmiş query verilir (ftsText), böylece takip sorularında
             // bağlamsız skorlama olmaz. Ayrıca topK değil tüm adaylar skorlanır; belge çeşitliliği
             // sonradan seçilir, çünkü reranker'ın ilk-N kesimi tek bir belgenin tüm slotları
             // kapmasını engellemez.
-            var reranked = await _reranker.RerankAsync(bm25Text, docs, candidates.Count, ct);
+            var reranked = await _reranker.RerankAsync(ftsText, docs, candidates.Count, ct);
 
             var allMatched = reranked
                 .Where(r => r.Score >= 0)  // negative skor = istenmeyen
@@ -390,8 +390,10 @@ public class VectorSearchService : IVectorSearch
         return ids.Select((id, idx) => (id, idx + 1)).ToList();
     }
 
-    // BM25 (PostgreSQL FTS) hata olursa fail-open: dense ile devam.
-    private async Task<List<(Guid Id, int Rank)>> QueryBm25GlobalAsync(
+    // Anahtar kelime araması: PostgreSQL tam metin araması (FTS). Sıralama ts_rank_cd (cover
+    // density) ile yapılır — BM25 DEĞİL; PostgreSQL çekirdeği BM25 skorlaması sunmaz, bunun için
+    // pg_search/ParadeDB gibi bir eklenti gerekir. Hata olursa fail-open: dense ile devam.
+    private async Task<List<(Guid Id, int Rank)>> QueryFtsGlobalAsync(
         string question, int topN, IReadOnlyList<Guid>? departmentIds, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(question)) return new();
@@ -400,13 +402,13 @@ public class VectorSearchService : IVectorSearch
         {
             var q = _db.DocumentChunks
                 .Where(c => EF.Property<NpgsqlTsVector>(c, "TsVector")
-                              .Matches(EF.Functions.WebSearchToTsQuery(_bm25TsConfig, question)));
+                              .Matches(EF.Functions.WebSearchToTsQuery(_ftsTsConfig, question)));
             if (departmentIds is not null)
                 q = q.Where(c => departmentIds.Contains(c.Document!.DepartmentId));
 
             var ids = await q
                 .OrderByDescending(c => EF.Property<NpgsqlTsVector>(c, "TsVector")
-                              .RankCoverDensity(EF.Functions.WebSearchToTsQuery(_bm25TsConfig, question)))
+                              .RankCoverDensity(EF.Functions.WebSearchToTsQuery(_ftsTsConfig, question)))
                 .Take(topN)
                 .Select(c => c.Id)
                 .ToListAsync(ct);
@@ -415,7 +417,7 @@ public class VectorSearchService : IVectorSearch
         }
         catch (Exception ex)
         {
-            _logger.LogWarning("[BM25] Sorgu hatası — dense ile devam: {Msg}", ex.Message);
+            _logger.LogWarning("[FTS] Sorgu hatası — dense ile devam: {Msg}", ex.Message);
             return new();
         }
     }
@@ -423,17 +425,17 @@ public class VectorSearchService : IVectorSearch
     // Reciprocal Rank Fusion: iki sıralamayı skorlarını karşılaştırmadan birleştirir.
     // Her liste bir sonuca 1/(k + sıra) katkısı verir; her iki listede de üst sıralarda çıkan
     // sonuç en yüksek toplamı alır. Skorlar yerine sıralar kullanıldığı için dense benzerliği
-    // ile BM25 sıralama skorunun farklı ölçeklerde olması sorun yaratmaz. k sabiti, üst sıralar
+    // ile FTS sıralama skorunun farklı ölçeklerde olması sorun yaratmaz. k sabiti, üst sıralar
     // arasındaki farkı yumuşatarak tek bir listenin sonucu tek başına belirlemesini engeller.
     private List<Guid> FuseRrf(
         IReadOnlyList<(Guid Id, int Rank)> dense,
-        IReadOnlyList<(Guid Id, int Rank)> bm25,
+        IReadOnlyList<(Guid Id, int Rank)> fts,
         int topN)
     {
         var scores = new Dictionary<Guid, double>();
         foreach (var (id, rank) in dense)
             scores[id] = scores.GetValueOrDefault(id) + 1.0 / (_rrfK + rank);
-        foreach (var (id, rank) in bm25)
+        foreach (var (id, rank) in fts)
             scores[id] = scores.GetValueOrDefault(id) + 1.0 / (_rrfK + rank);
 
         return scores

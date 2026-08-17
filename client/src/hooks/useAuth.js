@@ -9,7 +9,7 @@ export function useAuth() {
     const isAdmin = user?.roles?.includes('Admin') ?? false;
     const isManager = user?.roles?.includes('Manager') ?? false;
     const departments = user?.departments ?? [];
-    // Admin ve yönetici belge yönetimi için /panel'e gider; normal kullanıcı chat'e.
-    const homeRoute = (isAdmin || isManager) ? '/panel' : '/chat';
+    // Admin ve yönetici belge yönetimi için /management'e gider; normal kullanıcı chat'e.
+    const homeRoute = (isAdmin || isManager) ? '/management' : '/chat';
     return { token, user, setAuth, logout, isAuthenticated, isAdmin, isManager, departments, homeRoute };
 }

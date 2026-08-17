@@ -75,6 +75,22 @@ public class AuthController : ControllerBase
         return result.ToActionResult();
     }
 
+    // Sessiz token yenileme: geçerli token'la gelen kullanıcıya DB'den TAZE claim'lerle (rol/departman)
+    // yeni JWT üretir. Departman/rol değişince gönderilen "user.refresh" sinyali sonrası frontend çağırır
+    // → re-login olmadan yetkiler güncellenir. Şifre kontrolü yok; kimlik mevcut token'dan gelir.
+    [HttpPost("refresh")]
+    [Authorize]
+    [ProducesResponseType(typeof(ApiResponse<AuthResponseDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> Refresh(CancellationToken ct)
+    {
+        var result = await _authService.RefreshAsync(_currentUser.UserId, ct);
+        // Cookie'yi de tazele (login ile aynı) — <img src=/uploads/...> yeni departman claim'ini görsün.
+        if (result.IsSuccess)
+            SetAuthCookie(result.Value!.Token, result.Value!.ExpiresAt);
+        return result.ToActionResult();
+    }
+
     [HttpPost("logout")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

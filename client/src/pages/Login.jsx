@@ -37,7 +37,7 @@ export default function Login() {
             setAuth(token, user);
             toast.success(`Hoş geldiniz, ${user.fullName}!`);
             const canManage = user.roles?.includes('Admin') || user.roles?.includes('Manager');
-            navigate(canManage ? '/panel' : '/chat');
+            navigate(canManage ? '/management' : '/chat');
         } catch (err) {
             const msg = getApiErrorMessage(err, 'Giriş başarısız.');
             setError(msg);

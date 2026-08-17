@@ -15,6 +15,7 @@ using DocuChat.Application.Interfaces.Services.UserManagement;
 using DocuChat.Application.Interfaces.Services.Email;
 using DocuChat.Application.Interfaces.Services.Storage;
 using DocuChat.Application.Interfaces.Services.Persistence;
+using DocuChat.Application.Interfaces.Services.Realtime;
 using DocuChat.Application.Interfaces.Repositories;
 using DocuChat.Application.Interfaces.Repositories.Common;
 using DocuChat.Application.Interfaces.Repositories.Chat;
@@ -42,6 +43,7 @@ public class ChatUseCase : IChatUseCase
     private readonly IEmbeddingService _embeddingService;
     private readonly ITokenCounter _tokenCounter;
     private readonly IDbExceptionInspector _dbExceptionInspector;
+    private readonly IRealtimeNotifier _notifier;
     private readonly ILogger<ChatUseCase> _logger;
     private readonly double _cacheSimilarityThreshold;
     private readonly double _cacheHighConfidenceThreshold;
@@ -59,6 +61,7 @@ public class ChatUseCase : IChatUseCase
         IEmbeddingService embeddingService,
         ITokenCounter tokenCounter,
         IDbExceptionInspector dbExceptionInspector,
+        IRealtimeNotifier notifier,
         ILogger<ChatUseCase> logger,
         IConfiguration configuration)
     {
@@ -69,6 +72,7 @@ public class ChatUseCase : IChatUseCase
         _embeddingService = embeddingService;
         _tokenCounter = tokenCounter;
         _dbExceptionInspector = dbExceptionInspector;
+        _notifier = notifier;
         _logger = logger;
         _cacheSimilarityThreshold = configuration.GetValue("Cache:SimilarityThreshold", 0.87);
         _cacheHighConfidenceThreshold = configuration.GetValue("Cache:HighConfidenceThreshold", 0.95);
@@ -153,6 +157,16 @@ public class ChatUseCase : IChatUseCase
         }
 
         yield return new { type = "start", sessionId = session.Id };
+
+        // Bu istekte açılan session, alışveriş kaydedilene kadar "boş" sayılır. try/finally'yi session
+        // yaratıldıktan HEMEN sonra başlatıyoruz ki iptal/hata HANGİ aşamada (arama/hazırlama/netleştirme
+        // dahil) olursa olsun finally boş session'ı temizlesin. Eskiden try userMsg kaydından sonra
+        // başlıyordu → "Hazırlanıyor" fazında iptal edilince boş session sızıyordu. userMsg henüz yok →
+        // nullable başlar. (Aşağıdaki blok görsel olarak tek seviye girintili değil ama TAMAMI bu try içindedir.)
+        ChatMessage? userMsg = null;
+        var exchangeSaved = false;
+        try
+        {
 
         // Geçmiş yükleme: son N mesaj ham tutulur, daha eskiler LLM ile özetlenip system
         // rolünde eklenir. Böylece anahtar bağlam (kullanıcı rolü, konu, terimler) bütçe
@@ -280,6 +294,7 @@ public class ChatUseCase : IChatUseCase
                 await _uow.Messages.AddAsync(assistantMsgCache, ct);
                 session.UpdatedAt = DateTime.UtcNow;  // son aktivite → sidebar'da (sabitlerin altında) en üste taşır
                 await _uow.SaveChangesAsync(ct);
+                await NotifyChatExchangeAsync(session.Id, ct);  // diğer sekme/cihaz: mesaj + sohbet listesi tazelensin
 
                 var hitFollowUps = await followUpTask;
                 yield return new
@@ -336,6 +351,9 @@ public class ChatUseCase : IChatUseCase
 
             if (options.Count >= 1)
             {
+                // Netleştirme = kaydedilecek alışveriş yok (userMsg buradan SONRA kaydedilir → hâlâ null).
+                // Bu istekte açılan boş session'ı temizlemeyi ve tüm sekmelere sinyali aşağıdaki finally
+                // üstlenir (sessionCreatedThisRequest && !exchangeSaved). Buradan sadece netleştirmeyi yolla.
                 yield return new { type = "clarification", options };
                 yield return new { type = "done" };
                 yield break;
@@ -344,7 +362,7 @@ public class ChatUseCase : IChatUseCase
 
         // Netleştirme yok: kullanıcı mesajını kaydet. Asistan mesajı sonra
         // ResponseToMessageId = userMsg.Id ile buna bağlanır.
-        var userMsg = new ChatMessage
+        userMsg = new ChatMessage
         {
             SessionId = session.Id,
             Role = MessageRole.User,
@@ -352,16 +370,6 @@ public class ChatUseCase : IChatUseCase
         };
         await _uow.Messages.AddAsync(userMsg, ct);
         await _uow.SaveChangesAsync(ct);
-
-        // Bu noktadan sonra iptal/kopma olursa (controller iterator'ı DISPOSE eder ya da arama/
-        // streaming OCE fırlatır) asistan cevabı kaydedilmemiş demektir. Güvenilir temizlik için
-        // try/finally: finally normal bitişte, dispose'da ve exception'da çalışır. Tam alışveriş
-        // kaydedilmediyse (exchangeSaved=false) VE iptal edildiyse yetim user mesajı + (bu istekte
-        // açılan) boş session silinir → DB'de/sidebar'da mesajsız ölü kayıt kalmaz. (Düz cancel-check'e
-        // güvenilmez: iptalde iterator bir yield'de asılı kalıp dispose edilir, oraya hiç gelinmez.)
-        var exchangeSaved = false;
-        try
-        {
 
         // Arama göstergesi: arama+rerank ilk token'a kadar birkaç saniye sürer; kullanıcı
         // boş imleç yerine "Belgeler aranıyor" görür. İlk token gelince frontend temizler.
@@ -396,6 +404,7 @@ public class ChatUseCase : IChatUseCase
             await _uow.Messages.AddAsync(noDataMsg, ct);
             await _uow.SaveChangesAsync(ct);
             exchangeSaved = true;  // tam alışveriş (soru+cevap) kaydedildi → finally temizlemez
+            await NotifyChatExchangeAsync(session.Id, ct);  // diğer sekme/cihaz tazelensin
             yield return new { type = "complete", messageId = noDataMsg.Id };
             yield return new { type = "done" };
             yield break;
@@ -463,7 +472,7 @@ public class ChatUseCase : IChatUseCase
             answer = ResolveImageMarkers(answer, answerContext.ImageMap, out allImagePaths);
 
             // Güvenlik ağı: LLM tüm işaretleri atladıysa (cevapta hiç görsel çözülmediyse) ama
-            // context'te görsel vardı → kullanıcı görseli kaybetmesin, galeri panelinde göster.
+            // context'te görsel vardı → kullanıcı görseli kaybetmesin, galeri bölmesinde göster.
             if (allImagePaths.Count == 0 && answerContext.ImageMap.Count > 0)
             {
                 allImagePaths = answerContext.ImageMap.Values
@@ -562,6 +571,7 @@ public class ChatUseCase : IChatUseCase
         {
             await _uow.SaveChangesAsync(ct);
             exchangeSaved = true;  // asistan cevabı DB'ye yazıldı → finally temizlemez
+            await NotifyChatExchangeAsync(session.Id, ct);  // diğer sekme/cihaz tazelensin
             if (willCache)
                 _logger.LogInformation("[Cache][Stream] WRITE — '{Question}'", searchQuestion);
         }
@@ -590,18 +600,24 @@ public class ChatUseCase : IChatUseCase
         }
         finally
         {
-            // İptal/kopma olduysa VE tam alışveriş kaydedilmediyse: yetim user mesajı + (bu istekte
-            // açılan) boş session silinir. finally normal bitişte, dispose'da ve exception'da çalışır →
-            // iptal hangi anda olursa olsun (arama, streaming) DB'de mesajsız session/yetim mesaj kalmaz.
-            // Mevcut session'a yazılıp iptal edilirse session KORUNUR (eski mesajları var), sadece bu
+            // Tam alışveriş (soru+cevap) kaydedilmediyse — SEBEP FARK ETMEZ (iptal, kopma, hata,
+            // erken çıkış): yetim user mesajı + (bu istekte açılan) boş session silinir. finally normal
+            // bitişte, dispose'da ve exception'da çalışır → DB'de mesajsız session/yetim mesaj kalmaz.
+            // (Eskiden yalnız ct iptalinde çalışıyordu; hata/erken-çıkış yollarında boş session sızıyordu.)
+            // Mevcut session'a yazılıp başarısız olursa session KORUNUR (eski mesajları var), sadece bu
             // yetim user mesajı silinir. Best-effort: iptal edilmiş ct ile çalışmaz → None ile.
-            if (!exchangeSaved && ct.IsCancellationRequested)
+            if (!exchangeSaved)
             {
                 try
                 {
-                    _uow.Messages.Delete(userMsg);
+                    if (userMsg != null) _uow.Messages.Delete(userMsg);  // netleştirme/erken iptalde userMsg hiç oluşmamış olabilir
                     if (sessionCreatedThisRequest) _uow.Sessions.Delete(session);
                     await _uow.SaveChangesAsync(CancellationToken.None);
+                    // Yeni açılan boş session silindiyse tüm sekmelere "liste değişti" sinyali → hepsi
+                    // fetchSessions ile temiz DB'yi çeker, session'ı sidebar'dan düşürür (frontend'in
+                    // optimistik kaldırmasına bağlı kalmaz). İptal edilmiş ct ile çalışmaz → None.
+                    if (sessionCreatedThisRequest)
+                        await NotifySessionListChangedAsync(CancellationToken.None);
                 }
                 catch (Exception ex)
                 {
@@ -798,6 +814,7 @@ public class ChatUseCase : IChatUseCase
         session.Title = title[..Math.Min(60, title.Length)];
         session.UpdatedAt = DateTime.UtcNow;
         await _uow.SaveChangesAsync(ct);
+        await NotifySessionListChangedAsync(ct);
         return Result<bool>.Success(true);
     }
 
@@ -836,6 +853,7 @@ public class ChatUseCase : IChatUseCase
             return Result<bool>.Failure(Error.Forbidden("Bu oturuma erişiminiz yok."));
         _uow.Sessions.Delete(session);
         await _uow.SaveChangesAsync(ct);
+        await NotifySessionListChangedAsync(ct);
         return Result<bool>.Success(true);
     }
 
@@ -854,7 +872,10 @@ public class ChatUseCase : IChatUseCase
         }
 
         if (deleted > 0)
+        {
             await _uow.SaveChangesAsync(ct);
+            await NotifySessionListChangedAsync(ct);
+        }
         _logger.LogInformation("[Batch] {Count}/{Total} oturum silindi", deleted, ids.Count);
         return Result<int>.Success(deleted);
     }
@@ -905,6 +926,7 @@ public class ChatUseCase : IChatUseCase
         mutate(session);
         session.UpdatedAt = DateTime.UtcNow;
         await _uow.SaveChangesAsync(ct);
+        await NotifySessionListChangedAsync(ct);
         _logger.LogInformation("[{Op}] Session {SessionId} (User: {UserId})", opName, sessionId, _currentUser.UserId);
         return Result<bool>.Success(true);
     }
@@ -994,6 +1016,22 @@ public class ChatUseCase : IChatUseCase
         return Result<FeedbackResponseDto>.Success(
             new FeedbackResponseDto(feedback.Id, feedback.CreatedAt));
     }
+
+    // ── Realtime bildirimleri (best-effort; notifier hataları içeride yutar) ──
+    // Sohbet kullanıcıya özeldir → user grubuna sinyal. Diğer sekme/cihaz mevcut REST fetch'ini
+    // tazeler (mesaj listesi / sohbet listesi). Payload minik: yalnız sessionId.
+    private async Task NotifyChatExchangeAsync(Guid sessionId, CancellationToken ct)
+    {
+        await _notifier.NotifyUserAsync(
+            _currentUser.UserId, RealtimeEventTypes.ChatMessageAdded, new { sessionId }, ct);
+        await _notifier.NotifyUserAsync(
+            _currentUser.UserId, RealtimeEventTypes.ChatSessionChanged, null, ct);
+    }
+
+    // Sohbet listesini etkileyen değişiklik (rename/arşiv/pin/silme) — user grubuna sinyal.
+    private Task NotifySessionListChangedAsync(CancellationToken ct) =>
+        _notifier.NotifyUserAsync(
+            _currentUser.UserId, RealtimeEventTypes.ChatSessionChanged, null, ct);
 
     // Departman izolasyon kapsamı: admin → null (filtre yok, tüm belgeler); diğer kullanıcı →
     // üye olduğu departman ID'leri. Boş liste = hiç departman → arama/cache hiçbir şey döndürmez.

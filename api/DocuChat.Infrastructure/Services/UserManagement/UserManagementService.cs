@@ -4,7 +4,9 @@ using FluentValidation;
 using Mapster;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using DocuChat.Application.Common;
 using DocuChat.Application.Common.Results;
 using DocuChat.Application.DTOs.Auth;
 using DocuChat.Application.DTOs.Departments;
@@ -18,6 +20,7 @@ using DocuChat.Application.Interfaces.Services.UserManagement;
 using DocuChat.Application.Interfaces.Services.Email;
 using DocuChat.Application.Interfaces.Services.Storage;
 using DocuChat.Application.Interfaces.Services.Persistence;
+using DocuChat.Application.Interfaces.Services.Realtime;
 using DocuChat.Domain.Enums;
 using DocuChat.Domain.Entities.Departments;
 using DocuChat.Infrastructure.Persistence.Context;
@@ -34,6 +37,8 @@ public sealed class UserManagementService : IUserManagementService
     private readonly IValidator<RegisterRequestDto> _registerValidator;
     private readonly IDbExceptionInspector _dbExceptionInspector;
     private readonly AppDbContext _db;
+    private readonly IRealtimeNotifier _notifier;
+    private readonly IMemoryCache _cache;
     private readonly ILogger<UserManagementService> _logger;
 
     public UserManagementService(
@@ -42,6 +47,8 @@ public sealed class UserManagementService : IUserManagementService
         IValidator<RegisterRequestDto> registerValidator,
         IDbExceptionInspector dbExceptionInspector,
         AppDbContext db,
+        IRealtimeNotifier notifier,
+        IMemoryCache cache,
         ILogger<UserManagementService> logger)
     {
         _userManager = userManager;
@@ -49,7 +56,41 @@ public sealed class UserManagementService : IUserManagementService
         _registerValidator = registerValidator;
         _dbExceptionInspector = dbExceptionInspector;
         _db = db;
+        _notifier = notifier;
+        _cache = cache;
         _logger = logger;
+    }
+
+    // Kullanıcı listesi değişikliğini yönetim ekranı pencerelerine sinyaller (best-effort).
+    // Kullanıcı CRUD yalnız admin olduğundan hedef admins grubudur.
+    private Task NotifyUsersChangedAsync(string? userId, CancellationToken ct) =>
+        _notifier.NotifyAdminsAsync(RealtimeEventTypes.UserChanged,
+            userId is null ? null : new { userId }, ct);
+
+    // İLGİLİ kullanıcıya "token'ını tazele" sinyali (YUMUŞAK) — dept/rol değişince frontend
+    // /auth/refresh çağırıp claim'lerini günceller (re-login gerekmez, izolasyon anında geçerli).
+    private Task NotifyUserRefreshAsync(string userId, CancellationToken ct) =>
+        _notifier.NotifyUserAsync(userId, RealtimeEventTypes.UserRefresh, null, ct);
+
+    // İLGİLİ kullanıcıya "her cihazdan çıkış" sinyali (SERT) — şifre/e-posta/silme sonrası.
+    private Task NotifySessionTerminatedAsync(string userId, CancellationToken ct) =>
+        _notifier.NotifyUserAsync(userId, RealtimeEventTypes.SessionTerminated, null, ct);
+
+    // YUMUŞAK damga (ClaimsStamp) döndür → dept/rol değişince eski token normal isteklerde 401 olur
+    // ama /refresh onu atlayıp yeni claim'lerle token basar (kesintisiz). Cache evict: 60 sn beklemesin.
+    private async Task RotateClaimsStampAsync(AppUser user)
+    {
+        user.ClaimsStamp = Guid.NewGuid().ToString("N");
+        await _userManager.UpdateAsync(user);
+        _cache.Remove(AuthCacheKeys.Stamps(user.Id));
+    }
+
+    // SERT damga (Identity SecurityStamp) döndür → şifre/e-posta değişince eski token /refresh DAHİL
+    // her yerde reddedilir → tüm cihazlardan çıkış. Cache evict: anında geçerli olsun.
+    private async Task RotateSecurityStampAsync(AppUser user)
+    {
+        await _userManager.UpdateSecurityStampAsync(user);
+        _cache.Remove(AuthCacheKeys.Stamps(user.Id));
     }
 
     // ── Departman yardımcıları ──
@@ -159,6 +200,8 @@ public sealed class UserManagementService : IUserManagementService
 
         _logger.LogInformation("[UserManagement] Yeni kullanıcı oluşturuldu. UserId: {UserId}, Email: {Email}, Rol: {Role}",
             user.Id, user.Email, req.Role);
+
+        await NotifyUsersChangedAsync(user.Id, ct);  // diğer admin pencerelerinde liste + sayaç anında artsın
 
         var summaryDto = user.Adapt<UserSummaryResponseDto>();
         summaryDto.Roles = roles;
@@ -302,7 +345,21 @@ public sealed class UserManagementService : IUserManagementService
         await ReplaceUserDepartmentsAsync(userId, req.DepartmentIds, ct);
         await _db.SaveChangesAsync(ct);
 
+        // YUMUŞAK damga: dept/rol değişmiş olabilir → eski token normal isteklerde 401, /refresh ile
+        // KESİNTİSİZ tazelenir. E-POSTA değiştiyse ek olarak SERT damga → /refresh de reddedilir →
+        // tüm cihazlardan çıkış (e-posta = giriş kimliği, güvenlik sınırı).
+        await RotateClaimsStampAsync(user);
+        if (emailChanged)
+            await RotateSecurityStampAsync(user);
+
         _logger.LogInformation("[UserManagement] Kullanıcı güncellendi. UserId: {UserId}, Rol: {Role}", userId, req.Role);
+
+        await NotifyUsersChangedAsync(userId, ct);  // yönetim ekranları: liste güncellensin
+        // Sinyal: e-posta değiştiyse SERT (her cihazdan çıkış); değilse YUMUŞAK (kesintisiz yenileme).
+        if (emailChanged)
+            await NotifySessionTerminatedAsync(userId, ct);
+        else
+            await NotifyUserRefreshAsync(userId, ct);
 
         if (emailChanged)
         {
@@ -334,7 +391,10 @@ public sealed class UserManagementService : IUserManagementService
             return Result<bool>.Failure(Error.Validation(msg));
         }
 
+        _cache.Remove(AuthCacheKeys.Stamps(userId)); // silinen kullanıcının cache'li damgası kalmasın → eski token anında 401
         _logger.LogInformation("[UserManagement] Kullanıcı silindi. UserId: {UserId}", userId);
+        await NotifyUsersChangedAsync(userId, ct);       // diğer admin pencerelerinde listeden anında düşsün + sayaç azalsın
+        await NotifySessionTerminatedAsync(userId, ct);  // silinen kullanıcı bağlıysa: tüm cihazlardan anında çıkış
         return Result<bool>.Success(true);
     }
 
@@ -359,6 +419,8 @@ public sealed class UserManagementService : IUserManagementService
             var result = await _userManager.DeleteAsync(user);
             if (result.Succeeded)
             {
+                _cache.Remove(AuthCacheKeys.Stamps(id));  // eski token anında geçersiz olsun
+                await NotifySessionTerminatedAsync(id, ct);  // silinen kullanıcı bağlıysa anında çıkış
                 deleted++;
             }
             else
@@ -370,6 +432,9 @@ public sealed class UserManagementService : IUserManagementService
         _logger.LogInformation(
             "[UserManagement][Batch] {Deleted} silindi, {Skipped} admin atlandı, {NotFound} bulunamadı, {Failed} hata",
             deleted, skippedAdmins, notFound, failedDetails.Count);
+
+        if (deleted > 0)
+            await NotifyUsersChangedAsync(null, ct);  // liste + sayaç tazelensin
 
         if (failedDetails.Count > 0)
         {
@@ -491,6 +556,11 @@ public sealed class UserManagementService : IUserManagementService
             _logger.LogInformation(
                 "[BulkImport][Stream] Toplam {Total} satır işlendi: {Success} oluşturuldu, {Skipped} atlandı",
                 totalRows, successCount, skippedCount);
+
+            // En az bir kullanıcı oluşturulduysa diğer admin pencerelerinde liste + sayaç tazelensin
+            // (import boyunca tek sinyal — frontend coalescing zaten tek fetch'e indirir).
+            if (successCount > 0)
+                await NotifyUsersChangedAsync(null, ct);
 
             yield return new
             {

@@ -1,8 +1,11 @@
 ﻿using Mapster;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using DocuChat.Application.Common;
+using DocuChat.Application.Interfaces.Services.Realtime;
 using DocuChat.Application.Interfaces.Services.Ai.Embedding;
 using DocuChat.Application.Interfaces.Services.Ai.Llm;
 using DocuChat.Application.Interfaces.Services.Ai.Reranker;
@@ -30,6 +33,8 @@ public sealed class AuthService : IAuthService
     private readonly IEmailService _emailService;
     private readonly AppDbContext _db;
     private readonly IConfiguration _cfg;
+    private readonly IRealtimeNotifier _notifier;
+    private readonly IMemoryCache _cache;
     private readonly ILogger<AuthService> _logger;
 
     public AuthService(
@@ -38,6 +43,8 @@ public sealed class AuthService : IAuthService
         IEmailService emailService,
         AppDbContext db,
         IConfiguration cfg,
+        IRealtimeNotifier notifier,
+        IMemoryCache cache,
         ILogger<AuthService> logger)
     {
         _userManager = userManager;
@@ -45,7 +52,18 @@ public sealed class AuthService : IAuthService
         _emailService = emailService;
         _db = db;
         _cfg = cfg;
+        _notifier = notifier;
+        _cache = cache;
         _logger = logger;
+    }
+
+    // Şifre/reset sonrası: Identity SecurityStamp'i zaten döndürdü (SERT damga) → tüm eski token'lar
+    // /refresh dahil geçersiz. Cache evict ANINDA geçerli kılar; terminate sinyali açık pencereleri
+    // hemen login'e atar (offline cihazlar döndüğünde 401→refresh-fail→logout ile zaten kapanır).
+    private async Task InvalidateAllSessionsAsync(string userId, CancellationToken ct)
+    {
+        _cache.Remove(AuthCacheKeys.Stamps(userId));
+        await _notifier.NotifyUserAsync(userId, RealtimeEventTypes.SessionTerminated, null, ct);
     }
 
     public async Task<Result<AuthResponseDto>> LoginAsync(LoginRequestDto req, CancellationToken ct = default)
@@ -85,6 +103,31 @@ public sealed class AuthService : IAuthService
         if (await _userManager.GetAccessFailedCountAsync(user) > 0)
             await _userManager.ResetAccessFailedCountAsync(user);
 
+        var dto = await BuildAuthResponseAsync(user, ct);
+        return Result<AuthResponseDto>.Success(dto);
+    }
+
+    // Mevcut, kimliği doğrulanmış kullanıcı için DB'den TAZE rol+departman okuyup yeni JWT üretir.
+    // Şifre kontrolü YOK — çağıran zaten geçerli bir token'la gelmiştir. Sessiz token yenileme akışı:
+    // admin kullanıcının departman/rol/e-postasını değiştirince ilgili kullanıcıya "user.refresh"
+    // sinyali gider, frontend bu ucu çağırıp token'ını güncel claim'lerle tazeler (re-login gerekmez).
+    public async Task<Result<AuthResponseDto>> RefreshAsync(string userId, CancellationToken ct = default)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is null)
+            return Result<AuthResponseDto>.Failure(Error.Unauthorized("Kullanıcı bulunamadı."));
+
+        // Kilitli hesap (ör. arka arkaya hatalı giriş) taze token almamalı.
+        if (await _userManager.IsLockedOutAsync(user))
+            return Result<AuthResponseDto>.Failure(Error.Unauthorized("Hesap geçici olarak kilitli."));
+
+        var dto = await BuildAuthResponseAsync(user, ct);
+        return Result<AuthResponseDto>.Success(dto);
+    }
+
+    // Login ve Refresh ortak: DB'den rol+departman okur, JWT üretir, AuthResponseDto doldurur.
+    private async Task<AuthResponseDto> BuildAuthResponseAsync(AppUser user, CancellationToken ct)
+    {
         var roles = await _userManager.GetRolesAsync(user);
         var departments = await _db.UserDepartments
             .Where(ud => ud.UserId == user.Id)
@@ -92,12 +135,13 @@ public sealed class AuthService : IAuthService
             .ToListAsync(ct);
         var token = _jwtService.Generate(user, roles, departments.Select(d => d.Id));
 
+        var expiryHours = _cfg.GetValue("Jwt:ExpiryHours", 24.0);
         var dto = user.Adapt<AuthResponseDto>();
         dto.Token = token;
-        dto.ExpiresAt = DateTime.UtcNow.AddHours(24);
+        dto.ExpiresAt = DateTime.UtcNow.AddHours(expiryHours);
         dto.Roles = roles;
         dto.Departments = departments;
-        return Result<AuthResponseDto>.Success(dto);
+        return dto;
     }
 
     public async Task<Result<bool>> ForgotPasswordAsync(string email, CancellationToken ct = default)
@@ -164,6 +208,8 @@ public sealed class AuthService : IAuthService
             return Result<bool>.Failure(Error.Validation(msg));
         }
 
+        // ResetPassword Identity SecurityStamp'i döndürdü → varsa açık diğer oturumlar da düşer.
+        await InvalidateAllSessionsAsync(user.Id, ct);
         return Result<bool>.Success(true);
     }
 
@@ -198,6 +244,8 @@ public sealed class AuthService : IAuthService
             return Result<bool>.Failure(Error.Validation(msg));
         }
 
+        // ChangePasswordAsync Identity SecurityStamp'i döndürdü → tüm cihazlardan çıkış (bu cihaz dahil).
+        await InvalidateAllSessionsAsync(userId, ct);
         _logger.LogInformation("Şifre değiştirildi. UserId: {UserId}", userId);
         return Result<bool>.Success(true);
     }

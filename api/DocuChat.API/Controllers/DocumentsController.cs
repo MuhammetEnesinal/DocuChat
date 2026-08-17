@@ -129,7 +129,7 @@ public class DocumentsController : ControllerBase
         return result.ToActionResult();
     }
 
-    // Tekil silme de disk temizliği ve cache geçersizleştirmesi yapar; tek başına ağır olmasa da
+    // Tekil silme de depo temizliği ve cache geçersizleştirmesi yapar; tek başına ağır olmasa da
     // döngüye sokulduğunda yük çıkardığı için toplu silme ile aynı şekilde sınırlandırılır.
     [HttpDelete("{id:guid}")]
     [EnableRateLimiting("admin-write")]

@@ -32,7 +32,7 @@ public interface ILlmService
         CancellationToken ct = default);
 
     // Bağlama bağımlı soruyu konuşma geçmişinden yararlanarak standalone arama metnine çevirir.
-    // SADECE retrieval (embedding/BM25) için kullanılır — gösterilen ve cache'lenen soru ham kalır.
+    // SADECE retrieval (embedding/tam metin araması) için kullanılır — gösterilen ve cache'lenen soru ham kalır.
     // Hata olursa null döner, sistem ham soruya geri düşer.
     Task<string?> BuildContextualSearchQueryAsync(
         string question,

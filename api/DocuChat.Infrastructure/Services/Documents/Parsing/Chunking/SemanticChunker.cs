@@ -379,7 +379,7 @@ public sealed class SemanticChunker
 
         // Header'ı Content'in başına prepend et — Mistral OCR heading olarak algıladığında
         // başlık metni Content'te DE görünsün (sadece metadata'da değil).
-        // Hem markdown (LLM için bold) hem clean (embedding/BM25 için) versiyonu güncellenir.
+        // Hem markdown (LLM için bold) hem clean (embedding/tam metin araması için) versiyonu güncellenir.
         if (!string.IsNullOrWhiteSpace(header))
         {
             md = $"**{header}**\n\n{md}";

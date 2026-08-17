@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Virtuoso } from 'react-virtuoso';
 import { getPopularQuestions } from '../services/api';
@@ -7,6 +7,9 @@ import { useToast } from '../components/shared/Toast';
 import { useAuth } from '../hooks/useAuth';
 import { useSessions } from '../hooks/useSessions';
 import { useChatMessages } from '../hooks/useChatMessages';
+import { useRealtimeEvent } from '../hooks/useRealtime';
+import { onRealtimeReconnected } from '../lib/realtime';
+import { RealtimeEvents } from '../lib/realtimeEvents';
 import ChatSidebar from '../components/chat/ChatSidebar';
 import MessageBubble from '../components/chat/MessageBubble';
 import NewChatHero from '../components/chat/NewChatHero';
@@ -39,6 +42,11 @@ export default function Chat() {
     const virtuosoRef = useRef(null);
     const inputRef = useRef(null);
     const skipNextClarificationRef = useRef(false);
+    // Bu tab bir mesaj gönderdiğinde, kendi tetiklediği chat.message.added sinyalini görmezden
+    // gelmek için son gönderim bitiş zamanı. Aksi halde gönderen tab, kendi akışını (follow-up
+    // chip'leri, badge — DB'de tutulmayan geçici UI) DB reload'u ile ezerdi. Diğer pencereler
+    // (gönderim yapmayan) bu ref'i 0 gördüğü için anında tazeler.
+    const lastSendEndRef = useRef(0);
     const { user, logout } = useAuth();
     const navigate = useNavigate();
     const toast = useToast();
@@ -87,30 +95,61 @@ export default function Chat() {
         handleCopy,
     } = useChatMessages(virtuosoRef);
 
+    // Popüler sorular DEPARTMAN-kapsamlı (backend cache'ten). Departman değişince (token yenileme
+    // sonrası reconnect) yeniden çekilir ki öneriler yeni departmanı yansıtsın.
+    const fetchPopular = useCallback(async ({ silent = false } = {}) => {
+        if (!silent) setPopularQuestionsLoading(true);
+        try {
+            const res = await getPopularQuestions(6);
+            setPopularQuestions(res.data.data || []);
+        } catch (err) {
+            if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return;
+            if (err?.response?.status === 401) return;
+            console.warn('[Chat] Popüler sorular yüklenemedi:', err);
+        }
+        finally { if (!silent) setPopularQuestionsLoading(false); }
+    }, []);
+
     useEffect(() => {
         fetchSessions();
         fetchArchivedCount();
-        (async () => {
-            setPopularQuestionsLoading(true);
-            try {
-                const res = await getPopularQuestions(6);
-                setPopularQuestions(res.data.data || []);
-            } catch (err) {
-                // Non-critical: öneri listesi boş kalır, kullanıcı kendi sorusunu yazabilir.
-                // 401 → interceptor zaten redirect ediyor, cancel → unmount, ikisi de loglanmaz.
-                if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return;
-                if (err?.response?.status === 401) return;
-                console.warn('[Chat] Popüler sorular yüklenemedi:', err);
-            }
-            finally { setPopularQuestionsLoading(false); }
-        })();
-    }, [fetchSessions]);
+        fetchPopular();
+    }, [fetchSessions, fetchPopular]);
 
     useEffect(() => {
         const handleResize = () => { if (window.innerWidth < 768) setSidebarCollapsed(true); };
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
     }, []);
+
+    // ── Gerçek zamanlı (SignalR) canlılık ──
+    // chat.session.changed → sohbet listesi + arşiv sayacı sessizce tazelenir (başka sekme/cihaz
+    //   yeni sohbet açtı / adı değişti / arşivledi / sildi).
+    // chat.message.added   → açık olan sohbete başka pencere/cihaz mesaj eklediyse, mesajlar
+    //   sessizce yeniden çekilir. Gönderen tab kendi sinyalini lastSendEndRef ile atlar (kendi
+    //   akışını ezmesin: follow-up chip'leri / badge DB'de yok).
+    useRealtimeEvent((evt) => {
+        if (evt?.type === RealtimeEvents.ChatSessionChanged) {
+            fetchSessions(null, true);   // silent
+            fetchArchivedCount();
+        } else if (evt?.type === RealtimeEvents.ChatMessageAdded) {
+            const sid = evt.payload?.sessionId;
+            if (sid && sid === activeSession?.id && !loading &&
+                Date.now() - lastSendEndRef.current > 5000) {
+                loadMessages(activeSession, { silent: true });
+            }
+        }
+    });
+
+    // Yeniden bağlanınca kaçmış olabilecek sinyalleri telafi: liste + açık sohbeti sessizce tazele.
+    useEffect(() => {
+        return onRealtimeReconnected(() => {
+            fetchSessions(null, true);
+            fetchArchivedCount();
+            fetchPopular({ silent: true });   // departman değişmiş olabilir → öneriler yeni kapsamdan
+            if (activeSession && !loading) loadMessages(activeSession, { silent: true });
+        });
+    }, [activeSession, loading, fetchSessions, fetchArchivedCount, fetchPopular, loadMessages]);
 
     const loadSession = async (session) => {
         setActiveSession(session);
@@ -138,11 +177,20 @@ export default function Chat() {
             setActiveSession(newSession);
             setSessions(prev => sortSessionsClientSide([newSession, ...prev]));
         }, skip);
+        // Gönderim bitti → kendi realtime sinyalini (bu tab kaynaklı) kısa süre görmezden gel.
+        lastSendEndRef.current = Date.now();
         // İlk soru (yeni sohbet) iptal edilip hiç cevap kaydedilmediyse: boş session'ı sidebar'dan
         // kaldır ve temiz anasayfaya dön (backend session'ı zaten sildi).
         if (res?.aborted && res.createdSessionId && !res.hadComplete) {
             setSessions(prev => prev.filter(s => s.id !== res.createdSessionId));
             newChat();
+        }
+        // Netleştirme YENİ sohbet için döndü → backend boş session'ı sildi. Sidebar'dan kaldır ve
+        // aktif session'ı sıfırla; kullanıcı bir seçenek seçerse yeni istek yeni session açar.
+        // Mesajları KORU — clarification kartı ekranda kalsın (newChat çağırma).
+        else if (res?.clarifiedNewSession && res.createdSessionId) {
+            setSessions(prev => prev.filter(s => s.id !== res.createdSessionId));
+            setActiveSession(null);
         }
     };
 

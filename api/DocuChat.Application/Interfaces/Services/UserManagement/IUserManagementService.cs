@@ -11,7 +11,7 @@ public interface IUserManagementService
     Task<Result<UserSummaryResponseDto>> CreateUserAsync(RegisterRequestDto request, CancellationToken ct = default);
     Task<Result<IReadOnlyList<UserSummaryResponseDto>>> GetAllUsersAsync(CancellationToken ct = default);
 
-    // SQL-level pagination + opsiyonel FullName/Email ILIKE search. Admin panelinde 20'şerli liste için.
+    // SQL-level pagination + opsiyonel FullName/Email ILIKE search. Yönetim ekranında 20'şerli liste için.
     // role: opsiyonel rol filtresi (Admin/Manager/User). Boş = tüm roller.
     Task<Result<PaginatedResult<UserSummaryResponseDto>>> GetUsersPagedAsync(int page, int pageSize, string? search = null, string? role = null, CancellationToken ct = default);
     Task<Result<UserSummaryResponseDto>> UpdateUserAsync(string userId, UpdateUserRequestDto request, CancellationToken ct = default);

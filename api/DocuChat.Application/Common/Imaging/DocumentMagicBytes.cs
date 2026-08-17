@@ -3,7 +3,7 @@ using DocuChat.Domain.Enums;
 namespace DocuChat.Application.Common.Imaging;
 
 // Belge dosyalarını uzantı / browser MIME yerine içerikten (magic byte) doğrular.
-// Kullanıcı .pdf uzantılı bir ZIP yükleyemez → parser fail + disk israfı önlenir.
+// Kullanıcı .pdf uzantılı bir ZIP yükleyemez → parser fail + depo israfı önlenir.
 // CSV için içerik signature yok (text format) — declared type'a güvenilir.
 public static class DocumentMagicBytes
 {
