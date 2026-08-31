@@ -382,3 +382,6 @@ venv/
 
 # Lokal geliştirme sırları (repoya girmez)
 **/appsettings.Development.json
+
+# Claude Code yerel ayarlari (repoya girmez)
+.claude/
