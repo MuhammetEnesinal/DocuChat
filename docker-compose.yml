@@ -1,10 +1,11 @@
 # DocuChat — tüm sistem tek komutla: docker compose up -d --build
 # Sırlar kökteki .env dosyasından okunur (bkz. .env.example).
 #
-# Host portları lokal geliştirme servisleriyle ÇAKIŞMAZ:
-#   web   → http://localhost:8080   (uygulamanın adresi)
-#   api   → http://localhost:5026   (Swagger/direkt erişim; içerde 5025)
-#   db    → localhost:5434          (lokal Postgres 5432'ye dokunmaz; 5433 başka bir projede dolu)
+# Host portları (api/db/minio yalnız 127.0.0.1'e bağlı — dışarı/LAN'a AÇIK DEĞİL):
+#   web    → http://localhost:8080   (uygulamanın adresi; tek dışa açık uç)
+#   api    → http://localhost:5026   (Swagger/direkt erişim; içerde 5025)
+#   db     → localhost:5434          (lokal Postgres 5432'ye dokunmaz; 5433 başka bir projede dolu)
+#   minio  → http://localhost:9001   (yönetim konsolu; S3 API 9000 yalnız container ağı)
 #   ollama/reranker → dışarı açılmaz (yalnız container ağı)
 
 services:
@@ -18,9 +19,10 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      # Host portu yalnız dışarıdan hata ayıklama içindir; api container'ı db'ye iç ağdan
-      # (db:5432) bağlanır. 5433 bu makinede başka bir projeye ait olduğu için 5434 kullanılır.
-      - "5434:5432"
+      # SADECE localhost'a bağlı (127.0.0.1): host portu yalnız yerel hata ayıklama içindir; api
+      # container'ı db'ye iç ağdan (db:5432) bağlanır. Dışarı/LAN'a açılırsa DB doğrudan saldırıya
+      # açık kalır. 5433 bu makinede başka bir projeye ait olduğu için 5434 kullanılır.
+      - "127.0.0.1:5434:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d DocuChatDB"]
       interval: 5s
@@ -86,6 +88,9 @@ services:
       Mistral__ApiKey: ${MISTRAL_API_KEY}
       Caption__ApiKey: ${MISTRAL_API_KEY}
       Email__Password: ${EMAIL_PASSWORD}
+      Email__From: ${EMAIL_FROM}
+      # İlk admin (admin@docuchat.local) yalnız BOŞ veritabanında bir kez oluşturulur; şifresi buradan.
+      Seed__AdminPassword: ${SEED_ADMIN_PASSWORD}
     ports:
       # SADECE localhost'a bağlı. Gerçek trafik web (nginx) üzerinden gelir; bu port yalnız
       # geliştirme/hata ayıklama içindir. Dışarı açık bırakılırsa: API, X-Forwarded-For'a güvenen

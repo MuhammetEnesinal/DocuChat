@@ -292,6 +292,18 @@ try
     builder.Services.AddSignalR();
     builder.Services.AddSingleton<IRealtimeNotifier, SignalRNotifier>();
 
+    // GÜVENLİK — JWT imza anahtarı doğrulaması (fail-fast): zayıf/eksik/varsayılan anahtar, token
+    // sahteciliğine ve tam kimlik bypass'ına yol açar. HMAC-SHA256 için anahtar en az 32 bayt olmalı.
+    // Geliştirmede bilinen placeholder'a izin verilir (kolaylık); üretimde reddedilir → app açılmaz.
+    var jwtSecret = builder.Configuration["Jwt:Secret"];
+    const string knownDefaultJwtSecret = "dev-only-secret-uretimde-degistirin-en-az-32-karakter";
+    if (string.IsNullOrWhiteSpace(jwtSecret) || Encoding.UTF8.GetByteCount(jwtSecret) < 32)
+        throw new InvalidOperationException(
+            "Jwt:Secret eksik veya 32 bayttan kısa. Güçlü, rastgele bir anahtar ayarlayın (env: JWT_SECRET).");
+    if (!builder.Environment.IsDevelopment() && jwtSecret == knownDefaultJwtSecret)
+        throw new InvalidOperationException(
+            "Jwt:Secret üretimde varsayılan değerde bırakılamaz. JWT_SECRET ortam değişkeniyle güçlü bir anahtar verin.");
+
     builder.Services.AddAuthentication(options =>
     {
         options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -501,7 +513,7 @@ try
             }
         }
 
-        // İzin verildi → içeriği depolamadan (Local veya S3) stream et.
+        // İzin verildi → içeriği depodan (S3/MinIO) stream et.
         var storage = ctx.RequestServices.GetRequiredService<IFileStorage>();
         Stream fileStream;
         try
