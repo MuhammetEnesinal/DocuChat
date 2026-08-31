@@ -15,7 +15,8 @@ Uygulama uçtan uca Türkçe için tasarlanmıştır: metin arama, yeniden sıra
 - **Akıllı arama:** Anlamsal (embedding) arama ile anahtar kelime aramasını birleştirir, sonuçları çapraz kodlayıcı ile yeniden sıralar. Böylece hem eş anlamlı ifadeleri hem birebir terimleri yakalar.
 - **Sohbet geçmişi ve oturumlar:** Konuşmalar oturumlar hâlinde saklanır; sabitlenebilir, arşivlenebilir, yeniden adlandırılabilir ve dışa aktarılabilir. Takip soruları önceki bağlamı dikkate alır.
 - **Geri bildirim ile öğrenme:** Kullanıcı bir yanıtı beğenip beğenmediğini bildirebilir; bu geri bildirim yalnızca o kullanıcının sonraki sorgularının kalitesini iyileştirmek için kullanılır.
-- **Yönetim ekranı:** Yöneticiler kullanıcı ekleyip düzenleyebilir, Excel ile toplu kullanıcı yükleyebilir, belgeleri yönetip yeniden işleyebilir.
+- **Departman izolasyonu:** Her kullanıcı yalnızca atandığı departman(lar)ın belgelerini görür ve yanıtları yalnızca onlardan üretilir; başka departmanın belgelerine, görsellerine veya önbelleğine (path bilinse bile) erişemez. Bir kullanıcı birden fazla departmana atanabilir; yönetici tümüne erişir.
+- **Yönetim ekranı:** Yöneticiler kullanıcı ekleyip düzenleyebilir, Excel ile toplu kullanıcı yükleyebilir, belgeleri yönetip yeniden işleyebilir, departmanları yönetebilir.
 
 ---
 
@@ -85,7 +86,9 @@ cp .env.example .env
 | `JWT_SECRET` | JWT imzalama anahtarı — en az 32 karakter, uzun ve rastgele olmalı |
 | `MISTRAL_API_KEY` | Ana dil modeli için Mistral API anahtarı |
 | `MISTRAL_HELPER_API_KEY` | Yardımcı model için Mistral API anahtarı |
+| `EMAIL_FROM` | Şifre sıfırlama e-postalarının gönderileceği adres (SMTP gönderen) |
 | `EMAIL_PASSWORD` | Şifre sıfırlama e-postaları için SMTP uygulama şifresi |
+| `SEED_ADMIN_PASSWORD` | İlk admin (`admin@docuchat.local`) şifresi — yalnız boş veritabanında ilk kurulumda kullanılır; güçlü belirleyin |
 | `MINIO_ACCESS_KEY` | Nesne depolama (MinIO) erişim anahtarı — varsayılan `minioadmin` |
 | `MINIO_SECRET_KEY` | Nesne depolama (MinIO) gizli anahtarı — en az 8 karakter, güçlü belirleyin |
 
