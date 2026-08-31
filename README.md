@@ -10,7 +10,8 @@ Uygulama uçtan uca Türkçe için tasarlanmıştır: metin arama, yeniden sıra
 
 - **Belgeyle sohbet:** Yüklenen belgelerin içeriğinden, uydurmadan ve kaynağa bağlı kalarak yanıt üretir. Belgede karşılığı olmayan sorularda bunu açıkça belirtir.
 - **Çok biçimli belge desteği:** PDF, DOCX, DOC, XLSX ve CSV dosyalarını işler. Taranmış (görüntü tabanlı) PDF'ler dâhil, tablo ve görsel içeren belgeleri de anlar.
-- **Görselli yanıtlar:** Belgelerdeki şekil ve tablolar analiz edilir; ilgili görseller yanıtın doğru yerinde otomatik olarak gösterilir.
+- **Görselli yanıtlar:** Belgelerdeki şekil ve tablolar analiz edilir; ilgili görseller yanıtın doğru yerinde otomatik olarak gösterilir. Matematiksel formüller (LaTeX/KaTeX) düzgün biçimde render edilir.
+- **Canlı güncelleme:** Sohbetler, belgeler, kullanıcılar ve departmanlardaki değişiklikler tüm açık sekme/pencerelerde sayfa yenilemeden anında yansır (SignalR).
 - **Akıllı arama:** Anlamsal (embedding) arama ile anahtar kelime aramasını birleştirir, sonuçları çapraz kodlayıcı ile yeniden sıralar. Böylece hem eş anlamlı ifadeleri hem birebir terimleri yakalar.
 - **Sohbet geçmişi ve oturumlar:** Konuşmalar oturumlar hâlinde saklanır; sabitlenebilir, arşivlenebilir, yeniden adlandırılabilir ve dışa aktarılabilir. Takip soruları önceki bağlamı dikkate alır.
 - **Geri bildirim ile öğrenme:** Kullanıcı bir yanıtı beğenip beğenmediğini bildirebilir; bu geri bildirim yalnızca o kullanıcının sonraki sorgularının kalitesini iyileştirmek için kullanılır.
@@ -37,9 +38,11 @@ Proje üç ana bileşenden oluşur ve tamamı tek bir `docker compose` komutuyla
 | Katman | Teknoloji |
 |---|---|
 | **Backend (`api/`)** | .NET 9, Onion (Clean) Architecture — Domain, Application, Infrastructure, API katmanları |
-| **Frontend (`client/`)** | React 19, Vite, React Router, Zustand, Tailwind CSS, react-markdown |
+| **Frontend (`client/`)** | React 19, Vite, React Router, Zustand, Tailwind CSS, react-markdown + KaTeX, `@microsoft/signalr` |
 | **Yeniden sıralama (`rerank-service/`)** | Python, FastAPI, `BAAI/bge-reranker-v2-m3` çapraz kodlayıcı |
 | **Veritabanı** | PostgreSQL 17 + `pgvector` (vektör araması) |
+| **Nesne depolama** | MinIO (S3 uyumlu) — yüklenen belgeler ve görseller |
+| **Gerçek zamanlı** | SignalR (WebSocket) — canlı liste/sayaç güncellemeleri |
 | **Gömme (embedding)** | Ollama üzerinde `bge-m3` (1024 boyut) |
 | **Dil modeli** | Mistral — `mistral-large-latest` (ana), `mistral-small-latest` (yardımcı) |
 | **OCR ve görsel betimleme** | Mistral OCR (`mistral-ocr-latest`), Pixtral (`pixtral-12b-2409`) |
@@ -48,7 +51,8 @@ Proje üç ana bileşenden oluşur ve tamamı tek bir `docker compose` komutuyla
 
 - **Hibrit arama:** pgvector ile yoğun (dense) vektör araması ve PostgreSQL tam metin araması (`tsvector` + GIN, Türkçe yapılandırması, `ts_rank_cd` sıralaması) Reciprocal Rank Fusion ile birleştirilir.
 - **Anlamsal önbellek:** Benzer sorular tekrar hesaplanmadan yanıtlanır; bir belge güncellendiğinde veya silindiğinde yalnızca o belgeye ait önbellek kayıtları temizlenir.
-- **Kimlik doğrulama:** ASP.NET Identity üzerine kurulu JWT; statik dosya erişimi için HttpOnly çerez desteği. Kullanıcının personel kodu ilk giriş şifresi olarak kullanılır.
+- **Kimlik doğrulama:** ASP.NET Identity üzerine kurulu JWT; belge/görsel erişimi için HttpOnly çerez desteği. Kullanıcının personel kodu ilk giriş şifresi olarak kullanılır. Departman/rol değişiminde token sessizce yenilenir; şifre/e-posta değişiminde tüm cihazlardan çıkış yapılır.
+- **Nesne depolama:** Belgeler ve görseller MinIO (S3 uyumlu) üzerinde tutulur; `IFileStorage` soyutlaması sayesinde MinIO ile gerçek AWS S3 arasında yalnızca yapılandırmayla geçilir. Erişim yetki denetiminin arkasındadır (presigned URL yok).
 - **Dayanıklı belge işleme:** Belgeler sınırlı eşzamanlılıkla bir kuyrukta işlenir; uygulama yeniden başlarsa yarım kalan işler otomatik olarak kaldığı yerden devam eder.
 - **Hız sınırlama (rate limiting):** Giriş, şifre sıfırlama, yükleme ve yeniden işleme gibi maliyetli uç noktalar kötüye kullanıma karşı korunur.
 
@@ -82,8 +86,11 @@ cp .env.example .env
 | `MISTRAL_API_KEY` | Ana dil modeli için Mistral API anahtarı |
 | `MISTRAL_HELPER_API_KEY` | Yardımcı model için Mistral API anahtarı |
 | `EMAIL_PASSWORD` | Şifre sıfırlama e-postaları için SMTP uygulama şifresi |
+| `MINIO_ACCESS_KEY` | Nesne depolama (MinIO) erişim anahtarı — varsayılan `minioadmin` |
+| `MINIO_SECRET_KEY` | Nesne depolama (MinIO) gizli anahtarı — en az 8 karakter, güçlü belirleyin |
 
 > `.env` dosyası gizli bilgiler içerdiği için sürüm kontrolüne dâhil edilmez.
+> Belgeler ve görseller yerel diske değil, MinIO nesne deposunda tutulur; bucket ilk açılışta otomatik oluşturulur.
 
 ### 3. Sistemi başlatın
 
@@ -99,7 +106,8 @@ docker compose up -d --build
 |---|---|
 | **Web arayüzü** | http://localhost:8080 |
 | **API / Swagger** | http://localhost:5026 |
-| **Veritabanı** | localhost:5433 |
+| **Veritabanı** | localhost:5434 |
+| **MinIO konsolu** | http://localhost:9001 (yalnız localhost) |
 
 Ollama ve yeniden sıralama servisleri yalnızca konteyner ağı içinde çalışır ve dışarıya açılmaz. Seçilen bağlantı noktaları, yerel geliştirme servislerinizle (örneğin 5432'deki Postgres) çakışmayacak şekilde belirlenmiştir.
 
@@ -126,9 +134,9 @@ DocuChat/
 │   └── DocuChat.API/              # Controller'lar, kimlik doğrulama, uygulama girişi
 ├── client/                  # React + Vite frontend
 │   └── src/
-│       ├── components/           # Arayüz bileşenleri (chat, admin, auth, shared)
+│       ├── components/           # Arayüz bileşenleri (chat, management, auth, shared)
 │       ├── hooks/                # Durum ve veri yönetimi hook'ları
-│       ├── pages/                # Sayfalar (Chat, Admin, Profile, Login …)
+│       ├── pages/                # Sayfalar (Chat, Management, Profile, Login …)
 │       └── services/             # API istemcisi
 ├── rerank-service/          # Python FastAPI yeniden sıralama servisi
 ├── docker-compose.yml       # Tüm sistemin orkestrasyonu
